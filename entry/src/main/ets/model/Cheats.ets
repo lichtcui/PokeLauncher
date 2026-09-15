@@ -19,7 +19,7 @@ export interface CheatParam {
   unit?: string;
 }
 
-/** 生效时机分组：start=开始游戏时生效；load=读档后生效 */
+/** 生效时机分组：start=改系统存档，重新开始游戏后生效；load=改对局存档，继续游戏（读档）后生效 */
 export type CheatGroup = 'start' | 'load';
 
 export interface CheatGroupInfo {
@@ -32,13 +32,13 @@ export interface CheatGroupInfo {
 export const CHEAT_GROUPS: CheatGroupInfo[] = [
   {
     id: 'start',
-    title: '开始游戏时生效',
-    subtitle: '开始游戏后立即生效，无需读档'
+    title: '重新开始游戏后生效',
+    subtitle: '修改系统存档，存档后需重新开始游戏才反映'
   },
   {
     id: 'load',
-    title: '读档后生效',
-    subtitle: '需先存档，重新读档后才会应用'
+    title: '继续游戏后生效',
+    subtitle: '修改对局存档，存档后回菜单继续游戏（读档）才反映'
   }
 ];
 
@@ -162,7 +162,7 @@ export const CHEATS: Cheat[] = [
     id: 'voucher',
     name: '扭蛋券数量',
     desc: '把四种扭蛋券数量设为指定值',
-    group: 'load',
+    group: 'start',
     param: {
       id: 'voucher',
       label: '数量',
@@ -198,6 +198,133 @@ export const CHEATS: Cheat[] = [
     return si.call(this, k, v);
   };
   console.log("CHEAT voucher installed N=" + N);
+})();`
+  },
+  {
+    id: 'exp',
+    name: '经验获取倍率',
+    desc: '战斗获得的经验 ×N（只放大增量；读档后升级集中在下次战斗结算）',
+    group: 'load',
+    param: {
+      id: 'exp',
+      label: '倍率',
+      min: 1,
+      max: 100,
+      default: 10,
+      step: 1,
+      unit: 'x'
+    },
+    script: `(function(){
+  var P = (typeof __CHEAT_PARAMS__ !== "undefined" && __CHEAT_PARAMS__) ? __CHEAT_PARAMS__ : {};
+  var N = Number(P.exp || 10);
+  if (!(N > 1)) { console.log("CHEAT exp disabled N=" + N); return; }
+  var KEY = /^sessionData/;
+  var base = null;
+  function dec(v){
+    var s = atob(v);
+    if (s.substring(0,3).toUpperCase() === "%7B") return JSON.parse(decodeURIComponent(s));
+    return JSON.parse(s);
+  }
+  function enc(o){ return btoa(encodeURIComponent(JSON.stringify(o))); }
+  function snap(sd){
+    var b = {};
+    if (sd && Array.isArray(sd.party)) {
+      for (var i = 0; i < sd.party.length; i++) {
+        var p = sd.party[i];
+        if (p) { b[p.id] = p.exp || 0; }
+      }
+    }
+    return b;
+  }
+  var gi = Storage.prototype.getItem;
+  Storage.prototype.getItem = function(k){
+    var r = gi.apply(this, arguments);
+    if (KEY.test(k) && typeof r === "string") {
+      try { var sd = dec(r); if (sd && Array.isArray(sd.party)) { base = snap(sd); console.log("CHEAT exp baseline " + Object.keys(base).length); } } catch(e){}
+    }
+    return r;
+  };
+  var si = Storage.prototype.setItem;
+  Storage.prototype.setItem = function(k, v){
+    if (KEY.test(k) && typeof v === "string") {
+      try {
+        var sd = dec(v);
+        if (sd && Array.isArray(sd.party)) {
+          if (base === null) { base = snap(sd); }
+          else {
+            for (var i = 0; i < sd.party.length; i++) {
+              var p = sd.party[i];
+              if (!p) { continue; }
+              var cur = p.exp || 0;
+              if (!(p.id in base)) { base[p.id] = cur; continue; }
+              var b0 = base[p.id];
+              var d = cur - b0;
+              if (d > 0) { var nv = b0 + d * N; p.exp = nv; base[p.id] = nv; }
+              else { base[p.id] = cur; }
+            }
+            v = enc(sd);
+          }
+        }
+      } catch(e){ console.log("CHEAT exp err " + e); }
+    }
+    return si.call(this, k, v);
+  };
+  console.log("CHEAT exp x" + N + " installed");
+})();`
+  },
+  {
+    id: 'money',
+    name: '金币获取倍率',
+    desc: '战斗获得的金币 ×N（只放大增量，消费金币不受影响）',
+    group: 'load',
+    param: {
+      id: 'money',
+      label: '倍率',
+      min: 1,
+      max: 100,
+      default: 10,
+      step: 1,
+      unit: 'x'
+    },
+    script: `(function(){
+  var P = (typeof __CHEAT_PARAMS__ !== "undefined" && __CHEAT_PARAMS__) ? __CHEAT_PARAMS__ : {};
+  var N = Number(P.money || 10);
+  if (!(N > 1)) { console.log("CHEAT money disabled N=" + N); return; }
+  var KEY = /^sessionData/;
+  var base = null;
+  function dec(v){
+    var s = atob(v);
+    if (s.substring(0,3).toUpperCase() === "%7B") return JSON.parse(decodeURIComponent(s));
+    return JSON.parse(s);
+  }
+  function enc(o){ return btoa(encodeURIComponent(JSON.stringify(o))); }
+  var gi = Storage.prototype.getItem;
+  Storage.prototype.getItem = function(k){
+    var r = gi.apply(this, arguments);
+    if (KEY.test(k) && typeof r === "string") {
+      try { var sd = dec(r); if (sd && typeof sd.money === "number") { base = sd.money; console.log("CHEAT money baseline " + base); } } catch(e){}
+    }
+    return r;
+  };
+  var si = Storage.prototype.setItem;
+  Storage.prototype.setItem = function(k, v){
+    if (KEY.test(k) && typeof v === "string") {
+      try {
+        var sd = dec(v);
+        if (sd && typeof sd.money === "number") {
+          if (base === null) { base = sd.money; }
+          else {
+            var d = sd.money - base;
+            if (d > 0) { var nv = base + d * N; sd.money = nv; base = nv; }
+            else { base = sd.money; }
+            v = enc(sd);
+          }
+        }
+      } catch(e){ console.log("CHEAT money err " + e); }
+    }
+    return si.call(this, k, v);
+  };
+  console.log("CHEAT money x" + N + " installed");
 })();`
   }
 ];
