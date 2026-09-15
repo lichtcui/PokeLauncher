@@ -53,23 +53,22 @@ entry/src/main/
    │  └─ Notifier.ets               # 通知权限 + 完成/失败通知
    └─ pages/
       ├─ Index.ets                  # 首页（未下载/下载中/解压中/已就绪）
-      ├─ GamePage.ets               # 离线游戏页（Web + 拦截）
-      └─ OnlinePage.ets             # 在线模式 / M1 内核验证
+      └─ GamePage.ets               # 离线游戏页（Web + 拦截）
 ```
 
 ## 开发进度
 
 | 模块 | 状态 |
 | --- | --- |
-| M0 工程骨架 | ✅ 代码完成 |
-| M1 Web 在线验证 | 🟡 代码完成，**待真机验证**（最高优先级，决定方案可行性） |
+| M0 工程骨架 | ✅ 完成 |
+| M1 离线闭环验证 | 🟡 待真机验证（下载/解压/拦截加载，决定方案可行性） |
 | M2 数据层 GameRepository | ✅ 代码完成 |
 | M3 LocalContentProvider | ✅ 代码完成 |
 | M4 GamePage | ✅ 代码完成 |
-| M5 首页 Home | ✅ 代码完成 |
+| M5 首页 Home | ✅ 代码完成、真机 UI 已确认 |
 | M6 通知 | ✅ 代码完成 |
 | M7 后台/方向 | 🟡 best-effort，待真机验证 |
-| M8 打包分发 | ⬜ 待 DevEco/SDK |
+| M8 打包分发 | ✅ 已签名并安装到真机（API 24） |
 
 ## 待验证项（装好 DevEco 后）
 

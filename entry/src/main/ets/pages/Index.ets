@@ -245,22 +245,6 @@ struct Index {
       .layoutWeight(1)
       .width('100%')
       .justifyContent(FlexAlign.Center)
-
-      Row() {
-        Button('在线模式')
-          .fontSize(12)
-          .height(30)
-          .backgroundColor('#F1F3F5')
-          .fontColor('#666666')
-          .onClick(() => {
-            router.pushUrl({ url: 'pages/OnlinePage' }).catch((err: BusinessError) => {
-              hilog.error(DOMAIN, TAG, 'pushUrl OnlinePage failed: %{public}s', JSON.stringify(err));
-            });
-          })
-      }
-      .width('100%')
-      .justifyContent(FlexAlign.Center)
-      .padding({ bottom: 12 })
     }
     .width('100%')
     .height('100%')

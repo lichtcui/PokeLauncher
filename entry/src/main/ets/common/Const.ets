@@ -2,9 +2,6 @@
  * 全局常量
  */
 
-/** 在线游戏地址（用于 M1 内核兼容性验证，以及后续可选的在线模式） */
-export const ONLINE_URL: string = 'https://pokerogue.net/';
-
 /** 离线伪域名：Web 组件加载该 origin，由 onInterceptRequest 从沙箱提供文件 */
 export const GAME_ORIGIN: string = 'https://pokerogue.local';
 
