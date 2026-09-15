@@ -1,10 +1,11 @@
 import { router } from '@kit.ArkUI';
-import { CHEATS, Cheat, CheatParam } from '../model/Cheats';
+import { CHEATS, Cheat, CheatGroup, CheatGroupInfo, CHEAT_GROUPS, CheatParam } from '../model/Cheats';
 import { isMasterEnabled, isCheatEnabled, toggleCheat, getParamNumber, setParam } from '../model/CheatState';
 
 /**
  * 作弊条目页（独立页面）：从首页就绪页的「作弊设置」入口进入。
- * 条目统一为「加载时注入」，更改在开始游戏时随全新加载生效。
+ * 条目按生效时机分组展示（开始游戏时生效 / 读档后生效），
+ * 组内条目统一为「加载时注入」，更改在开始游戏时随全新加载生效。
  * 声明了 param 的条目额外显示一个数值滑块（倍率等）。
  */
 @Entry
@@ -26,6 +27,27 @@ struct Cheats {
     }
     this.flags = f;
     this.paramValues = pv;
+  }
+
+  /** 取某分组下的条目（保持 CHEATS 原顺序） */
+  private cheatsIn(group: CheatGroup): Cheat[] {
+    const out: Cheat[] = [];
+    for (let i = 0; i < CHEATS.length; i++) {
+      if (CHEATS[i].group === group) {
+        out.push(CHEATS[i]);
+      }
+    }
+    return out;
+  }
+
+  /** 条目在 CHEATS 中的全局下标（flags / paramValues 按全局下标存储） */
+  private cheatIndex(id: string): number {
+    for (let i = 0; i < CHEATS.length; i++) {
+      if (CHEATS[i].id === id) {
+        return i;
+      }
+    }
+    return -1;
   }
 
   private onToggle(index: number, id: string, on: boolean): void {
@@ -84,61 +106,93 @@ struct Cheats {
 
       Scroll() {
         Column() {
-          Text('更改将在开始游戏时生效')
-            .fontSize(12)
-            .fontColor('#999999')
-            .width('100%')
-            .padding({ left: 16, right: 16, top: 14, bottom: 6 })
-
-          ForEach(CHEATS, (c: Cheat, index: number) => {
+          ForEach(CHEAT_GROUPS, (g: CheatGroupInfo, index: number) => {
             Column() {
-              Row() {
+              if (index > 0) {
+                Divider()
+                  .color('#EDEDED')
+                  .strokeWidth(1)
+                  .margin({ left: 16, right: 16, top: 6 })
+              }
+
+              Column() {
+                Row() {
+                  Row()
+                    .width(4)
+                    .height(18)
+                    .borderRadius(2)
+                    .backgroundColor('#DA3838')
+                  Text(g.title)
+                    .fontSize(17)
+                    .fontWeight(FontWeight.Bold)
+                    .fontColor('#1A1A1A')
+                    .margin({ left: 8 })
+                }
+                .alignItems(VerticalAlign.Center)
+                .width('100%')
+
+                Text(g.subtitle)
+                  .fontSize(12)
+                  .fontColor('#999999')
+                  .width('100%')
+                  .margin({ top: 4, left: 12 })
+              }
+              .alignItems(HorizontalAlign.Start)
+              .width('100%')
+              .padding({ left: 16, right: 16, top: 18, bottom: 6 })
+
+              ForEach(this.cheatsIn(g.id), (c: Cheat) => {
                 Column() {
-                  Text(c.name).fontSize(16).fontColor('#333333')
-                  if (c.desc.length > 0) {
-                    Text(c.desc).fontSize(12).fontColor('#999999').margin({ top: 3 })
+                  Row() {
+                    Column() {
+                      Text(c.name).fontSize(16).fontColor('#333333')
+                      if (c.desc.length > 0) {
+                        Text(c.desc).fontSize(12).fontColor('#999999').margin({ top: 3 })
+                      }
+                    }
+                    .alignItems(HorizontalAlign.Start)
+                    .layoutWeight(1)
+
+                    Toggle({ type: ToggleType.Switch, isOn: this.flags[this.cheatIndex(c.id)] })
+                      .selectedColor('#DA3838')
+                      .enabled(this.masterOn)
+                      .onChange((on: boolean) => this.onToggle(this.cheatIndex(c.id), c.id, on))
+                  }
+                  .width('100%')
+                  .padding({ left: 16, right: 16, top: 14, bottom: 14 })
+
+                  if (c.param !== undefined) {
+                    Row() {
+                      Text(c.param.label)
+                        .fontSize(13)
+                        .fontColor('#666666')
+                        .width(52)
+                      Slider({
+                        value: this.paramValues[this.cheatIndex(c.id)],
+                        min: c.param.min,
+                        max: c.param.max,
+                        step: c.param.step !== undefined ? c.param.step : 1,
+                        style: SliderStyle.OutSet
+                      })
+                        .layoutWeight(1)
+                        .selectedColor('#DA3838')
+                        .enabled(this.masterOn && this.flags[this.cheatIndex(c.id)])
+                        .onChange((v: number, mode: SliderChangeMode) => this.onParamChange(this.cheatIndex(c.id), v))
+                      Text((c.param.unit !== undefined ? c.param.unit : '') + this.paramValues[this.cheatIndex(c.id)])
+                        .fontSize(14)
+                        .fontColor('#333333')
+                        .width(56)
+                        .textAlign(TextAlign.End)
+                    }
+                    .width('100%')
+                    .padding({ left: 16, right: 16, bottom: 14 })
                   }
                 }
-                .alignItems(HorizontalAlign.Start)
-                .layoutWeight(1)
-
-                Toggle({ type: ToggleType.Switch, isOn: this.flags[index] })
-                  .selectedColor('#DA3838')
-                  .enabled(this.masterOn)
-                  .onChange((on: boolean) => this.onToggle(index, c.id, on))
-              }
-              .width('100%')
-              .padding({ left: 16, right: 16, top: 14, bottom: 14 })
-
-              if (c.param !== undefined) {
-                Row() {
-                  Text(c.param.label)
-                    .fontSize(13)
-                    .fontColor('#666666')
-                    .width(52)
-                  Slider({
-                    value: this.paramValues[index],
-                    min: c.param.min,
-                    max: c.param.max,
-                    step: c.param.step !== undefined ? c.param.step : 1,
-                    style: SliderStyle.OutSet
-                  })
-                    .layoutWeight(1)
-                    .selectedColor('#DA3838')
-                    .enabled(this.masterOn && this.flags[index])
-                    .onChange((v: number, mode: SliderChangeMode) => this.onParamChange(index, v))
-                  Text((c.param.unit !== undefined ? c.param.unit : '') + this.paramValues[index])
-                    .fontSize(14)
-                    .fontColor('#333333')
-                    .width(56)
-                    .textAlign(TextAlign.End)
-                }
                 .width('100%')
-                .padding({ left: 16, right: 16, bottom: 14 })
-              }
+              }, (c: Cheat) => c.id)
             }
             .width('100%')
-          }, (c: Cheat) => c.id)
+          }, (g: CheatGroupInfo) => g.id)
         }
         .width('100%')
       }

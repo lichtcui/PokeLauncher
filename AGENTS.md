@@ -205,6 +205,7 @@ entry/src/main/ets/
      id: 'money',             // 唯一且稳定；持久化用它，发布后不要改
      name: '金钱修改',
      desc: '说明文字（显示在作弊页）',
+     group: 'start',          // 生效时机分组：'start'=开始游戏时生效 / 'load'=读档后生效
      script: '...你的 JS...',  // 在游戏脚本运行前注入
      // 可选：数值型参数（作弊页自动出现 Slider，脚本里读 __CHEAT_PARAMS__.<id>）
      param: { id: 'money', label: '倍率', min: 1, max: 100, default: 10, step: 1, unit: 'x' }

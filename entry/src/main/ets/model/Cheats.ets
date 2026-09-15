@@ -19,10 +19,34 @@ export interface CheatParam {
   unit?: string;
 }
 
+/** 生效时机分组：start=开始游戏时生效；load=读档后生效 */
+export type CheatGroup = 'start' | 'load';
+
+export interface CheatGroupInfo {
+  id: CheatGroup;
+  title: string;
+  subtitle: string;
+}
+
+/** 分组顺序即作弊页的展示顺序 */
+export const CHEAT_GROUPS: CheatGroupInfo[] = [
+  {
+    id: 'start',
+    title: '开始游戏时生效',
+    subtitle: '开始游戏后立即生效，无需读档'
+  },
+  {
+    id: 'load',
+    title: '读档后生效',
+    subtitle: '需先存档，重新读档后才会应用'
+  }
+];
+
 export interface Cheat {
   id: string;
   name: string;
   desc: string;
+  group: CheatGroup;
   script: string;
   param?: CheatParam;
 }
@@ -31,7 +55,8 @@ export const CHEATS: Cheat[] = [
   {
     id: 'candy',
     name: '糖果获取倍率',
-    desc: '捕获/孵化/Boss 应得的糖果 ×N（增量倍率，花费糖果不受影响）',
+    desc: '捕获 / 孵化 / Boss 获得的糖果 ×N（只放大增量，消耗糖果不受影响）',
+    group: 'start',
     param: {
       id: 'candy',
       label: '倍率',
@@ -95,7 +120,8 @@ export const CHEATS: Cheat[] = [
   {
     id: 'party-shiny',
     name: '队伍红闪',
-    desc: '存档时把当前队伍全部标为红闪（shiny + variant 2），读档后生效',
+    desc: '把当前队伍全部标记为红闪（含融合宝可梦）',
+    group: 'load',
     script: `(function(){
   var KEY = /^sessionData/;
   function dec(v){
@@ -135,7 +161,8 @@ export const CHEATS: Cheat[] = [
   {
     id: 'voucher',
     name: '扭蛋券数量',
-    desc: '存档时把四种扭蛋券数量设为指定值（读档后生效）',
+    desc: '把四种扭蛋券数量设为指定值',
+    group: 'load',
     param: {
       id: 'voucher',
       label: '数量',
