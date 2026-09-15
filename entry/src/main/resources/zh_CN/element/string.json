@@ -1,0 +1,16 @@
+{
+  "string": [
+    {
+      "name": "module_desc",
+      "value": "宝可梦肉鸽离线启动器"
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "宝可梦肉鸽离线启动器"
+    },
+    {
+      "name": "EntryAbility_label",
+      "value": "PokeRogue"
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "string": [
+    {
+      "name": "module_desc",
+      "value": "PokeRogue offline launcher"
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "PokeRogue offline launcher"
+    },
+    {
+      "name": "EntryAbility_label",
+      "value": "PokeRogue"
+    }
+  ]
+}
