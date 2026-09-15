@@ -5,6 +5,8 @@ import { BusinessError } from '@kit.BasicServicesKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { GameRepository, ReleaseInfo, normalizeVersion } from '../model/GameRepository';
 import { setWindowBackground, HOME_BG_COLOR } from '../model/WindowHolder';
+import { ORI_PORTRAIT, ORI_LANDSCAPE, ORI_SYSTEM, readOrientation, saveOrientation } from '../model/OrientationPref';
+import { isMasterEnabled, setMaster } from '../model/CheatState';
 
 const DOMAIN: number = 0x0000;
 const TAG: string = 'Settings';
@@ -20,6 +22,8 @@ struct Settings {
   @State updateAvailable: boolean = false;
   @State checking: boolean = false;
   @State deleting: boolean = false;
+  @State orientation: string = ORI_PORTRAIT;
+  @State cheatMaster: boolean = false;
 
   private repo: GameRepository | null = null;
 
@@ -27,6 +31,10 @@ struct Settings {
     const ctx: common.UIAbilityContext = this.getUIContext().getHostContext() as common.UIAbilityContext;
     this.repo = new GameRepository(ctx);
     this.version = this.repo.readVersion();
+    readOrientation(ctx).then((v: string) => {
+      this.orientation = v;
+    });
+    this.cheatMaster = isMasterEnabled();
     this.checkUpdate();
   }
 
@@ -111,6 +119,45 @@ struct Settings {
     }
   }
 
+  /** 应用屏幕方向：更新状态并持久化（实际旋转在进入游戏页时生效） */
+  private applyOrientation(v: string): void {
+    if (this.orientation === v) {
+      return;
+    }
+    this.orientation = v;
+    const ctx: common.UIAbilityContext = this.getUIContext().getHostContext() as common.UIAbilityContext;
+    saveOrientation(ctx, v).catch((err: BusinessError) => {
+      hilog.warn(DOMAIN, TAG, 'save orientation failed: %{public}s', JSON.stringify(err));
+    });
+  }
+
+  /** 作弊模式总开关：开启前必须确认账号风险，未确认则回滚开关状态 */
+  private onCheatToggle(on: boolean): void {
+    if (!on) {
+      this.cheatMaster = false;
+      setMaster(false);
+      return;
+    }
+    promptAction.showDialog({
+      title: '开启作弊模式',
+      message: '账号风险：PokéRogue 官方对作弊行为有检测机制，使用 Hook 修改游戏数据可能使账号被标记（Flagged）甚至封禁。开启后本机存档已不纯净，不建议再导入或上传到在线版。请仅在离线或确认安全的环境下使用。',
+      buttons: [
+        { text: '取消', color: '#666666' },
+        { text: '仍然开启', color: '#DA3838' }
+      ]
+    }).then((result: promptAction.ShowDialogSuccessResponse) => {
+      if (result.index === 1) {
+        this.cheatMaster = true;
+        setMaster(true);
+      } else {
+        this.cheatMaster = false;
+      }
+    }).catch((err: BusinessError) => {
+      this.cheatMaster = false;
+      hilog.warn(DOMAIN, TAG, 'showDialog failed: %{public}s', JSON.stringify(err));
+    });
+  }
+
   @Builder
   groupTitle(text: string) {
     Text(text)
@@ -136,6 +183,21 @@ struct Settings {
     .width('100%')
     .padding({ left: 16, right: 16, top: 15, bottom: 15 })
     .onClick(onTap)
+  }
+
+  /** 屏幕方向分段项：选中态直接读 this.orientation，故能随状态刷新 */
+  @Builder
+  segmentItem(value: string, label: string) {
+    Text(label)
+      .fontSize(14)
+      .fontWeight(this.orientation === value ? FontWeight.Medium : FontWeight.Normal)
+      .fontColor(this.orientation === value ? '#FFFFFF' : '#666666')
+      .backgroundColor(this.orientation === value ? '#DA3838' : '#F2F2F2')
+      .textAlign(TextAlign.Center)
+      .layoutWeight(1)
+      .height(36)
+      .borderRadius(18)
+      .onClick(() => this.applyOrientation(value))
   }
 
   @Builder
@@ -179,9 +241,30 @@ struct Settings {
       Scroll() {
         Column() {
           this.groupTitle('游戏')
-          this.comingSoonRow('屏幕方向')
+          // 屏幕方向：分段控件，选中态随 @State 变化，需直接读取状态
+          Column() {
+            Text('屏幕方向').fontSize(16).fontColor('#333333').width('100%')
+            Row({ space: 8 }) {
+              this.segmentItem(ORI_PORTRAIT, '竖屏')
+              this.segmentItem(ORI_LANDSCAPE, '横屏')
+              this.segmentItem(ORI_SYSTEM, '跟随系统')
+            }
+            .width('100%')
+            .margin({ top: 10 })
+          }
+          .width('100%')
+          .padding({ left: 16, right: 16, top: 12, bottom: 12 })
           this.divider()
-          this.comingSoonRow('作弊模式')
+          // 作弊模式总开关（条目在游戏内「作弊」页维护）
+          Row() {
+            Text('作弊模式').fontSize(16).fontColor('#333333')
+            Blank()
+            Toggle({ type: ToggleType.Switch, isOn: this.cheatMaster })
+              .selectedColor('#DA3838')
+              .onChange((on: boolean) => this.onCheatToggle(on))
+          }
+          .width('100%')
+          .padding({ left: 16, right: 16, top: 10, bottom: 10 })
 
           this.groupTitle('数据管理')
           // 检查更新：状态文字随 @State 变化，需直接读取状态（@Builder 值参数不触发刷新）

@@ -86,7 +86,7 @@ HDC=/Applications/DevEco-Studio.app/Contents/sdk/default/openharmony/toolchains/
 HPID=$!; sleep 1; ...触发操作...; kill $HPID
 
 # 抓完过滤（本 App 的 tag 形如 A00000/<Tag>）
-rg -i "GameRepository|GamePage|Home|Settings|LocalHttp|Notifier" /tmp/log.txt
+rg -i "GameRepository|GamePage|Home|Settings|LocalHttp|Notifier|CheatState" /tmp/log.txt
 ```
 
 - 本 App 代码里的 `hilog.info(0x0000, TAG, ...)` 会以 `A00000/<TAG>` 出现。
@@ -120,14 +120,18 @@ entry/src/main/ets/
 ├─ components/PokeballLoader.ets   # 精灵球动画（shake=下载/解压摇晃；open=逐帧打开，暂未使用）
 ├─ model/
 │  ├─ GameRepository.ets           # 下载(request.agent+镜像) / 解压(zlib) / 删除 / 版本 / 接管
-│  ├─ LocalHttpServer.ets          # 本地 HTTP 服务(127.0.0.1:18787) + index.html 注入
+│  ├─ LocalHttpServer.ets          # 本地 HTTP 服务(127.0.0.1:18787) + index.html 注入 + /__cheats__.js
 │  ├─ LocalContentProvider.ets     # 旧的 onInterceptRequest 方案（已不用，保留参考）
 │  ├─ Notifier.ets                 # 通知权限 + 完成/失败通知
-│  └─ WindowHolder.ets             # 主窗口引用 + setWindowBackgroundColor
+│  ├─ WindowHolder.ets             # 主窗口引用 + setWindowBackgroundColor + setOrientation
+│  ├─ OrientationPref.ets          # 屏幕方向偏好（竖屏/横屏/跟随系统）读写
+│  ├─ Cheats.ets                   # 作弊注册表（条目内容，新增作弊改这里）
+│  └─ CheatState.ets               # 作弊状态单例 + 持久化 + 生成注入脚本 buildBootScript()
 └─ pages/
-   ├─ Index.ets                  # 首页启动器（状态机 + 下载 UI；就绪页极简：精灵球 + 开始游戏 + 齿轮）
-   ├─ Settings.ets               # 设置页（游戏选项占位 / 更新·缓存·删除 / 关于）
-   └─ GamePage.ets               # 离线游戏页（Web + 下载代理 + 音频静音）
+   ├─ Index.ets                  # 首页启动器（状态机 + 下载 UI；就绪页：精灵球 + 开始游戏 + 作弊设置 + 齿轮）
+   ├─ Settings.ets               # 设置页（屏幕方向 / 作弊模式开关 / 更新·缓存·删除 / 关于）
+   ├─ Cheats.ets                 # 作弊条目页（从首页「作弊设置」进入）
+   └─ GamePage.ets               # 离线游戏页（Web + 下载代理 + 音频静音 + 方向应用）
 ```
 
 ### 运行原理（重要）
@@ -136,7 +140,9 @@ entry/src/main/ets/
 2. 首次进入：从 GitHub Release 下载 `game.zip`（`request.agent`，带镜像加速与测速选源），用 `zlib.decompressFile` 解压到 `<filesDir>/game`。
 3. `GamePage` 用 `Web` 组件加载 `http://127.0.0.1:18787/index.html`，游戏资源全部由本地服务器提供。
 4. **不要再用 `onInterceptRequest`**：实测每个请求约 55ms（主线程 IPC），改为本地 HTTP 服务后走真实 HTTP + 缓存。
-5. `index.html` 由 `LocalHttpServer.servePatchedIndex` 注入一小段脚本：强制 2D canvas `willReadFrequently:true`，消除 ArkWeb `getImageData` 的 GPU 读回开销（启动 28s → 4s）。
+5. `index.html` 由 `LocalHttpServer.servePatchedIndex` 注入：`<script src="/__cheats__.js">`（作弊注入）+ 强制 2D canvas `willReadFrequently:true`（消除 ArkWeb `getImageData` 的 GPU 读回开销，启动 28s → 4s）。
+6. `/__cheats__.js` 是**虚拟端点**：请求时按当前启用的作弊清单动态生成组合脚本，在游戏脚本前执行。详见 §10。
+7. 屏幕方向由 `OrientationPref` 持久化：首页/设置页始终竖屏（`Index.onPageShow` 强制 `PORTRAIT`），只有 `GamePage.onPageShow` 应用用户选择（横屏 `AUTO_ROTATION_LANDSCAPE` / 跟随系统 `UNSPECIFIED`）。
 
 ### 关键行为
 
@@ -145,6 +151,7 @@ entry/src/main/ets/
 - **后台静音**：`onPageHide` → `controller.setAudioMuted(true)`；`onPageShow` → `false`。
 - **窗口**：保留顶部状态栏、隐藏底部导航栏、`setWindowLayoutFullScreen(false)`（安全区避让），底部留白用 `setWindowBackgroundColor` 染成游戏色 `#484050`。
 - **设置页与更新**：首页就绪页右上角齿轮 → `pages/Settings.ets`。设置页「更新」置 `AppStorage.setOrCreate('pendingUpdate', true)` 后 `router.back()`，由 `Index.onPageShow` 消费并调 `startDownload()`（复用首页下载/解压 UI）；删除数据后返回首页，`onPageShow` 重新判定并回落未下载态。
+- **作弊**：设置页开「作弊模式」（需确认账号风险）→ 首页就绪页出现「作弊设置」入口 → 进 `pages/Cheats` 选条目 → 开始游戏时 `/__cheats__.js` 按启用清单注入。改配置需**重新开始游戏**才生效。新增条目见 §10。
 
 ## 8. 约定
 
@@ -161,6 +168,7 @@ entry/src/main/ets/
 - 改 UI 文案/布局主要在 `pages/Index.ets` 与 `pages/Settings.ets` 的 `@Builder`/`build()`。
 - **ArkUI 坑**：`@Builder` 的**值参数**不会触发重渲染，动态文案要直接在 `build()` 里读 `@State`（见 `Settings.ets` 的「检查更新」「删除本地数据」行）。
 - 新增静态资源放 `entry/src/main/resources/base/media/`，引用 `$r('app.media.xxx')`。
+- **新增作弊条目只改 `model/Cheats.ets`**（见 §10），UI/状态/注入会自动生效。
 - 提交前先 `hvigorw assembleHap` 确认编译通过，再真机验证。
 
 ## 9. 常见问题
@@ -173,3 +181,45 @@ entry/src/main/ets/
 | 下载通知堆积/孤儿任务 | 首页启动时会清理；必要时卸载重装 |
 | `@Builder` 里的动态文字不刷新 | `@Builder` 值参数不触发重渲染；动态文案直接在 `build()` 里读 `@State`（`Settings.ets` 检查更新/删除行） |
 | DevTools 连不上 | 确认已进游戏页、PID 正确、先删旧 fport 再转发 |
+| 作弊没生效 | 作弊是**加载时注入**：改配置后要**重新开始游戏**（不能热生效）；抓日志看 `served /__cheats__.js` 与 `ARKWEB-CONSOLE` 的 `CHEAT ...` |
+| 作弊页入口不显示 | 首页「作弊设置」仅在设置页开启「作弊模式」后显示 |
+
+---
+
+## 10. 作弊框架（如何新增作弊条目）
+
+### 架构
+| 文件 | 职责 |
+| --- | --- |
+| `model/Cheats.ets` | 作弊注册表 `CHEATS: Cheat[]`，每条 `{ id, name, desc, script }`。**新增作弊只改这里。** |
+| `model/CheatState.ets` | 内存单例 + 持久化（`pokerogue_settings` 的 `cheatMaster` / `cheatEnabledIds`）+ `buildBootScript()`（按启用清单拼接 script） |
+| `LocalHttpServer.ets` | `/index.html` 注入 `<script src="/__cheats__.js">`；`/__cheats__.js` 请求时调 `buildBootScript()` 动态下发（`no-cache`） |
+| `pages/Settings.ets` | 「作弊模式」总开关（开启时弹账号风险确认框） |
+| `pages/Cheats.ets` | 条目列表页（每条一个 Switch），从首页就绪页「作弊设置」进入 |
+| `pages/Index.ets` | 就绪页显示「作弊设置」入口（仅总开关开启时） |
+
+### 添加一条作弊（步骤）
+1. 在 `model/Cheats.ets` 的 `CHEATS` 数组追加一项：
+   ```ts
+   {
+     id: 'money',             // 唯一且稳定；持久化用它，发布后不要改
+     name: '金钱修改',
+     desc: '说明文字（显示在作弊页）',
+     script: '...你的 JS...'  // 在游戏脚本运行前注入
+   }
+   ```
+2. **不需要改任何 UI/状态代码**：作弊页自动遍历 `CHEATS` 渲染，开关自动持久化。
+3. 验证：`hvigorw assembleHap` → 安装 → 设置开「作弊模式」→ 首页「作弊设置」打开该条 → 开始游戏 → 抓日志确认。
+
+### script 运行环境与约定
+- **执行时机**：`index.html` 解析到 `<head>` 后、游戏自身脚本之前（加载时注入）。
+- **运行环境**：游戏页面 `http://127.0.0.1:18787`，可用 `window`/`document`/`performance` 等；适合 hook 原型、替换函数、改常量等「启动前改逻辑」。
+- 多条按 `CHEATS` 顺序拼接，整体包在一个 IIFE 内；**每条单独 try/catch**，单条报错不影响其它（错误以 `CHEAT err <id>` 打到 `ARKWEB-CONSOLE`）。
+- 总开关关闭或无启用条目时，`/__cheats__.js` 返回空内容（不报错）。
+- **生效方式**：改配置后需**重新开始游戏**（全新加载才重新注入），游戏运行中不会热生效。
+- **调试**：用 §6 的 DevTools 摸游戏内部结构；`ARKWEB-CONSOLE` 看注入日志。
+
+### 注意
+- `script` 是字符串，注意转义（外层单引号则内部用双引号，或用反引号）；它是纯 JS，不受 ArkTS 类型限制。
+- ⚠️ 作弊会污染存档，官方有检测机制（可能被标记/封禁），仅离线使用，**勿导入在线版**。
+- v1 只支持布尔开关；若要「数值型参数」（如数量输入），需扩展 `Cheat` 接口与 `CheatState`。

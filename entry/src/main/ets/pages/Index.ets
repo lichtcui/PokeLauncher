@@ -1,12 +1,13 @@
 import { common } from '@kit.AbilityKit';
-import { router, promptAction } from '@kit.ArkUI';
+import { router, promptAction, window } from '@kit.ArkUI';
 import { BusinessError } from '@kit.BasicServicesKit';
 import { preferences } from '@kit.ArkData';
 import { statfs } from '@kit.CoreFileKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { GameRepository, ReleaseInfo, normalizeVersion } from '../model/GameRepository';
 import { Notifier } from '../model/Notifier';
-import { setWindowBackground, HOME_BG_COLOR } from '../model/WindowHolder';
+import { setWindowBackground, setOrientation, HOME_BG_COLOR } from '../model/WindowHolder';
+import { isMasterEnabled } from '../model/CheatState';
 import { PokeballLoader } from '../components/PokeballLoader';
 
 const DOMAIN: number = 0x0000;
@@ -79,6 +80,7 @@ struct Index {
   @State probing: boolean = false;
   @State storageInsufficient: boolean = false;
   @State freeSizeText: string = '';
+  @State cheatMasterOn: boolean = false;
 
   private repo: GameRepository | null = null;
   private ctx: common.UIAbilityContext | null = null;
@@ -92,6 +94,7 @@ struct Index {
     const ctx = this.getUIContext().getHostContext() as common.UIAbilityContext;
     this.ctx = ctx;
     this.repo = new GameRepository(ctx);
+    this.cheatMasterOn = isMasterEnabled();
     // 清理上次遗留的通知（下载进度/完成等）
     Notifier.cancelAll();
     this.init();
@@ -100,6 +103,10 @@ struct Index {
   onPageShow(): void {
     // 首页底部安全区留白用白色
     setWindowBackground(HOME_BG_COLOR);
+    // 首页始终保持竖屏（游戏页可能已切换为横屏/跟随系统）
+    setOrientation(window.Orientation.PORTRAIT);
+    // 刷新作弊入口可见性（可能在设置页开启了作弊模式）
+    this.cheatMasterOn = isMasterEnabled();
     // 从设置页返回：更新标记优先，其次刷新就绪态（核心包可能已被删除）
     const pending: boolean | undefined = AppStorage.get<boolean>('pendingUpdate');
     if (pending === true) {
@@ -418,6 +425,12 @@ struct Index {
     });
   }
 
+  private startCheats(): void {
+    router.pushUrl({ url: 'pages/Cheats' }).catch((err: BusinessError) => {
+      hilog.error(DOMAIN, TAG, 'pushUrl Cheats failed: %{public}s', JSON.stringify(err));
+    });
+  }
+
   @Builder
   notDownloadedView() {
     Column({ space: 16 }) {
@@ -573,6 +586,14 @@ struct Index {
         .fontColor('#FFFFFF')
         .margin({ top: 16 })
         .onClick(() => this.startGame())
+      // 作弊入口：仅在设置里开启作弊模式后显示；更改在开始游戏时生效
+      if (this.cheatMasterOn) {
+        Text('作弊设置')
+          .fontSize(14)
+          .fontColor('#999999')
+          .margin({ top: 4 })
+          .onClick(() => this.startCheats())
+      }
     }
     .width('100%')
   }

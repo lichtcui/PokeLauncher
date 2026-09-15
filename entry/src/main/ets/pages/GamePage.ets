@@ -3,8 +3,10 @@ import { router, promptAction } from '@kit.ArkUI';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { picker, fileUri, fileIo as fs } from '@kit.CoreFileKit';
 import { BusinessError } from '@kit.BasicServicesKit';
+import { common } from '@kit.AbilityKit';
 import { sharedServerBaseUrl } from '../model/LocalHttpServer';
-import { setWindowBackground, GAME_BG_COLOR } from '../model/WindowHolder';
+import { setWindowBackground, setOrientation, GAME_BG_COLOR } from '../model/WindowHolder';
+import { readOrientation, toOrientation } from '../model/OrientationPref';
 import { DEBUG_UI } from '../common/Const';
 
 const DOMAIN: number = 0x0000;
@@ -216,6 +218,13 @@ struct GamePage {
   onPageShow(): void {
     // 底部安全区留白染成游戏背景色
     setWindowBackground(GAME_BG_COLOR);
+    // 应用用户在设置页选择的屏幕方向（仅游戏页生效）
+    const hostCtx = this.getUIContext().getHostContext();
+    if (hostCtx !== undefined) {
+      readOrientation(hostCtx as common.UIAbilityContext).then((v: string) => {
+        setOrientation(toOrientation(v));
+      });
+    }
     hilog.info(DOMAIN, TAG, 'onPageShow attached=%{public}s', this.attached.toString());
     if (!this.attached) {
       return;

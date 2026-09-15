@@ -15,17 +15,19 @@ HAP(仅代码) ──首次启动──► 从 GitHub Release 下载 game.zip（
 
 - **不把游戏资源打进 HAP**，运行时下载/更新资源包。
 - 用**本地 HTTP 服务器**（`LocalHttpServer`）把沙箱目录映射成 `http://127.0.0.1:18787`，而不是 `onInterceptRequest`（后者每请求 ~55ms IPC，会卡）。
-- 服务器在返回 `index.html` 时注入脚本，强制 2D canvas `willReadFrequently:true`，消除 ArkWeb `getImageData` 的 GPU 读回开销（游戏启动 **28s → 4s**）。
+- 服务器在返回 `index.html` 时注入脚本：`<script src="/__cheats__.js">`（作弊，按启用清单动态生成）+ 强制 2D canvas `willReadFrequently:true`，消除 ArkWeb `getImageData` 的 GPU 读回开销（游戏启动 **28s → 4s**）。
 - 存档走 Web 组件的 `localStorage`（`domStorageAccess(true)`，origin 固定）。
 
 ## 功能
 
-- 首页启动器：未下载 / 下载中 / 解压中 / 已就绪 四态；就绪页极简（精灵球 + 开始游戏 + 右上角设置入口）
+- 首页启动器：未下载 / 下载中 / 解压中 / 已就绪 四态；就绪页极简（精灵球 + 开始游戏 + 作弊设置 + 右上角设置入口）
 - 下载：GitHub Release 资源包、国内镜像自动测速选源、进度/速度/剩余时间、暂停/继续/取消（二次确认）
 - 解压：`zlib` 原生解压
 - 游戏：离线运行（Web 组件 + 本地服务），切后台自动静音 BGM
 - 存档导入/导出：文件选择器导入；blob 导出保存到 `下载/com.lichtcui.pokerogue/`
-- 设置页：检查更新 / 刷新缓存 / 删除数据 / 关于；横屏、作弊等选项预留（即将推出）
+- 屏幕方向：竖屏 / 横屏 / 跟随系统（仅游戏页生效，首页/设置页恒竖屏）
+- 设置页：屏幕方向、作弊模式开关、检查更新 / 刷新缓存 / 删除数据 / 关于
+- 作弊（离线，需先开启「作弊模式」）：首页就绪页「作弊设置」选择条目 → 开始游戏时在游戏脚本前注入；条目可扩展（见 [`AGENTS.md`](./AGENTS.md) §10）
 
 ## 环境要求
 
@@ -61,16 +63,22 @@ entry/src/main/
    ├─ components/PokeballLoader.ets # 精灵球动画（下载/解压摇晃；逐帧打开未使用）
    ├─ model/
    │  ├─ GameRepository.ets         # 下载/解压/删除/版本/接管
-   │  ├─ LocalHttpServer.ets        # 本地 HTTP 服务 + index.html 注入
+   │  ├─ LocalHttpServer.ets        # 本地 HTTP 服务 + index.html 注入 + /__cheats__.js
    │  ├─ LocalContentProvider.ets   # 旧 onInterceptRequest 方案（保留参考）
    │  ├─ Notifier.ets               # 通知
-   │  └─ WindowHolder.ets           # 窗口背景色
+   │  ├─ WindowHolder.ets           # 窗口背景色 + 屏幕方向
+   │  ├─ OrientationPref.ets        # 屏幕方向偏好读写
+   │  ├─ Cheats.ets                 # 作弊注册表（新增作弊改这里）
+   │  └─ CheatState.ets             # 作弊状态 + 持久化 + 注入脚本生成
     └─ pages/
-       ├─ Index.ets                  # 首页启动器
+       ├─ Index.ets                  # 首页启动器（含「作弊设置」入口）
        ├─ Settings.ets               # 设置页
+       ├─ Cheats.ets                 # 作弊条目页
        └─ GamePage.ets               # 离线游戏页
 ```
 
 ## 状态
 
-已在真机（Pura 70 Pro+ / API 24）验证：下载（镜像 ~1.4MB/s）、解压、离线游戏、启动加速、存档导出、后台静音、全屏与安全区适配、首页极简改版与设置页（检查更新/刷新缓存/删除）。
+已在真机（Pura 70 Pro+ / API 24）验证：下载（镜像 ~1.4MB/s）、解压、离线游戏、启动加速、存档导出、后台静音、全屏与安全区适配、首页极简改版、设置页（检查更新/刷新缓存/删除）、屏幕方向（竖屏/横屏/跟随系统）、作弊框架（总开关 + 条目页 + `/__cheats__.js` 加载时注入）。
+
+> ⚠️ 作弊仅供离线使用：官方有检测机制，可能被标记/封禁；作弊后的存档不纯净，**勿导入在线版**。新增作弊条目见 [`AGENTS.md`](./AGENTS.md) §10。

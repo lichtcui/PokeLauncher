@@ -4,6 +4,7 @@ import { util } from '@kit.ArkTS';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { mimeOf } from '../common/Mime';
 import { FORCE_CANVAS, FORCE_WILL_READ_FREQUENTLY } from '../common/Const';
+import { buildBootScript } from './CheatState';
 
 const DOMAIN: number = 0x0000;
 const TAG: string = 'LocalHttp';
@@ -182,8 +183,14 @@ export class LocalHttpServer {
       return;
     }
 
-    // 实验：注入脚本（强制 Canvas / willReadFrequently），不改游戏文件
-    if ((FORCE_CANVAS || FORCE_WILL_READ_FREQUENTLY) && path === '/index.html') {
+    // 作弊注入：按当前启用的作弊清单动态下发（游戏脚本运行前执行）
+    if (path === '/__cheats__.js') {
+      this.serveCheatScript(conn, keepAlive);
+      return;
+    }
+
+    // 始终走补丁流程：注入作弊脚本标签 + 实验性补丁（强制 Canvas / willReadFrequently）
+    if (path === '/index.html') {
       this.servePatchedIndex(conn, this.gameDir + path, keepAlive);
       return;
     }
@@ -255,18 +262,52 @@ export class LocalHttpServer {
       '}catch(e){console.log("PATCH err "+e);}})();<\/script>';
   }
 
-  /** 读取 index.html 并注入实验脚本后返回 */
+  /** 动态下发作弊注入脚本：按当前启用清单生成，游戏启动前执行 */
+  private serveCheatScript(conn: socket.TCPSocketConnection, keepAlive: boolean): void {
+    try {
+      const js: string = buildBootScript();
+      // 空内容（未启用作弊）时直接返回空脚本，避免 encodeInto('') 抛错
+      const arr: Uint8Array = js.length > 0
+        ? util.TextEncoder.create('utf-8').encodeInto(js)
+        : new Uint8Array(0);
+      const buf: ArrayBuffer = new ArrayBuffer(arr.byteLength);
+      new Uint8Array(buf).set(arr);
+      const header: string = 'HTTP/1.1 200 OK\r\n' +
+        'Content-Type: application/javascript; charset=utf-8\r\n' +
+        'Content-Length: ' + arr.byteLength + '\r\n' +
+        'Cache-Control: no-cache\r\n' +
+        'Access-Control-Allow-Origin: *\r\n' +
+        'Connection: ' + (keepAlive ? 'keep-alive' : 'close') + '\r\n' +
+        '\r\n';
+      conn.send({ data: header }).then(() => {
+        conn.send({ data: buf }).then(() => {
+          if (!keepAlive) {
+            conn.close();
+          }
+        }).catch((err: Error) => {
+          hilog.warn(DOMAIN, TAG, 'send cheat js failed: %{public}s', JSON.stringify(err));
+        });
+      }).catch((err: Error) => {
+        hilog.warn(DOMAIN, TAG, 'send cheat header failed: %{public}s', JSON.stringify(err));
+      });
+      hilog.info(DOMAIN, TAG, 'served /__cheats__.js (%{public}d bytes)', arr.byteLength);
+    } catch (err) {
+      hilog.error(DOMAIN, TAG, 'serveCheatScript failed: %{public}s', JSON.stringify(err));
+      this.sendText(conn, 500, 'Internal Error', keepAlive);
+    }
+  }
+
+  /** 读取 index.html 并注入作弊脚本标签 + 实验脚本后返回 */
   private servePatchedIndex(conn: socket.TCPSocketConnection, filePath: string,
     keepAlive: boolean): void {
     try {
       const html: string = fs.readTextSync(filePath);
-      const inject: string = this.buildInjectScript();
+      // 作弊脚本始终注入（未启用时 /__cheats__.js 返回空内容），保证先于游戏脚本执行
+      const inject: string = '<script src="/__cheats__.js"><\/script>' + this.buildInjectScript();
       const headIdx: number = html.indexOf('<head>');
-      const patched: string = inject.length === 0
-        ? html
-        : (headIdx >= 0
-          ? html.substring(0, headIdx + 6) + inject + html.substring(headIdx + 6)
-          : inject + html);
+      const patched: string = headIdx >= 0
+        ? html.substring(0, headIdx + 6) + inject + html.substring(headIdx + 6)
+        : inject + html;
 
       const arr: Uint8Array = util.TextEncoder.create('utf-8').encodeInto(patched);
       const buf: ArrayBuffer = new ArrayBuffer(arr.byteLength);
@@ -286,7 +327,7 @@ export class LocalHttpServer {
           hilog.warn(DOMAIN, TAG, 'send patched html failed: %{public}s', JSON.stringify(err));
         });
       });
-      hilog.info(DOMAIN, TAG, '%{public}s', 'served patched index.html (force canvas)');
+      hilog.info(DOMAIN, TAG, '%{public}s', 'served patched index.html (cheat + force canvas)');
     } catch (err) {
       hilog.error(DOMAIN, TAG, 'servePatchedIndex failed: %{public}s', JSON.stringify(err));
       this.sendText(conn, 500, 'Internal Error', keepAlive);

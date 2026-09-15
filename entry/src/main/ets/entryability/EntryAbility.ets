@@ -3,6 +3,7 @@ import { hilog } from '@kit.PerformanceAnalysisKit';
 import { window } from '@kit.ArkUI';
 import { webview } from '@kit.ArkWeb';
 import { startSharedServer } from '../model/LocalHttpServer';
+import { loadCheatState } from '../model/CheatState';
 import { setMainWindow } from '../model/WindowHolder';
 import { GAME_DIR_NAME, DEBUG_UI } from '../common/Const';
 
@@ -32,7 +33,12 @@ export default class EntryAbility extends UIAbility {
     // 提前启动本地 HTTP 服务（游戏页直接加载固定地址，避免端口未就绪）
     startSharedServer(this.context.filesDir + '/' + GAME_DIR_NAME);
 
-    // 默认竖屏（后续可在设置中扩展「跟随系统 / 横屏锁定」）
+    // 载入作弊状态（供 /__cheats__.js 动态下发）
+    loadCheatState(this.context).catch((err: Error) => {
+      hilog.warn(DOMAIN, TAG, 'loadCheatState failed: %{public}s', JSON.stringify(err));
+    });
+
+    // 启动默认竖屏（首页/设置页恒竖屏；游戏页按用户选择在 onPageShow 应用方向）
     try {
       const win: window.Window = windowStage.getMainWindowSync();
       win.setPreferredOrientation(window.Orientation.PORTRAIT);
