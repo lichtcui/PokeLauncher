@@ -318,6 +318,28 @@ struct Index {
     }
   }
 
+  /** 取消是重操作（会丢失已下载进度）：先二次确认 */
+  private confirmCancel(): void {
+    if (this.repo === null) {
+      return;
+    }
+    const downloaded: string = this.receivedText.length > 0 ? this.receivedText : '0 MB';
+    promptAction.showDialog({
+      title: '取消下载',
+      message: '确定取消下载吗？已下载的 ' + downloaded + ' 将全部丢失。',
+      buttons: [
+        { text: '继续下载', color: '#666666' },
+        { text: '确定取消', color: '#DA3838' }
+      ]
+    }).then((result: promptAction.ShowDialogSuccessResponse) => {
+      if (result.index === 1) {
+        this.cancelDownload();
+      }
+    }).catch((err: BusinessError) => {
+      hilog.warn(DOMAIN, TAG, 'showDialog failed: %{public}s', JSON.stringify(err));
+    });
+  }
+
   private cancelDownload(): void {
     const repo: GameRepository | null = this.repo;
     if (repo === null) {
@@ -445,23 +467,22 @@ struct Index {
           .fontColor('#DA3838')
       }
 
-      Row({ space: 16 }) {
-        Button(this.paused ? '继续' : '暂停')
-          .width(120)
-          .height(40)
-          .fontSize(15)
-          .backgroundColor('#EEEEEE')
-          .fontColor('#333333')
-          .onClick(() => this.togglePause())
-        Button('取消下载')
-          .width(120)
-          .height(40)
-          .fontSize(15)
-          .backgroundColor('#EEEEEE')
-          .fontColor('#333333')
-          .onClick(() => this.cancelDownload())
-      }
-      .margin({ top: 6 })
+      // 暂停/继续：主操作（实心）
+      Button(this.paused ? '继续' : '暂停')
+        .width('60%')
+        .height(46)
+        .fontSize(17)
+        .backgroundColor('#DA3838')
+        .fontColor('#FFFFFF')
+        .margin({ top: 6 })
+        .onClick(() => this.togglePause())
+
+      // 取消下载：次要操作（灰色文字按钮），点击后二次确认
+      Button('取消下载')
+        .fontSize(13)
+        .fontColor('#999999')
+        .backgroundColor('#00000000')
+        .onClick(() => this.confirmCancel())
     }
     .width('100%')
   }
