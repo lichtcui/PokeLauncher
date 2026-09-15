@@ -62,12 +62,33 @@ struct GamePage {
   private gameUrl: string = FALLBACK_BASE + '/index.html';
   private attached: boolean = false;
   private lastSavePath: string = '';
+  private backTimer: number = -1;
   @State loadError: string = '';
+  /** 返回按钮是否全显（false 时淡出，仅留可点痕迹，避免遮挡游戏信息） */
+  @State backVisible: boolean = true;
 
   aboutToAppear(): void {
     const base: string = sharedServerBaseUrl();
     this.gameUrl = (base.length > 0 ? base : FALLBACK_BASE) + '/index.html';
     hilog.info(DOMAIN, TAG, 'game url = %{public}s', this.gameUrl);
+  }
+
+  /** 全显返回按钮并重置淡出计时 */
+  private resetBackTimer(): void {
+    this.backVisible = true;
+    if (this.backTimer >= 0) {
+      clearTimeout(this.backTimer);
+    }
+    this.backTimer = setTimeout(() => {
+      this.backVisible = false;
+    }, 3000);
+  }
+
+  aboutToDisappear(): void {
+    if (this.backTimer >= 0) {
+      clearTimeout(this.backTimer);
+      this.backTimer = -1;
+    }
   }
 
   /** 注册下载代理：游戏「导出数据」是 blob URL + <a download>，需要它才能落盘 */
@@ -186,9 +207,14 @@ struct GamePage {
         .fontSize(12)
         .height(30)
         .backgroundColor('#66000000')
+        .opacity(this.backVisible ? 1 : 0.2)
         .margin(8)
         .onClick(() => {
-          router.back();
+          if (this.backVisible) {
+            router.back();
+          } else {
+            this.resetBackTimer();
+          }
         })
     }
     .width('100%')
@@ -216,6 +242,8 @@ struct GamePage {
   }
 
   onPageShow(): void {
+    // 回到游戏页：返回按钮先全显，随后自动淡出
+    this.resetBackTimer();
     // 底部安全区留白染成游戏背景色
     setWindowBackground(GAME_BG_COLOR);
     // 应用用户在设置页选择的屏幕方向（仅游戏页生效）
