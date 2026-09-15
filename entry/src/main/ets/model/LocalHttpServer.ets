@@ -3,7 +3,7 @@ import { fileIo as fs } from '@kit.CoreFileKit';
 import { util } from '@kit.ArkTS';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { mimeOf } from '../common/Mime';
-import { FORCE_CANVAS } from '../common/Const';
+import { FORCE_CANVAS, FORCE_WILL_READ_FREQUENTLY } from '../common/Const';
 
 const DOMAIN: number = 0x0000;
 const TAG: string = 'LocalHttp';
@@ -182,8 +182,8 @@ export class LocalHttpServer {
       return;
     }
 
-    // 实验：强制 Phaser 回退到 Canvas（不改游戏文件，仅在返回 index.html 时注入脚本）
-    if (FORCE_CANVAS && path === '/index.html') {
+    // 实验：注入脚本（强制 Canvas / willReadFrequently），不改游戏文件
+    if ((FORCE_CANVAS || FORCE_WILL_READ_FREQUENTLY) && path === '/index.html') {
       this.servePatchedIndex(conn, this.gameDir + path, keepAlive);
       return;
     }
@@ -231,22 +231,42 @@ export class LocalHttpServer {
     }
   }
 
-  /** 读取 index.html 并注入「禁用 WebGL，强制 Phaser 回退 Canvas」脚本后返回 */
+  /** 构建注入脚本（按开关拼装），无内容时返回空串 */
+  private buildInjectScript(): string {
+    let js: string = '';
+    if (FORCE_CANVAS) {
+      js += 'var o=HTMLCanvasElement.prototype.getContext;' +
+        'HTMLCanvasElement.prototype.getContext=function(t){' +
+        'if(t==="webgl"||t==="webgl2"||t==="experimental-webgl"){' +
+        'console.log("PATCH blocked "+t);return null;}' +
+        'return o.apply(this,arguments);};';
+    }
+    if (FORCE_WILL_READ_FREQUENTLY) {
+      js += 'var o2=HTMLCanvasElement.prototype.getContext;' +
+        'HTMLCanvasElement.prototype.getContext=function(t,a){' +
+        'if(t==="2d"){var n={};if(a){for(var k in a){n[k]=a[k];}}n.willReadFrequently=true;' +
+        'return o2.call(this,t,n);}' +
+        'return o2.apply(this,arguments);};';
+    }
+    if (js.length === 0) {
+      return '';
+    }
+    return '<script>(function(){try{' + js +
+      '}catch(e){console.log("PATCH err "+e);}})();<\/script>';
+  }
+
+  /** 读取 index.html 并注入实验脚本后返回 */
   private servePatchedIndex(conn: socket.TCPSocketConnection, filePath: string,
     keepAlive: boolean): void {
     try {
       const html: string = fs.readTextSync(filePath);
-      const inject: string = '<script>(function(){try{' +
-        'var o=HTMLCanvasElement.prototype.getContext;' +
-        'HTMLCanvasElement.prototype.getContext=function(t){' +
-        'if(t==="webgl"||t==="webgl2"||t==="experimental-webgl"){' +
-        'console.log("CANVAS-PATCH blocked "+t);return null;}' +
-        'return o.apply(this,arguments);};' +
-        '}catch(e){console.log("CANVAS-PATCH err "+e);}})();<\/script>';
+      const inject: string = this.buildInjectScript();
       const headIdx: number = html.indexOf('<head>');
-      const patched: string = headIdx >= 0
-        ? html.substring(0, headIdx + 6) + inject + html.substring(headIdx + 6)
-        : inject + html;
+      const patched: string = inject.length === 0
+        ? html
+        : (headIdx >= 0
+          ? html.substring(0, headIdx + 6) + inject + html.substring(headIdx + 6)
+          : inject + html);
 
       const arr: Uint8Array = util.TextEncoder.create('utf-8').encodeInto(patched);
       const buf: ArrayBuffer = new ArrayBuffer(arr.byteLength);

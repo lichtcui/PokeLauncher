@@ -38,6 +38,11 @@ const JS_NET_PROBE: string =
   'var oo=XMLHttpRequest.prototype.open;XMLHttpRequest.prototype.open=function(m,u){var t=performance.now();var uu=String(u);' +
   'this.addEventListener("loadend",function(){console.log("NET xhr "+(performance.now()-t).toFixed(0)+"ms "+this.status+" "+uu);});return oo.apply(this,arguments);};' +
   'try{new PerformanceObserver(function(l){l.getEntries().forEach(function(e){if(e.duration>300){console.log("NET longtask start="+e.startTime.toFixed(0)+" dur="+e.duration.toFixed(0));}});}).observe({entryTypes:["longtask"]});}catch(e){}' +
+  'try{new PerformanceObserver(function(l){l.getEntries().forEach(function(e){' +
+  'if(e.duration>300){console.log("LOAF dur="+e.duration.toFixed(0)+" renderStart="+(e.renderStart||0).toFixed(0));' +
+  'var ss=e.scripts||[];for(var i=0;i<ss.length;i++){var s=ss[i];' +
+  'console.log("LOAF script "+(s.duration||0).toFixed(0)+"ms src="+(s.sourceURL||"").split("/").pop()+" fn="+(s.sourceFunctionName||"")+" inv="+(s.invoker||""));}' +
+  '}});}).observe({type:"long-animation-frame",buffered:true});}catch(e){console.log("LOAF observe err "+e);}' +
   '}catch(e){console.log("NET probe err "+e);}})();';
 
 /** 开发用：25s 后 dump 资源加载统计（通过 ARKWEB-CONSOLE 输出） */

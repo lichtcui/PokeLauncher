@@ -47,5 +47,13 @@ export const DEBUG_UI: boolean = true;
  */
 export const FORCE_CANVAS: boolean = false;
 
+/**
+ * 实验开关：强制所有 2D canvas 使用 willReadFrequently（CPU 后备）。
+ * 背景：Phaser 的 CanvasTexture 对每个 Text 都调用 getImageData 拷贝像素，
+ * 而 ArkWeb 的 getImageData 有约 0.3ms 的 GPU 读回固定开销；
+ * 游戏启动会创建约 2 万个 Text，累计约 8 秒。改为 CPU canvas 可消除该开销。
+ */
+export const FORCE_WILL_READ_FREQUENTLY: boolean = true;
+
 /** 沙箱内游戏目录名（filesDir/game） */
 export const GAME_DIR_NAME: string = 'game';
