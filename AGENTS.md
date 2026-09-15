@@ -36,16 +36,22 @@ export PATH="/Applications/DevEco-Studio.app/Contents/tools/node/bin:/Applicatio
 - 只看错误：`... | rg -i "ERROR|Error Message|BUILD SUCCESS|BUILD FAILED"`
 - 若报 `compatibleSdkVersion` 不匹配 → 见上方 ⚠️。
 - ArkTS 严格模式：不要用 `any`；`fileIo` 没有 `writeFileSync`（用 `openSync`+`writeSync`+`closeSync`）；`getHostContext()` 返回 `Context | undefined` 需判空。
+- **每次改完代码都必须走完「编译 → 安装 → 重启 → 截图观察」闭环**（见 §3）。只 `assembleHap` 不安装，设备上跑的仍是旧版本，会误判「改动没生效」。
 
-## 3. 安装 / 启动
+## 3. 安装 / 启动 / 验证（每次必做）
+
+> 编译通过 ≠ 改动生效。**每次改完代码都要按下面 4 步装到真机并截图确认**，不要只编译就结束。
 
 ```bash
 HDC=/Applications/DevEco-Studio.app/Contents/sdk/default/openharmony/toolchains/hdc
 BUNDLE=com.lichtcui.pokerogue
 
+# 1) 编译（见 §2）→ 2) 覆盖安装
 "$HDC" install -r entry/build/default/outputs/default/entry-default-signed.hap
-"$HDC" shell aa force-stop $BUNDLE          # 需要干净重启时
+# 3) 干净重启
+"$HDC" shell aa force-stop $BUNDLE
 "$HDC" shell aa start -a EntryAbility -b $BUNDLE
+# 4) 截图观察（见 §4 截图命令），确认改动已生效
 ```
 
 - 安装成功后 App 名 **PokeRogue**，bundle = `com.lichtcui.pokerogue`。

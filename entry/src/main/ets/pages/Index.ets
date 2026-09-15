@@ -3,6 +3,7 @@ import { router, promptAction } from '@kit.ArkUI';
 import { webview } from '@kit.ArkWeb';
 import { BusinessError } from '@kit.BasicServicesKit';
 import { preferences } from '@kit.ArkData';
+import { statfs } from '@kit.CoreFileKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { GameRepository, ReleaseInfo, normalizeVersion } from '../model/GameRepository';
 import { Notifier } from '../model/Notifier';
@@ -23,6 +24,10 @@ enum Stage {
 function formatBytes(n: number): string {
   if (n <= 0) {
     return '0 B';
+  }
+  const gb: number = n / 1024 / 1024 / 1024;
+  if (gb >= 1) {
+    return gb.toFixed(1) + ' GB';
   }
   const mb: number = n / 1024 / 1024;
   if (mb >= 1) {
@@ -76,6 +81,8 @@ struct Index {
   @State updateAvailable: boolean = false;
   @State checkingUpdate: boolean = false;
   @State deleting: boolean = false;
+  @State storageInsufficient: boolean = false;
+  @State freeSizeText: string = '';
 
   private repo: GameRepository | null = null;
   private ctx: common.UIAbilityContext | null = null;
@@ -143,7 +150,11 @@ struct Index {
       (msg: string) => {
         this.adoptDone = true;
         this.error = msg;
-        this.stage = repo.hasGameFiles() ? Stage.Ready : Stage.NotDownloaded;
+        if (repo.hasGameFiles()) {
+          this.stage = Stage.Ready;
+        } else {
+          this.enterNotDownloaded();
+        }
       },
       this.expectedSize
     ).then((adopted: boolean) => {
@@ -151,7 +162,7 @@ struct Index {
         this.stage = Stage.Downloading;
         this.resetSpeed();
       } else if (!adopted) {
-        this.stage = Stage.NotDownloaded;
+        this.enterNotDownloaded();
       }
     });
   }
@@ -197,6 +208,45 @@ struct Index {
     this.lastTime = 0;
     this.speedText = '';
     this.etaText = '';
+  }
+
+  /** 下载核心包所需的存储空间（zip + 解压后余量） */
+  private requiredStorage(): number {
+    const size: number = this.expectedSize > 0 ? this.expectedSize : 531 * 1024 * 1024;
+    return size * 2.4;
+  }
+
+  private requiredStorageText(): string {
+    return formatBytes(this.requiredStorage());
+  }
+
+  /** 进入未下载态的准备：前置申请通知权限 + 存储空间预检 */
+  private prepareNotDownloaded(): void {
+    const ctx: common.UIAbilityContext | null = this.ctx;
+    if (ctx !== null) {
+      Notifier.requestPermission(ctx);
+    }
+    if (this.expectedSize > 0) {
+      this.totalText = formatBytes(this.expectedSize);
+    }
+    try {
+      const free: number = ctx !== null ? statfs.getFreeSizeSync(ctx.filesDir) : -1;
+      if (free >= 0) {
+        this.freeSizeText = formatBytes(free);
+        this.storageInsufficient = free < this.requiredStorage();
+      } else {
+        this.storageInsufficient = false;
+      }
+    } catch (err) {
+      hilog.warn(DOMAIN, TAG, 'getFreeSizeSync failed: %{public}s', JSON.stringify(err));
+      this.storageInsufficient = false;
+    }
+  }
+
+  /** 统一入口：切到未下载态并完成准备 */
+  private enterNotDownloaded(): void {
+    this.stage = Stage.NotDownloaded;
+    this.prepareNotDownloaded();
   }
 
   /** 首次下载时提示一次「可切后台」（之后不再打扰） */
@@ -251,9 +301,6 @@ struct Index {
     // 测速选源阶段会停在 0% 几秒，给出明确提示
     this.probing = true;
     this.etaText = '正在测速，选择最快的下载源…';
-    if (this.ctx !== null) {
-      Notifier.requestPermission(this.ctx);
-    }
     this.maybeShowBgHint();
     repo.fetchRelease()
       .then((info: ReleaseInfo) => {
@@ -291,13 +338,19 @@ struct Index {
       })
       .catch((err: BusinessError) => {
         if (err.message === 'cancelled') {
-          this.stage = repo.hasGameFiles() ? Stage.Ready : Stage.NotDownloaded;
+          if (!repo.hasGameFiles()) {
+            this.enterNotDownloaded();
+          }
           return;
         }
         hilog.error(DOMAIN, TAG, 'download flow failed: %{public}s', JSON.stringify(err));
         this.error = '下载失败：' + (err.message !== undefined ? err.message : '未知错误');
         Notifier.publishFailed(this.error);
-        this.stage = repo.hasGameFiles() ? Stage.Ready : Stage.NotDownloaded;
+        if (repo.hasGameFiles()) {
+          this.stage = Stage.Ready;
+        } else {
+          this.enterNotDownloaded();
+        }
       });
   }
 
@@ -348,9 +401,12 @@ struct Index {
     repo.cancelDownload();
     this.progress = 0;
     this.receivedText = '';
-    this.totalText = '';
     this.paused = false;
-    this.stage = repo.hasGameFiles() ? Stage.Ready : Stage.NotDownloaded;
+    if (repo.hasGameFiles()) {
+      this.stage = Stage.Ready;
+    } else {
+      this.enterNotDownloaded();
+    }
   }
 
   /** 删除是危险操作：先确认，再异步删除并显示进度 */
@@ -415,16 +471,67 @@ struct Index {
 
   @Builder
   notDownloadedView() {
-    Column({ space: 12 }) {
-      Text('🎮').fontSize(64)
+    Column({ space: 16 }) {
+      Image($r('app.media.pokeball'))
+        .width(72)
+        .height(72)
+        .objectFit(ImageFit.Contain)
       Text('尚未安装游戏核心包').fontSize(18).fontWeight(FontWeight.Medium)
-      Text('首次游玩需先下载核心包').fontSize(14).fontColor('#888888')
-      Text('原版 · 约 531 MB').fontSize(14).fontColor('#DA3838')
+
+      // 资源包信息卡片
+      Column({ space: 10 }) {
+        Row() {
+          Text('来源').fontSize(14).fontColor('#888888')
+          Text('原版 PokeRogue').fontSize(14).fontColor('#333333')
+        }
+        .width('100%')
+        .justifyContent(FlexAlign.SpaceBetween)
+
+        Row() {
+          Text('体积').fontSize(14).fontColor('#888888')
+          Text(this.totalText.length > 0 ? this.totalText : '约 531 MB')
+            .fontSize(14).fontColor('#333333')
+        }
+        .width('100%')
+        .justifyContent(FlexAlign.SpaceBetween)
+
+        Row() {
+          Text('需要存储').fontSize(14).fontColor('#888888')
+          Text(this.requiredStorageText()).fontSize(14).fontColor('#333333')
+        }
+        .width('100%')
+        .justifyContent(FlexAlign.SpaceBetween)
+      }
+      .width('84%')
+      .padding(16)
+      .borderRadius(12)
+      .backgroundColor('#F7F7F7')
+
+      // 下载须知
+      Column({ space: 6 }) {
+        Text('· 下载中可切后台，完成后通知').fontSize(13).fontColor('#999999')
+        Text('· 支持断点续传，中断可继续').fontSize(13).fontColor('#999999')
+        Text('· 需要开启通知权限').fontSize(13).fontColor('#999999')
+      }
+      .width('84%')
+      .alignItems(HorizontalAlign.Start)
+
       Button('下载核心包')
-        .width('70%')
-        .height(48)
+        .width('84%')
+        .height(52)
         .fontSize(17)
+        .backgroundColor('#DA3838')
+        .fontColor('#FFFFFF')
+        .enabled(!this.storageInsufficient)
         .onClick(() => this.startDownload())
+
+      if (this.storageInsufficient) {
+        Text('存储空间不足：需要约 ' + this.requiredStorageText() + '，可用 ' + this.freeSizeText)
+          .fontSize(13)
+          .fontColor('#DA3838')
+          .textAlign(TextAlign.Center)
+          .padding({ left: 24, right: 24 })
+      }
     }
     .width('100%')
   }
