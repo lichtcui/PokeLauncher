@@ -4,6 +4,14 @@ import { webview } from '@kit.ArkWeb';
 import { BusinessError } from '@kit.BasicServicesKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { GameRepository, ReleaseInfo, normalizeVersion } from '../model/GameRepository';
+import {
+  AppUpdateInfo,
+  AppUpdateResult,
+  AppVersion,
+  checkAppUpdate,
+  openDownloadPage,
+  readLocalVersion
+} from '../model/AppUpdate';
 import { setWindowBackground, HOME_BG_COLOR } from '../model/WindowHolder';
 import { ORI_PORTRAIT, ORI_LANDSCAPE, ORI_SYSTEM, readOrientation, saveOrientation } from '../model/OrientationPref';
 import { isMasterEnabled, setMaster } from '../model/CheatState';
@@ -18,24 +26,37 @@ const TAG: string = 'Settings';
 @Entry
 @Component
 struct Settings {
-  @State version: string = '';
-  @State updateAvailable: boolean = false;
-  @State checking: boolean = false;
+  @State gameVersion: string = '';
+  @State gameUpdateAvailable: boolean = false;
+  @State checkingGame: boolean = false;
+  @State appVersion: string = '';
+  @State appUpdateAvailable: boolean = false;
+  @State appUpdateForce: boolean = false;
+  @State checkingApp: boolean = false;
+  @State appCheckFailed: boolean = false;
+  @State appRemoteName: string = '';
+  @State appChangelog: string = '';
   @State deleting: boolean = false;
   @State orientation: string = ORI_PORTRAIT;
   @State cheatMaster: boolean = false;
 
   private repo: GameRepository | null = null;
+  private appRemote: AppUpdateInfo | null = null;
 
   aboutToAppear(): void {
     const ctx: common.UIAbilityContext = this.getUIContext().getHostContext() as common.UIAbilityContext;
     this.repo = new GameRepository(ctx);
-    this.version = this.repo.readVersion();
+    this.gameVersion = this.repo.readVersion();
+    const local: AppVersion = readLocalVersion();
+    this.appVersion = local.versionName.length > 0
+      ? local.versionName + ' (' + local.versionCode + ')'
+      : '未知';
     readOrientation(ctx).then((v: string) => {
       this.orientation = v;
     });
     this.cheatMaster = isMasterEnabled();
-    this.checkUpdate();
+    this.checkGameUpdate();
+    this.checkAppUpdate();
   }
 
   onPageShow(): void {
@@ -43,22 +64,56 @@ struct Settings {
     setWindowBackground(HOME_BG_COLOR);
   }
 
-  /** 查询远端最新版本，与本地比较 */
-  private checkUpdate(): void {
+  /** 查询远端最新游戏资源包，与本地比较 */
+  private checkGameUpdate(): void {
     const repo: GameRepository | null = this.repo;
-    if (repo === null || this.checking) {
+    if (repo === null || this.checkingGame) {
       return;
     }
-    this.checking = true;
+    this.checkingGame = true;
     repo.fetchRelease()
       .then((info: ReleaseInfo) => {
-        this.updateAvailable = normalizeVersion(info.tag) !== normalizeVersion(this.version);
-        this.checking = false;
+        this.gameUpdateAvailable = normalizeVersion(info.tag) !== normalizeVersion(this.gameVersion);
+        this.checkingGame = false;
       })
       .catch((err: BusinessError) => {
-        this.checking = false;
-        hilog.warn(DOMAIN, TAG, 'check update failed: %{public}s', JSON.stringify(err));
+        this.checkingGame = false;
+        hilog.warn(DOMAIN, TAG, 'check game update failed: %{public}s', JSON.stringify(err));
       });
+  }
+
+  /** 查询远端应用版本，与本地 app 版本比较 */
+  private checkAppUpdate(): void {
+    if (this.checkingApp) {
+      return;
+    }
+    this.checkingApp = true;
+    this.appCheckFailed = false;
+    checkAppUpdate()
+      .then((res: AppUpdateResult) => {
+        this.checkingApp = false;
+        this.appRemote = res.remote;
+        this.appUpdateAvailable = res.hasUpdate;
+        this.appUpdateForce = res.forceUpdate;
+        const remote: AppUpdateInfo | null = res.remote;
+        this.appRemoteName = remote !== null && remote.versionName.length > 0
+          ? remote.versionName
+          : (remote !== null ? String(remote.versionCode) : '');
+        this.appChangelog = remote !== null ? remote.changelog : '';
+      })
+      .catch((err: BusinessError) => {
+        this.checkingApp = false;
+        this.appCheckFailed = true;
+        hilog.warn(DOMAIN, TAG, 'check app update failed: %{public}s', JSON.stringify(err));
+      });
+  }
+
+  /** 打开应用下载页（应用内无法静默安装 HAP） */
+  private openAppDownload(): void {
+    const ctx: common.UIAbilityContext = this.getUIContext().getHostContext() as common.UIAbilityContext;
+    const remote: AppUpdateInfo | null = this.appRemote;
+    const url: string = remote !== null && remote.pageUrl.length > 0 ? remote.pageUrl : '';
+    openDownloadPage(ctx, url);
   }
 
   /** 更新走首页已有的下载/解压流程：置标记后返回首页触发 */
@@ -267,18 +322,44 @@ struct Settings {
           .padding({ left: 16, right: 16, top: 10, bottom: 10 })
 
           this.groupTitle('数据管理')
-          // 检查更新：状态文字随 @State 变化，需直接读取状态（@Builder 值参数不触发刷新）
+          // 应用更新：状态文字随 @State 变化，需直接读取状态（@Builder 值参数不触发刷新）
           Row() {
-            Text('检查更新').fontSize(16).fontColor('#333333')
+            Text('应用更新').fontSize(16).fontColor('#333333')
             Blank()
-            Text(this.checking ? '检查中…' : (this.updateAvailable ? '发现新版本' : '已是最新'))
+            Text(this.checkingApp ? '检查中…'
+              : (this.appCheckFailed ? '检查失败'
+                : (this.appUpdateAvailable ? '发现新版本' : '已是最新')))
               .fontSize(14)
-              .fontColor(this.updateAvailable ? '#DA3838' : '#999999')
+              .fontColor(this.appUpdateAvailable ? '#DA3838' : '#999999')
           }
           .width('100%')
           .padding({ left: 16, right: 16, top: 15, bottom: 15 })
-          .onClick(() => this.checkUpdate())
-          if (this.updateAvailable) {
+          .onClick(() => this.checkAppUpdate())
+          if (this.appUpdateAvailable) {
+            this.divider()
+            this.navRow('去更新' + (this.appRemoteName.length > 0 ? '（' + this.appRemoteName + '）' : ''),
+              this.appUpdateForce ? '必须更新' : '', '#DA3838', true, () => this.openAppDownload())
+            if (this.appChangelog.length > 0) {
+              Text(this.appChangelog)
+                .fontSize(13)
+                .fontColor('#888888')
+                .width('100%')
+                .padding({ left: 16, right: 16, bottom: 14 })
+            }
+          }
+          this.divider()
+          // 游戏资源更新：状态文字随 @State 变化，需直接读取状态（@Builder 值参数不触发刷新）
+          Row() {
+            Text('游戏资源更新').fontSize(16).fontColor('#333333')
+            Blank()
+            Text(this.checkingGame ? '检查中…' : (this.gameUpdateAvailable ? '发现新版本' : '已是最新'))
+              .fontSize(14)
+              .fontColor(this.gameUpdateAvailable ? '#DA3838' : '#999999')
+          }
+          .width('100%')
+          .padding({ left: 16, right: 16, top: 15, bottom: 15 })
+          .onClick(() => this.checkGameUpdate())
+          if (this.gameUpdateAvailable) {
             this.divider()
             this.navRow('更新到新版本', '', '#999999', true, () => this.triggerUpdate())
           }
@@ -295,8 +376,10 @@ struct Settings {
           .onClick(() => this.confirmDelete())
 
           this.groupTitle('关于')
-          this.navRow('版本',
-            this.version.length > 0 ? normalizeVersion(this.version) : '未知',
+          this.navRow('应用版本', this.appVersion, '#999999', false, () => {})
+          this.divider()
+          this.navRow('游戏资源版本',
+            this.gameVersion.length > 0 ? normalizeVersion(this.gameVersion) : '未安装',
             '#999999', false, () => {})
           this.divider()
           this.navRow('资源来源', '原版 PokeRogue', '#999999', false, () => {})

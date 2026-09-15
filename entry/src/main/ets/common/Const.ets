@@ -57,3 +57,18 @@ export const FORCE_WILL_READ_FREQUENTLY: boolean = true;
 
 /** 沙箱内游戏目录名（filesDir/game） */
 export const GAME_DIR_NAME: string = 'game';
+
+/**
+ * 应用自更新清单（Gitee Raw）。
+ * 格式见仓库根目录 version.json；发版时同步更新该文件。
+ * 应用内无法静默安装 HAP（需系统级权限），此处只做「检测 + 引导」。
+ */
+export const APP_UPDATE_MANIFEST_URL: string =
+  'https://gitee.com/licht3345/harmony-pokerogue/raw/master/version.json';
+
+/** 应用下载页（检测到新版本后用浏览器打开） */
+export const APP_UPDATE_PAGE_URL: string =
+  'https://gitee.com/licht3345/harmony-pokerogue/releases';
+
+/** 启动时自动检查应用更新的最小间隔（24 小时节流） */
+export const APP_UPDATE_CHECK_INTERVAL_MS: number = 24 * 60 * 60 * 1000;

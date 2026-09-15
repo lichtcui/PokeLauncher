@@ -25,7 +25,8 @@ HAP(仅代码) ──首次启动──► 从 GitHub Release 下载 game.zip（
 - 游戏：离线运行（Web 组件 + 本地服务），切后台自动静音 BGM；右上角「返回」3 秒后自动淡出（点击唤回），避免遮挡游戏信息
 - 存档导入/导出：文件选择器导入；blob 导出保存到 `下载/com.lichtcui.pokerogue/`
 - 屏幕方向：竖屏 / 横屏 / 跟随系统（仅游戏页生效，首页/设置页恒竖屏）
-- 设置页：屏幕方向、作弊模式开关、检查更新 / 刷新缓存 / 删除数据 / 关于
+- 设置页：屏幕方向、作弊模式开关、应用更新 / 游戏资源更新 / 刷新缓存 / 删除数据 / 关于
+- 应用自更新检测：启动自动（24h 节流）+ 设置页手动；发现新版本弹窗展示更新日志，引导到浏览器下载页（应用内无法静默安装 HAP，只能引导）
 - 作弊（离线，需先开启「作弊模式」）：首页就绪页「作弊设置」选择条目，进入游戏后**实时 hook 生效**（无需像旧方案那样存档 + 读档）；更改条目后需重新进入游戏页才会重新注入。条目可扩展（见 [`AGENTS.md`](./AGENTS.md) §10）
 
 ## 作弊（离线）
@@ -57,6 +58,32 @@ HAP(仅代码) ──首次启动──► 从 GitHub Release 下载 game.zip（
 - **兼容性风险**：实时作弊依赖游戏内部方法名。本 App 会从 GitHub Release 自动更新游戏资源，**游戏升级后作弊可能失效或表现异常**（届时关闭作弊即可）。
 
 > 新增 / 调整作弊条目见 [`AGENTS.md`](./AGENTS.md) §10。
+
+## 应用自更新
+
+应用本体（HAP）的更新只能做到**检测 + 引导**：HarmonyOS 下普通应用无 `INSTALL_BUNDLE` 系统权限，公开 SDK 也不提供 HAP 安装接口，无法应用内静默安装。
+
+- 远程清单：仓库根目录 [`version.json`](./version.json)（通过 Gitee Raw 读取，URL 见 `common/Const.ets` 的 `APP_UPDATE_MANIFEST_URL`）。
+- 检测：读取本地 `versionCode`（`bundleManager.getBundleInfoForSelfSync`）与远程比较；启动时自动检查（24h 节流），设置页「数据管理 → 应用更新」可手动检查。
+- 引导：发现新版本弹窗（`forceUpdate` 或低于 `minVersionCode` 时不可关闭），点「去更新」用浏览器打开下载页，用户自行下载侧载。
+
+### 发版流程
+
+1. 递增 `AppScope/app.json5` 的 `versionCode`（如 `1000000` → `1000001`）与 `versionName`。
+2. 同步更新仓库根 `version.json` 的 `versionCode` / `versionName` / `changelog`（必要时 `minVersionCode`、`forceUpdate`）。
+3. 提交并推送 Gitee（`version.json` 需在 `master` 分支），再上传新 HAP 到 Release。
+
+```json
+{
+  "versionCode": 1000001,
+  "versionName": "1.0.1",
+  "minVersionCode": 1000000,
+  "forceUpdate": false,
+  "changelog": "1. 修复…\n2. 新增…",
+  "downloadUrl": "https://gitee.com/licht3345/harmony-pokerogue/releases",
+  "pageUrl": "https://gitee.com/licht3345/harmony-pokerogue/releases"
+}
+```
 
 ## 环境要求
 
@@ -92,6 +119,7 @@ entry/src/main/
    ├─ components/PokeballLoader.ets # 精灵球动画（下载/解压摇晃；逐帧打开未使用）
    ├─ model/
    │  ├─ GameRepository.ets         # 下载/解压/删除/版本/接管
+   │  ├─ AppUpdate.ets              # 应用自更新：本地版本读取 + version.json 比对 + 引导下载
    │  ├─ LocalHttpServer.ets        # 本地 HTTP 服务 + index.html 注入 + /__cheats__.js
    │  ├─ LocalContentProvider.ets   # 旧 onInterceptRequest 方案（保留参考）
    │  ├─ Notifier.ets               # 通知
@@ -108,6 +136,6 @@ entry/src/main/
 
 ## 状态
 
-已在真机（Pura 70 Pro+ / API 24）验证：下载（镜像 ~1.4MB/s）、解压、离线游戏、启动加速、存档导出、后台静音、全屏与安全区适配、首页极简改版、设置页（检查更新/刷新缓存/删除）、屏幕方向（竖屏/横屏/跟随系统）、作弊（场景捕获 + 实时 hook：糖果/经验/金币倍率、幸运值拉满、100% 捕获率、免费抽蛋、强制奖励稀有度）。
+已在真机（Pura 70 Pro+ / API 24）验证：下载（镜像 ~1.4MB/s）、解压、离线游戏、启动加速、存档导出、后台静音、全屏与安全区适配、首页极简改版、设置页（检查更新/刷新缓存/删除）、屏幕方向（竖屏/横屏/跟随系统）、作弊（场景捕获 + 实时 hook：糖果/经验/金币倍率、幸运值拉满、100% 捕获率、免费抽蛋、强制奖励稀有度）。应用自更新检测已接入（启动自动 + 设置页手动 + 弹窗引导）。
 
 > ⚠️ 作弊仅供离线使用：官方有检测机制，可能被标记/封禁；作弊后的存档不纯净，**勿导入在线版**。作弊依赖游戏内部实现，游戏更新后可能失效。新增作弊条目见 [`AGENTS.md`](./AGENTS.md) §10。

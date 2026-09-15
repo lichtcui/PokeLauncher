@@ -5,6 +5,14 @@ import { preferences } from '@kit.ArkData';
 import { statfs } from '@kit.CoreFileKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { GameRepository, ReleaseInfo, normalizeVersion } from '../model/GameRepository';
+import {
+  AppUpdateInfo,
+  AppUpdateResult,
+  checkAppUpdate,
+  markChecked,
+  openDownloadPage,
+  shouldAutoCheck
+} from '../model/AppUpdate';
 import { Notifier } from '../model/Notifier';
 import { setWindowBackground, setOrientation, HOME_BG_COLOR } from '../model/WindowHolder';
 import { isMasterEnabled } from '../model/CheatState';
@@ -98,6 +106,7 @@ struct Index {
     // 清理上次遗留的通知（下载进度/完成等）
     Notifier.cancelAll();
     this.init();
+    this.maybeAutoCheckAppUpdate();
   }
 
   onPageShow(): void {
@@ -136,6 +145,75 @@ struct Index {
       hilog.warn(DOMAIN, TAG, 'init fetchRelease failed: %{public}s', JSON.stringify(err));
       this.tryAdopt();
     });
+  }
+
+  /** 启动时自动检查应用更新（24h 节流；失败静默） */
+  private maybeAutoCheckAppUpdate(): void {
+    const ctx: common.UIAbilityContext | null = this.ctx;
+    if (ctx === null) {
+      return;
+    }
+    shouldAutoCheck(ctx).then((due: boolean) => {
+      if (!due) {
+        return;
+      }
+      checkAppUpdate().then((res: AppUpdateResult) => {
+        // 强制更新不写节流时间戳：下次启动重新检查并提示
+        if (!res.forceUpdate) {
+          markChecked(ctx);
+        }
+        if (!res.hasUpdate || res.remote === null) {
+          return;
+        }
+        this.showAppUpdateDialog(res);
+      }).catch((err: BusinessError) => {
+        hilog.warn(DOMAIN, TAG, 'auto app update check failed: %{public}s', JSON.stringify(err));
+      });
+    }).catch((err: BusinessError) => {
+      hilog.warn(DOMAIN, TAG, 'shouldAutoCheck failed: %{public}s', JSON.stringify(err));
+    });
+  }
+
+  /** 发现新版本：普通更新可稍后，强制更新只有「去更新」且不可关闭 */
+  private showAppUpdateDialog(res: AppUpdateResult): void {
+    const remote: AppUpdateInfo | null = res.remote;
+    if (remote === null) {
+      return;
+    }
+    const name: string = remote.versionName.length > 0 ? remote.versionName : String(remote.versionCode);
+    const message: string = remote.changelog.length > 0
+      ? '发现新版本 ' + name + '\n\n' + remote.changelog
+      : '发现新版本 ' + name;
+    const go = (): void => {
+      const ctx: common.UIAbilityContext | null = this.ctx;
+      if (ctx !== null) {
+        openDownloadPage(ctx, remote.pageUrl.length > 0 ? remote.pageUrl : remote.downloadUrl);
+      }
+    };
+    if (res.forceUpdate) {
+      AlertDialog.show({
+        title: '需要更新',
+        message: message,
+        autoCancel: false,
+        confirm: {
+          value: '去更新',
+          action: go
+        }
+      });
+    } else {
+      AlertDialog.show({
+        title: '发现新版本',
+        message: message,
+        primaryButton: {
+          value: '稍后',
+          action: () => {}
+        },
+        secondaryButton: {
+          value: '去更新',
+          action: go
+        }
+      });
+    }
   }
 
   private tryAdopt(): void {
