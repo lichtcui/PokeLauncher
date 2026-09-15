@@ -1,66 +1,258 @@
-import { webview } from '@kit.ArkWeb';
+import { common } from '@kit.AbilityKit';
+import { router, promptAction } from '@kit.ArkUI';
+import { BusinessError } from '@kit.BasicServicesKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
-import { ONLINE_URL } from '../common/Const';
+import { GameRepository, ReleaseInfo } from '../model/GameRepository';
 
 const DOMAIN: number = 0x0000;
-const TAG: string = 'PokeRogue';
+const TAG: string = 'Home';
+
+enum Stage {
+  Checking,
+  NotDownloaded,
+  Downloading,
+  Extracting,
+  Ready
+}
+
+function formatBytes(n: number): string {
+  if (n <= 0) {
+    return '0 B';
+  }
+  const mb: number = n / 1024 / 1024;
+  if (mb >= 1) {
+    return mb.toFixed(1) + ' MB';
+  }
+  return (n / 1024).toFixed(0) + ' KB';
+}
 
 /**
- * M1：内核兼容性验证页。
- * 直接用 Web 组件加载 https://pokerogue.net/，验证 ArkWeb 能否运行 PokeRogue
- * （Phaser / WebGL / 音频 / localStorage）。验证通过后再进入离线方案。
+ * 首页启动器：未下载 / 下载中 / 解压中 / 已就绪 四态。
+ * 核心路径：进入 → 下载核心包（已下载可跳过）→ 游玩。
  */
 @Entry
 @Component
 struct Index {
-  controller: webview.WebviewController = new webview.WebviewController();
-  @State status: string = '正在加载…';
+  @State stage: Stage = Stage.Checking;
+  @State progress: number = 0;
+  @State receivedText: string = '';
+  @State totalText: string = '';
+  @State version: string = '';
+  @State message: string = '';
+  @State error: string = '';
+
+  private repo: GameRepository | null = null;
+
+  aboutToAppear(): void {
+    const ctx = this.getUIContext().getHostContext() as common.UIAbilityContext;
+    this.repo = new GameRepository(ctx);
+    this.refresh();
+  }
+
+  private refresh(): void {
+    if (this.repo === null) {
+      return;
+    }
+    if (this.repo.hasGameFiles()) {
+      this.version = this.repo.readVersion();
+      this.stage = Stage.Ready;
+    } else {
+      this.stage = Stage.NotDownloaded;
+    }
+  }
+
+  private startDownload(): void {
+    if (this.repo === null) {
+      return;
+    }
+    this.stage = Stage.Downloading;
+    this.progress = 0;
+    this.error = '';
+    this.message = '';
+    const repo: GameRepository = this.repo;
+    repo.fetchRelease()
+      .then((info: ReleaseInfo) => {
+        this.receivedText = '0 MB';
+        this.totalText = formatBytes(info.assetSize);
+        return repo.downloadAndExtract(
+          info,
+          (received: number, total: number) => {
+            const t: number = total > 0 ? total : info.assetSize;
+            this.progress = t > 0 ? Math.floor(received * 100 / t) : 0;
+            this.receivedText = formatBytes(received);
+            this.totalText = formatBytes(t);
+          },
+          () => {
+            this.stage = Stage.Extracting;
+          }
+        );
+      })
+      .then(() => {
+        this.version = repo.readVersion();
+        this.stage = Stage.Ready;
+        promptAction.showToast({ message: '核心包下载完成' });
+      })
+      .catch((err: BusinessError) => {
+        hilog.error(DOMAIN, TAG, 'download flow failed: %{public}s', JSON.stringify(err));
+        this.error = '下载失败：' + (err.message !== undefined ? err.message : '未知错误');
+        this.stage = repo.hasGameFiles() ? Stage.Ready : Stage.NotDownloaded;
+      });
+  }
+
+  private checkUpdate(): void {
+    if (this.repo === null) {
+      return;
+    }
+    const repo: GameRepository = this.repo;
+    repo.fetchRelease()
+      .then((info: ReleaseInfo) => {
+        if (info.tag !== this.version) {
+          this.message = '发现新版本：' + info.tag;
+          promptAction.showToast({ message: '发现新版本，点击下载核心包即可更新' });
+        } else {
+          this.message = '已是最新版本';
+          promptAction.showToast({ message: '已是最新版本' });
+        }
+      })
+      .catch((err: BusinessError) => {
+        this.message = '检查更新失败';
+        hilog.error(DOMAIN, TAG, 'check update failed: %{public}s', JSON.stringify(err));
+      });
+  }
+
+  private deleteGame(): void {
+    if (this.repo === null) {
+      return;
+    }
+    this.repo.clear();
+    this.version = '';
+    this.message = '';
+    this.refresh();
+  }
+
+  private startGame(): void {
+    router.pushUrl({ url: 'pages/GamePage' }).catch((err: BusinessError) => {
+      hilog.error(DOMAIN, TAG, 'pushUrl GamePage failed: %{public}s', JSON.stringify(err));
+    });
+  }
+
+  @Builder
+  notDownloadedView() {
+    Column({ space: 12 }) {
+      Text('🎮').fontSize(64)
+      Text('尚未安装游戏核心包').fontSize(18).fontWeight(FontWeight.Medium)
+      Text('首次游玩需先下载核心包').fontSize(14).fontColor('#888888')
+      Text('原版 · 约 531 MB').fontSize(14).fontColor('#DA3838')
+      Button('下载核心包')
+        .width('70%')
+        .height(48)
+        .fontSize(17)
+        .onClick(() => this.startDownload())
+    }
+    .width('100%')
+  }
+
+  @Builder
+  downloadingView() {
+    Column({ space: 14 }) {
+      Text('正在下载核心包').fontSize(18).fontWeight(FontWeight.Medium)
+      Text('game.zip').fontSize(13).fontColor('#888888')
+      Progress({ value: this.progress, total: 100, type: ProgressType.Linear })
+        .width('80%')
+        .height(8)
+      Text(this.progress.toString() + '%').fontSize(22).fontWeight(FontWeight.Bold)
+      Text(this.receivedText + ' / ' + this.totalText).fontSize(14).fontColor('#666666')
+      Text('下载中可切后台，完成后会通知你').fontSize(12).fontColor('#AAAAAA')
+    }
+    .width('100%')
+  }
+
+  @Builder
+  extractingView() {
+    Column({ space: 14 }) {
+      Text('正在解压核心包…').fontSize(18).fontWeight(FontWeight.Medium)
+      LoadingProgress().width(48).height(48).color('#DA3838')
+      Text('请勿关闭应用').fontSize(13).fontColor('#888888')
+    }
+    .width('100%')
+  }
+
+  @Builder
+  readyView() {
+    Column({ space: 12 }) {
+      Text('🎮').fontSize(64)
+      Text('核心包已就绪').fontSize(18).fontWeight(FontWeight.Medium)
+      Text('版本 ' + (this.version.length > 0 ? this.version : '未知')).fontSize(13).fontColor('#888888')
+      Button('开始游戏')
+        .width('70%')
+        .height(52)
+        .fontSize(18)
+        .onClick(() => this.startGame())
+      Row({ space: 16 }) {
+        Button('检查更新')
+          .fontSize(14)
+          .height(38)
+          .backgroundColor('#EEEEEE')
+          .fontColor('#333333')
+          .onClick(() => this.checkUpdate())
+        Button('删除数据')
+          .fontSize(14)
+          .height(38)
+          .backgroundColor('#EEEEEE')
+          .fontColor('#333333')
+          .onClick(() => this.deleteGame())
+      }
+    }
+    .width('100%')
+  }
 
   build() {
     Column() {
       Row() {
-        Text(this.status)
-          .fontSize(13)
-          .fontColor('#333333')
-          .layoutWeight(1)
-          .maxLines(2)
-          .textOverflow({ overflow: TextOverflow.Ellipsis })
-        Button('重载')
-          .fontSize(13)
-          .height(32)
+        Text('PokeRogue').fontSize(20).fontWeight(FontWeight.Bold).layoutWeight(1)
+      }
+      .width('100%')
+      .padding({ left: 16, right: 16, top: 10, bottom: 10 })
+
+      Column() {
+        if (this.stage === Stage.Checking) {
+          LoadingProgress().width(40).height(40)
+        } else if (this.stage === Stage.NotDownloaded) {
+          this.notDownloadedView()
+        } else if (this.stage === Stage.Downloading) {
+          this.downloadingView()
+        } else if (this.stage === Stage.Extracting) {
+          this.extractingView()
+        } else {
+          this.readyView()
+        }
+
+        if (this.error.length > 0) {
+          Text(this.error).fontSize(13).fontColor('#DA3838').margin({ top: 16 }).padding({ left: 24, right: 24 })
+        }
+        if (this.message.length > 0) {
+          Text(this.message).fontSize(13).fontColor('#666666').margin({ top: 16 })
+        }
+      }
+      .layoutWeight(1)
+      .width('100%')
+      .justifyContent(FlexAlign.Center)
+
+      Row() {
+        Button('在线模式')
+          .fontSize(12)
+          .height(30)
+          .backgroundColor('#F1F3F5')
+          .fontColor('#666666')
           .onClick(() => {
-            try {
-              this.controller.loadUrl(ONLINE_URL);
-            } catch (err) {
-              hilog.error(DOMAIN, TAG, 'loadUrl failed: %{public}s', JSON.stringify(err));
-            }
+            router.pushUrl({ url: 'pages/OnlinePage' }).catch((err: BusinessError) => {
+              hilog.error(DOMAIN, TAG, 'pushUrl OnlinePage failed: %{public}s', JSON.stringify(err));
+            });
           })
       }
       .width('100%')
-      .padding({ left: 12, right: 12, top: 6, bottom: 6 })
-      .backgroundColor('#F1F3F5')
-
-      Web({ src: ONLINE_URL, controller: this.controller })
-        .domStorageAccess(true)
-        .javaScriptAccess(true)
-        .imageAccess(true)
-        .onlineImageAccess(true)
-        .mixedMode(MixedMode.All)
-        .onPageBegin((event) => {
-          this.status = '开始加载: ' + event.url;
-          hilog.info(DOMAIN, TAG, 'onPageBegin: %{public}s', event.url);
-        })
-        .onPageEnd((event) => {
-          this.status = '加载完成: ' + event.url;
-          hilog.info(DOMAIN, TAG, 'onPageEnd: %{public}s', event.url);
-        })
-        .onErrorReceive((event) => {
-          const desc: string = event.error.getErrorInfo();
-          this.status = '加载出错: ' + desc;
-          hilog.error(DOMAIN, TAG, 'onErrorReceive: %{public}s', desc);
-        })
-        .width('100%')
-        .layoutWeight(1)
+      .justifyContent(FlexAlign.Center)
+      .padding({ bottom: 12 })
     }
     .width('100%')
     .height('100%')
