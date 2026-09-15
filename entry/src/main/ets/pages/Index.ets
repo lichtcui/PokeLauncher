@@ -100,11 +100,26 @@ struct Index {
         promptAction.showToast({ message: '核心包下载完成' });
       })
       .catch((err: BusinessError) => {
+        if (err.message === 'cancelled') {
+          this.stage = repo.hasGameFiles() ? Stage.Ready : Stage.NotDownloaded;
+          return;
+        }
         hilog.error(DOMAIN, TAG, 'download flow failed: %{public}s', JSON.stringify(err));
         this.error = '下载失败：' + (err.message !== undefined ? err.message : '未知错误');
         Notifier.publishFailed(this.error);
         this.stage = repo.hasGameFiles() ? Stage.Ready : Stage.NotDownloaded;
       });
+  }
+
+  private cancelDownload(): void {
+    if (this.repo === null) {
+      return;
+    }
+    this.repo.cancelDownload();
+    this.progress = 0;
+    this.receivedText = '';
+    this.totalText = '';
+    this.stage = this.repo.hasGameFiles() ? Stage.Ready : Stage.NotDownloaded;
   }
 
   private checkUpdate(): void {
@@ -171,6 +186,14 @@ struct Index {
       Text(this.progress.toString() + '%').fontSize(22).fontWeight(FontWeight.Bold)
       Text(this.receivedText + ' / ' + this.totalText).fontSize(14).fontColor('#666666')
       Text('下载中可切后台，完成后会通知你').fontSize(12).fontColor('#AAAAAA')
+      Button('取消下载')
+        .width('50%')
+        .height(40)
+        .fontSize(15)
+        .backgroundColor('#EEEEEE')
+        .fontColor('#333333')
+        .margin({ top: 6 })
+        .onClick(() => this.cancelDownload())
     }
     .width('100%')
   }

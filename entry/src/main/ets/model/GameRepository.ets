@@ -42,6 +42,8 @@ export interface DownloadProgress {
  */
 export class GameRepository {
   private ctx: common.UIAbilityContext;
+  private task: request.DownloadTask | null = null;
+  private cancelled: boolean = false;
 
   constructor(ctx: common.UIAbilityContext) {
     this.ctx = ctx;
@@ -121,9 +123,33 @@ export class GameRepository {
     onProgress: (received: number, total: number) => void,
     onExtractStart: () => void
   ): Promise<void> {
+    this.cancelled = false;
     await this.download(info, onProgress);
+    if (this.cancelled) {
+      return;
+    }
     onExtractStart();
     await this.extract(info);
+  }
+
+  /** 取消正在进行的下载（含系统后台下载任务） */
+  cancelDownload(): void {
+    this.cancelled = true;
+    const t: request.DownloadTask | null = this.task;
+    this.task = null;
+    if (t !== null) {
+      t.delete().catch((err: BusinessError) => {
+        hilog.warn(DOMAIN, TAG, 'delete task failed: %{public}s', JSON.stringify(err));
+      });
+    }
+    // 清理可能残留的部分文件
+    try {
+      if (fs.accessSync(this.zipPath)) {
+        fs.unlinkSync(this.zipPath);
+      }
+    } catch (err) {
+      hilog.warn(DOMAIN, TAG, 'clean partial zip failed: %{public}s', JSON.stringify(err));
+    }
   }
 
   private download(
@@ -140,18 +166,34 @@ export class GameRepository {
         enableRoaming: true,
         background: true
       }).then((task: request.DownloadTask) => {
+        this.task = task;
         task.on('progress', (received: number, total: number) => {
           onProgress(received, total);
         });
         task.on('complete', () => {
+          this.task = null;
+          if (this.cancelled) {
+            reject(new Error('cancelled'));
+            return;
+          }
           hilog.info(DOMAIN, TAG, '%{public}s', 'download complete');
           resolve();
         });
         task.on('fail', (err: number) => {
+          this.task = null;
+          if (this.cancelled) {
+            reject(new Error('cancelled'));
+            return;
+          }
           hilog.error(DOMAIN, TAG, 'download fail, err=%{public}d', err);
           reject(new Error('download fail, err=' + err));
         });
       }).catch((err: BusinessError) => {
+        this.task = null;
+        if (this.cancelled) {
+          reject(new Error('cancelled'));
+          return;
+        }
         hilog.error(DOMAIN, TAG, 'downloadFile error: %{public}s', JSON.stringify(err));
         reject(err);
       });
