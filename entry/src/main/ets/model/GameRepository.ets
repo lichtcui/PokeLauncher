@@ -176,7 +176,12 @@ export class GameRepository {
         parallel: zlib.ParallelStrategy.PARALLEL_STRATEGY_PARALLEL_DECOMPRESSION
       }).then(() => {
         try {
-          fs.writeFileSync(this.versionFile, info.tag);
+          const vf: fs.File = fs.openSync(
+            this.versionFile,
+            fs.OpenMode.READ_WRITE | fs.OpenMode.CREATE | fs.OpenMode.TRUNC
+          );
+          fs.writeSync(vf.fd, info.tag);
+          fs.closeSync(vf);
           fs.unlinkSync(this.zipPath);
         } catch (err) {
           hilog.warn(DOMAIN, TAG, 'post-extract cleanup warn: %{public}s', JSON.stringify(err));
