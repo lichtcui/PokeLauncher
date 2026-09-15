@@ -1,5 +1,6 @@
 import { common } from '@kit.AbilityKit';
 import { router, promptAction } from '@kit.ArkUI';
+import { webview } from '@kit.ArkWeb';
 import { BusinessError } from '@kit.BasicServicesKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { GameRepository, ReleaseInfo, normalizeVersion } from '../model/GameRepository';
@@ -222,6 +223,20 @@ struct Index {
     this.init();
   }
 
+  /**
+   * 刷新 Web 缓存（HTTP 缓存 + JS 代码缓存）。
+   * 手动改过游戏资源包后，缓存不刷新会继续用旧文件，这里强制清掉。
+   */
+  private refreshCache(): void {
+    try {
+      webview.WebviewController.removeAllCache(true);
+      promptAction.showToast({ message: '缓存已刷新，下次进入游戏将重新加载资源' });
+    } catch (err) {
+      hilog.error(DOMAIN, TAG, 'removeAllCache failed: %{public}s', JSON.stringify(err));
+      promptAction.showToast({ message: '刷新缓存失败' });
+    }
+  }
+
   private startGame(): void {
     router.pushUrl({ url: 'pages/GamePage' }).catch((err: BusinessError) => {
       hilog.error(DOMAIN, TAG, 'pushUrl GamePage failed: %{public}s', JSON.stringify(err));
@@ -319,6 +334,12 @@ struct Index {
           .fontColor('#333333')
           .onClick(() => this.deleteGame())
       }
+      Button('刷新缓存')
+        .fontSize(13)
+        .height(34)
+        .backgroundColor('#F5F5F5')
+        .fontColor('#888888')
+        .onClick(() => this.refreshCache())
     }
     .width('100%')
   }

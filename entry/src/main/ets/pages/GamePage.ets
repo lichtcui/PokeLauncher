@@ -29,6 +29,17 @@ const JS_RESUME_AUDIO: string =
 const JS_PERF_BUFFER: string =
   'try{performance.setResourceTimingBufferSize(20000);}catch(e){}';
 
+/** 开发用：记录 fetch/XHR 耗时与长任务（定位卡顿） */
+const JS_NET_PROBE: string =
+  '(function(){try{' +
+  'var of=window.fetch;window.fetch=function(u,o){var t=performance.now();var uu=String(u);' +
+  'return of.apply(this,arguments).then(function(r){console.log("NET fetch "+(performance.now()-t).toFixed(0)+"ms "+r.status+" "+uu);return r;})' +
+  '.catch(function(e){console.log("NET fetchERR "+(performance.now()-t).toFixed(0)+"ms "+uu+" "+e);throw e;});};' +
+  'var oo=XMLHttpRequest.prototype.open;XMLHttpRequest.prototype.open=function(m,u){var t=performance.now();var uu=String(u);' +
+  'this.addEventListener("loadend",function(){console.log("NET xhr "+(performance.now()-t).toFixed(0)+"ms "+this.status+" "+uu);});return oo.apply(this,arguments);};' +
+  'try{new PerformanceObserver(function(l){l.getEntries().forEach(function(e){if(e.duration>300){console.log("NET longtask start="+e.startTime.toFixed(0)+" dur="+e.duration.toFixed(0));}});}).observe({entryTypes:["longtask"]});}catch(e){}' +
+  '}catch(e){console.log("NET probe err "+e);}})();';
+
 /** 开发用：25s 后 dump 资源加载统计（通过 ARKWEB-CONSOLE 输出） */
 const JS_PERF_PROBE: string =
   'console.log("PERF injected now="+Math.round(performance.now())+"ms");' +
@@ -77,6 +88,7 @@ struct GamePage {
         .onPageBegin(() => {
           if (DEBUG_UI) {
             this.controller.runJavaScript(JS_PERF_BUFFER);
+            this.controller.runJavaScript(JS_NET_PROBE);
           }
         })
         .onPageEnd(() => {

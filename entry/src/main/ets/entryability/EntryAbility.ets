@@ -1,8 +1,9 @@
 import { AbilityConstant, UIAbility, Want } from '@kit.AbilityKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { window } from '@kit.ArkUI';
+import { webview } from '@kit.ArkWeb';
 import { startSharedServer } from '../model/LocalHttpServer';
-import { GAME_DIR_NAME } from '../common/Const';
+import { GAME_DIR_NAME, DEBUG_UI } from '../common/Const';
 
 const DOMAIN: number = 0x0000;
 const TAG: string = 'PokeRogue';
@@ -10,6 +11,14 @@ const TAG: string = 'PokeRogue';
 export default class EntryAbility extends UIAbility {
   onCreate(want: Want, launchParam: AbilityConstant.LaunchParam): void {
     hilog.info(DOMAIN, TAG, '%{public}s', 'Ability onCreate');
+    if (DEBUG_UI) {
+      // 开发用：开启 Web 远程调试（hdc fport tcp:9222 tcp:9222 后可用 DevTools）
+      try {
+        webview.WebviewController.setWebDebuggingAccess(true);
+      } catch (err) {
+        hilog.warn(DOMAIN, TAG, 'setWebDebuggingAccess failed: %{public}s', JSON.stringify(err));
+      }
+    }
   }
 
   onDestroy(): void {

@@ -79,6 +79,15 @@ export class LocalHttpServer {
     if (bound === 0) {
       throw lastErr !== null ? lastErr : new Error('cannot bind local http port');
     }
+    // 游戏内 API 地址是 http://localhost:8001，这里也监听它，
+    // 避免客户端连不上而等待超时（未知路径返回 404，游戏按离线逻辑处理）。
+    try {
+      const apiAddr: socket.NetAddress = { address: '127.0.0.1', port: 8001, family: 1 };
+      await server.listen(apiAddr);
+      hilog.info(DOMAIN, TAG, '%{public}s', 'also listening on 127.0.0.1:8001 (api stub)');
+    } catch (err) {
+      hilog.warn(DOMAIN, TAG, 'listen 8001 failed: %{public}s', JSON.stringify(err));
+    }
     this.server = server;
     this.port = bound;
     server.on('connect', (conn: socket.TCPSocketConnection) => {
@@ -176,6 +185,7 @@ export class LocalHttpServer {
     try {
       const stat: fs.Stat = fs.statSync(filePath);
       noteServed(stat.size);
+      hilog.info(DOMAIN, TAG, 'GET %{public}s (%{public}d)', path, stat.size);
       const header: string = 'HTTP/1.1 200 OK\r\n' +
         'Content-Type: ' + mimeOf(filePath) + '\r\n' +
         'Content-Length: ' + stat.size + '\r\n' +
