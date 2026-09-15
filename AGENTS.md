@@ -141,6 +141,14 @@ entry/src/main/ets/
 ## 8. 约定
 
 - **不要提交** `build-profile.json5` 的签名信息、`signature/`、`local.properties`、`.idea/`、`.hvigor/`、`build/`。
+- `build-profile.json5` 已设置 **`skip-worktree`**（`git ls-files -v` 显示 `S`）：
+  - 仓库里保存的是**干净版**（`signingConfigs: []`）；本地 DevEco 写入的签名改动被 git 忽略，`git status` 不会显示它 —— 这是正常的。
+  - 若确实要修改该文件（如改 `compatibleSdkVersion`）：
+    ```bash
+    git update-index --no-skip-worktree build-profile.json5   # 先解除
+    # ... 修改并 commit ...
+    git update-index --skip-worktree build-profile.json5      # 再恢复
+    ```
 - 临时调试开关：`common/Const.ets` 的 `DEBUG_UI`（开发显示镜像源/开 Web 调试）、`FORCE_CANVAS`（实验，默认 false）。
 - 改 UI 文案/布局主要在 `pages/Index.ets` 的 `@Builder`（`downloadingView`/`extractingView`/`readyView` 等）。
 - 新增静态资源放 `entry/src/main/resources/base/media/`，引用 `$r('app.media.xxx')`。
