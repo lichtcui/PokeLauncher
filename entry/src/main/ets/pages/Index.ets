@@ -5,6 +5,7 @@ import { BusinessError } from '@kit.BasicServicesKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { GameRepository, ReleaseInfo, normalizeVersion } from '../model/GameRepository';
 import { Notifier } from '../model/Notifier';
+import { setWindowBackground, HOME_BG_COLOR } from '../model/WindowHolder';
 import { DEBUG_UI } from '../common/Const';
 
 const DOMAIN: number = 0x0000;
@@ -60,6 +61,11 @@ struct Index {
     // 清理上次遗留的通知（下载进度/完成等）
     Notifier.cancelAll();
     this.init();
+  }
+
+  onPageShow(): void {
+    // 首页底部安全区留白用白色
+    setWindowBackground(HOME_BG_COLOR);
   }
 
   private init(): void {

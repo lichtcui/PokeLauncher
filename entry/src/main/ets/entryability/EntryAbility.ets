@@ -3,6 +3,7 @@ import { hilog } from '@kit.PerformanceAnalysisKit';
 import { window } from '@kit.ArkUI';
 import { webview } from '@kit.ArkWeb';
 import { startSharedServer } from '../model/LocalHttpServer';
+import { setMainWindow } from '../model/WindowHolder';
 import { GAME_DIR_NAME, DEBUG_UI } from '../common/Const';
 
 const DOMAIN: number = 0x0000;
@@ -35,21 +36,15 @@ export default class EntryAbility extends UIAbility {
     try {
       const win: window.Window = windowStage.getMainWindowSync();
       win.setPreferredOrientation(window.Orientation.PORTRAIT);
-      // 全屏布局（内容延伸到系统栏下方，消除底部白条），保留顶部状态栏（避开挖孔摄像头）
-      win.setWindowLayoutFullScreen(true).catch((err: Error) => {
+      // 不使用全屏布局：内容避让系统安全区（游戏底部按键不会被手势栏压住）。
+      // 底部留白用 setWindowBackgroundColor 染成游戏背景色来盖住。
+      win.setWindowLayoutFullScreen(false).catch((err: Error) => {
         hilog.warn(DOMAIN, TAG, 'setWindowLayoutFullScreen failed: %{public}s', JSON.stringify(err));
       });
       win.setWindowSystemBarEnable(['status']).catch((err: Error) => {
         hilog.warn(DOMAIN, TAG, 'setWindowSystemBarEnable failed: %{public}s', JSON.stringify(err));
       });
-      // 记录状态栏高度，供页面顶部留白使用
-      try {
-        const avoid: window.AvoidArea = win.getWindowAvoidArea(window.AvoidAreaType.TYPE_SYSTEM);
-        AppStorage.setOrCreate('statusBarHeightPx', avoid.topRect.height);
-        hilog.info(DOMAIN, TAG, 'statusBarHeightPx=%{public}d', avoid.topRect.height);
-      } catch (err) {
-        hilog.warn(DOMAIN, TAG, 'getWindowAvoidArea failed: %{public}s', JSON.stringify(err));
-      }
+      setMainWindow(win);
     } catch (err) {
       hilog.warn(DOMAIN, TAG, 'window setup failed: %{public}s', JSON.stringify(err));
     }

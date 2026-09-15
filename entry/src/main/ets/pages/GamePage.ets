@@ -2,6 +2,7 @@ import { webview } from '@kit.ArkWeb';
 import { router } from '@kit.ArkUI';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { sharedServerBaseUrl } from '../model/LocalHttpServer';
+import { setWindowBackground, GAME_BG_COLOR } from '../model/WindowHolder';
 import { DEBUG_UI } from '../common/Const';
 
 const DOMAIN: number = 0x0000;
@@ -70,7 +71,6 @@ struct GamePage {
   controller: webview.WebviewController = new webview.WebviewController();
   private gameUrl: string = FALLBACK_BASE + '/index.html';
   @State loadError: string = '';
-  @StorageProp('statusBarHeightPx') statusBarHeightPx: number = 0;
 
   aboutToAppear(): void {
     const base: string = sharedServerBaseUrl();
@@ -126,8 +126,7 @@ struct GamePage {
     }
     .width('100%')
     .height('100%')
-    .backgroundColor('#484050')
-    .padding({ top: px2vp(this.statusBarHeightPx) })
+    .backgroundColor(GAME_BG_COLOR)
   }
 
   onBackPress(): boolean {
@@ -144,6 +143,8 @@ struct GamePage {
   }
 
   onPageShow(): void {
+    // 底部安全区留白染成游戏背景色
+    setWindowBackground(GAME_BG_COLOR);
     try {
       this.controller.runJavaScript(JS_RESUME_AUDIO);
     } catch (err) {
