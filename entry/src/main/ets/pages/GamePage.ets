@@ -1,6 +1,8 @@
 import { webview } from '@kit.ArkWeb';
 import { router } from '@kit.ArkUI';
 import { hilog } from '@kit.PerformanceAnalysisKit';
+import { picker, fileUri, fileIo as fs } from '@kit.CoreFileKit';
+import { BusinessError } from '@kit.BasicServicesKit';
 import { sharedServerBaseUrl } from '../model/LocalHttpServer';
 import { setWindowBackground, GAME_BG_COLOR } from '../model/WindowHolder';
 import { DEBUG_UI } from '../common/Const';
@@ -10,21 +12,6 @@ const TAG: string = 'GamePage';
 
 /** 兜底地址（端口与 LocalHttpServer.CANDIDATE_PORTS[0] 一致） */
 const FALLBACK_BASE: string = 'http://127.0.0.1:18787';
-
-/** 切后台时暂停游戏音频（best-effort，PokeRogue 用 Phaser/WebAudio） */
-const JS_PAUSE_AUDIO: string =
-  '(function(){try{' +
-  'document.querySelectorAll("audio,video").forEach(function(e){e.pause();});' +
-  'var g=window.game||window.PhaserGame;' +
-  'if(g&&g.sound&&g.sound.pauseAll){g.sound.pauseAll();}' +
-  '}catch(e){}})();';
-
-/** 回前台恢复音频 */
-const JS_RESUME_AUDIO: string =
-  '(function(){try{' +
-  'var g=window.game||window.PhaserGame;' +
-  'if(g&&g.sound&&g.sound.resumeAll){g.sound.resumeAll();}' +
-  '}catch(e){}})();';
 
 /** 开发用：放大 resource timing 缓冲区 */
 const JS_PERF_BUFFER: string =
@@ -69,13 +56,78 @@ const JS_PERF_PROBE: string =
 @Component
 struct GamePage {
   controller: webview.WebviewController = new webview.WebviewController();
+  private downloadDelegate: webview.WebDownloadDelegate = new webview.WebDownloadDelegate();
   private gameUrl: string = FALLBACK_BASE + '/index.html';
+  private attached: boolean = false;
+  private lastSavePath: string = '';
   @State loadError: string = '';
 
   aboutToAppear(): void {
     const base: string = sharedServerBaseUrl();
     this.gameUrl = (base.length > 0 ? base : FALLBACK_BASE) + '/index.html';
     hilog.info(DOMAIN, TAG, 'game url = %{public}s', this.gameUrl);
+  }
+
+  /** 注册下载代理：游戏「导出数据」是 blob URL + <a download>，需要它才能落盘 */
+  private setupDownloadDelegate(): void {
+    this.downloadDelegate.onBeforeDownload((item: webview.WebDownloadItem) => {
+      this.saveDownload(item);
+    });
+    this.downloadDelegate.onDownloadFailed((item: webview.WebDownloadItem) => {
+      hilog.error(DOMAIN, TAG, 'web download failed: %{public}s code=%{public}d',
+        item.getUrl(), item.getLastErrorCode());
+    });
+    this.downloadDelegate.onDownloadFinish((item: webview.WebDownloadItem) => {
+      let exists: boolean = false;
+      let size: number = 0;
+      try {
+        exists = fs.accessSync(this.lastSavePath);
+        size = exists ? fs.statSync(this.lastSavePath).size : 0;
+      } catch (err) {
+        hilog.warn(DOMAIN, TAG, 'stat saved file failed: %{public}s', JSON.stringify(err));
+      }
+      hilog.info(DOMAIN, TAG, 'web download finish: %{public}s exists=%{public}s size=%{public}d',
+        this.lastSavePath, exists.toString(), size);
+    });
+    try {
+      this.controller.setDownloadDelegate(this.downloadDelegate);
+    } catch (err) {
+      hilog.error(DOMAIN, TAG, 'setDownloadDelegate failed: %{public}s', JSON.stringify(err));
+    }
+  }
+
+  /** 让用户选择保存位置后落盘（沙箱外的公共目录需要用户授权） */
+  private saveDownload(item: webview.WebDownloadItem): void {
+    const fileName: string = item.getSuggestedFileName();
+    try {
+      const opts: picker.DocumentSaveOptions = new picker.DocumentSaveOptions();
+      opts.pickerMode = picker.DocumentPickerMode.DOWNLOAD;
+      opts.newFileNames = [fileName];
+      const hostCtx = this.getUIContext().getHostContext();
+      if (hostCtx === undefined) {
+        item.cancel();
+        return;
+      }
+      const docPicker: picker.DocumentViewPicker = new picker.DocumentViewPicker(hostCtx);
+      docPicker.save(opts).then((result: Array<string>) => {
+        if (result !== undefined && result.length > 0) {
+          const uri: fileUri.FileUri = new fileUri.FileUri(result[0]);
+          // DOWNLOAD 模式返回的是目录 URI，需要拼上文件名
+          const target: string = uri.path + '/' + fileName;
+          this.lastSavePath = target;
+          item.start(target);
+          hilog.info(DOMAIN, TAG, 'saving export to %{public}s', target);
+        } else {
+          item.cancel();
+        }
+      }).catch((err: BusinessError) => {
+        hilog.warn(DOMAIN, TAG, 'save picker failed: %{public}s', JSON.stringify(err));
+        item.cancel();
+      });
+    } catch (err) {
+      hilog.error(DOMAIN, TAG, 'saveDownload failed: %{public}s', JSON.stringify(err));
+      item.cancel();
+    }
   }
 
   build() {
@@ -86,6 +138,16 @@ struct GamePage {
         .javaScriptAccess(true)
         .imageAccess(true)
         .onlineImageAccess(true)
+        .onControllerAttached(() => {
+          // 控制器挂载后才能注册下载代理/设置音频
+          this.attached = true;
+          this.setupDownloadDelegate();
+          try {
+            this.controller.setAudioMuted(false);
+          } catch (err) {
+            hilog.warn(DOMAIN, TAG, 'initial unmute failed: %{public}s', JSON.stringify(err));
+          }
+        })
         .onErrorReceive((event) => {
           const desc: string = event.error.getErrorInfo();
           this.loadError = desc;
@@ -135,20 +197,30 @@ struct GamePage {
   }
 
   onPageHide(): void {
+    // 切后台/离开页面：静音 Web 音频（BGM 停止），保留游戏进程
+    hilog.info(DOMAIN, TAG, 'onPageHide attached=%{public}s', this.attached.toString());
+    if (!this.attached) {
+      return;
+    }
     try {
-      this.controller.runJavaScript(JS_PAUSE_AUDIO);
+      this.controller.setAudioMuted(true);
+      hilog.info(DOMAIN, TAG, '%{public}s', 'audio muted');
     } catch (err) {
-      hilog.warn(DOMAIN, TAG, 'pause audio failed: %{public}s', JSON.stringify(err));
+      hilog.warn(DOMAIN, TAG, 'mute audio failed: %{public}s', JSON.stringify(err));
     }
   }
 
   onPageShow(): void {
     // 底部安全区留白染成游戏背景色
     setWindowBackground(GAME_BG_COLOR);
+    hilog.info(DOMAIN, TAG, 'onPageShow attached=%{public}s', this.attached.toString());
+    if (!this.attached) {
+      return;
+    }
     try {
-      this.controller.runJavaScript(JS_RESUME_AUDIO);
+      this.controller.setAudioMuted(false);
     } catch (err) {
-      hilog.warn(DOMAIN, TAG, 'resume audio failed: %{public}s', JSON.stringify(err));
+      hilog.warn(DOMAIN, TAG, 'unmute audio failed: %{public}s', JSON.stringify(err));
     }
   }
 }
