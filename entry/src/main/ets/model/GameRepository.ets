@@ -1,7 +1,7 @@
 import { request, zlib, BusinessError } from '@kit.BasicServicesKit';
 import { http } from '@kit.NetworkKit';
 import { fileIo as fs } from '@kit.CoreFileKit';
-import { common } from '@kit.AbilityKit';
+import { common, wantAgent, WantAgent } from '@kit.AbilityKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { RELEASE_API, USER_AGENT, DEFAULT_ASSET, GAME_DIR_NAME } from '../common/Const';
 
@@ -42,7 +42,8 @@ export interface DownloadProgress {
  */
 export class GameRepository {
   private ctx: common.UIAbilityContext;
-  private task: request.DownloadTask | null = null;
+  private task: request.agent.Task | null = null;
+  private tid: string = '';
   private cancelled: boolean = false;
 
   constructor(ctx: common.UIAbilityContext) {
@@ -132,14 +133,16 @@ export class GameRepository {
     await this.extract(info);
   }
 
-  /** 取消正在进行的下载（含系统后台下载任务） */
+  /** 取消正在进行的下载（移除系统后台下载任务） */
   cancelDownload(): void {
     this.cancelled = true;
-    const t: request.DownloadTask | null = this.task;
+    const t: request.agent.Task | null = this.task;
     this.task = null;
-    if (t !== null) {
-      t.delete().catch((err: BusinessError) => {
-        hilog.warn(DOMAIN, TAG, 'delete task failed: %{public}s', JSON.stringify(err));
+    const id: string = t !== null ? t.tid : this.tid;
+    this.tid = '';
+    if (id.length > 0) {
+      request.agent.remove(id).catch((err: BusinessError) => {
+        hilog.warn(DOMAIN, TAG, 'remove task failed: %{public}s', JSON.stringify(err));
       });
     }
     // 清理可能残留的部分文件
@@ -152,49 +155,106 @@ export class GameRepository {
     }
   }
 
-  private download(
+  /**
+   * 清理历史遗留的下载任务，避免 App 被杀后残留「孤儿」通知。
+   * 在首页启动时调用。
+   */
+  async cleanupStaleTasks(): Promise<void> {
+    try {
+      const tids: string[] = await request.agent.search({
+        action: request.agent.Action.DOWNLOAD,
+        mode: request.agent.Mode.BACKGROUND
+      });
+      for (let i = 0; i < tids.length; i++) {
+        const id: string = tids[i];
+        if (this.task === null || id !== this.task.tid) {
+          await request.agent.remove(id);
+          hilog.info(DOMAIN, TAG, 'removed stale task %{public}s', id);
+        }
+      }
+    } catch (err) {
+      hilog.warn(DOMAIN, TAG, 'cleanup stale tasks failed: %{public}s', JSON.stringify(err));
+    }
+  }
+
+  private async download(
     info: ReleaseInfo,
     onProgress: (received: number, total: number) => void
   ): Promise<void> {
-    return new Promise<void>((resolve, reject) => {
-      request.downloadFile(this.ctx, {
-        url: info.assetUrl,
-        filePath: this.zipPath,
-        title: 'PokeRogue',
-        description: '正在下载核心包',
-        enableMetered: true,
-        enableRoaming: true,
-        background: true
-      }).then((task: request.DownloadTask) => {
-        this.task = task;
-        task.on('progress', (received: number, total: number) => {
-          onProgress(received, total);
-        });
-        task.on('complete', () => {
-          this.task = null;
-          if (this.cancelled) {
-            reject(new Error('cancelled'));
-            return;
-          }
-          hilog.info(DOMAIN, TAG, '%{public}s', 'download complete');
-          resolve();
-        });
-        task.on('fail', (err: number) => {
-          this.task = null;
-          if (this.cancelled) {
-            reject(new Error('cancelled'));
-            return;
-          }
-          hilog.error(DOMAIN, TAG, 'download fail, err=%{public}d', err);
-          reject(new Error('download fail, err=' + err));
-        });
-      }).catch((err: BusinessError) => {
+    const wantAgentInfo: wantAgent.WantAgentInfo = {
+      wants: [
+        {
+          deviceId: '',
+          bundleName: this.ctx.abilityInfo.bundleName,
+          abilityName: this.ctx.abilityInfo.name,
+          action: '',
+          entities: [],
+          uri: '',
+          parameters: {}
+        }
+      ],
+      actionType: wantAgent.OperationType.START_ABILITY,
+      requestCode: 0,
+      wantAgentFlags: [wantAgent.WantAgentFlags.CONSTANT_FLAG]
+    };
+    const agentObj: WantAgent = await wantAgent.getWantAgent(wantAgentInfo);
+
+    const config: request.agent.Config = {
+      action: request.agent.Action.DOWNLOAD,
+      url: info.assetUrl,
+      title: 'PokeRogue 核心包',
+      description: '正在下载核心包',
+      mode: request.agent.Mode.BACKGROUND,
+      overwrite: true,
+      method: 'GET',
+      saveas: 'internal://cache/game.zip',
+      network: request.agent.Network.ANY,
+      metered: true,
+      roaming: true,
+      retry: true,
+      gauge: true,
+      notification: {
+        title: '正在下载核心包',
+        text: 'PokeRogue',
+        visibility: request.agent.VISIBILITY_COMPLETION | request.agent.VISIBILITY_PROGRESS,
+        wantAgent: agentObj
+      }
+    };
+
+    const task: request.agent.Task = await request.agent.create(this.ctx, config);
+    this.task = task;
+    this.tid = task.tid;
+
+    await new Promise<void>((resolve, reject) => {
+      task.on('progress', (p: request.agent.Progress) => {
+        const total: number = (p.sizes !== undefined && p.sizes.length > 0) ? p.sizes[0] : -1;
+        onProgress(p.processed, total);
+      });
+      task.on('completed', () => {
         this.task = null;
         if (this.cancelled) {
           reject(new Error('cancelled'));
           return;
         }
-        hilog.error(DOMAIN, TAG, 'downloadFile error: %{public}s', JSON.stringify(err));
+        hilog.info(DOMAIN, TAG, '%{public}s', 'download complete');
+        resolve();
+      });
+      task.on('failed', (p: request.agent.Progress) => {
+        this.task = null;
+        if (this.cancelled) {
+          reject(new Error('cancelled'));
+          return;
+        }
+        hilog.error(DOMAIN, TAG, 'download failed, state=%{public}d', p.state);
+        reject(new Error('download failed, state=' + p.state));
+      });
+      task.start().catch((err: BusinessError) => {
+        this.task = null;
+        if (this.cancelled) {
+          reject(new Error('cancelled'));
+          return;
+        }
+        hilog.error(DOMAIN, TAG, 'task.start error: %{public}s', JSON.stringify(err));
         reject(err);
       });
     });

@@ -50,6 +50,8 @@ struct Index {
     this.ctx = ctx;
     this.repo = new GameRepository(ctx);
     this.refresh();
+    // 清理上次被系统杀掉后残留的后台下载任务/通知
+    this.repo.cleanupStaleTasks();
   }
 
   private refresh(): void {
