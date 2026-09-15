@@ -192,10 +192,10 @@ entry/src/main/ets/
 | 文件 | 职责 |
 | --- | --- |
 | `model/Cheats.ets` | 作弊注册表 `CHEATS: Cheat[]`，每条 `{ id, name, desc, script }`。**新增作弊只改这里。** |
-| `model/CheatState.ets` | 内存单例 + 持久化（`pokerogue_settings` 的 `cheatMaster` / `cheatEnabledIds`）+ `buildBootScript()`（按启用清单拼接 script） |
+| `model/CheatState.ets` | 内存单例 + 持久化（`pokerogue_settings` 的 `cheatMaster` / `cheatEnabledIds` / `cheatParams`）+ `buildBootScript()`（按启用清单拼接 script，并注入 `__CHEAT_PARAMS__`） |
 | `LocalHttpServer.ets` | `/index.html` 注入 `<script src="/__cheats__.js">`；`/__cheats__.js` 请求时调 `buildBootScript()` 动态下发（`no-cache`） |
 | `pages/Settings.ets` | 「作弊模式」总开关（开启时弹账号风险确认框） |
-| `pages/Cheats.ets` | 条目列表页（每条一个 Switch），从首页就绪页「作弊设置」进入 |
+| `pages/Cheats.ets` | 条目列表页（每条一个 Switch；声明 `param` 的条目额外显示数值 Slider），从首页就绪页「作弊设置」进入 |
 | `pages/Index.ets` | 就绪页显示「作弊设置」入口（仅总开关开启时） |
 
 ### 添加一条作弊（步骤）
@@ -205,15 +205,18 @@ entry/src/main/ets/
      id: 'money',             // 唯一且稳定；持久化用它，发布后不要改
      name: '金钱修改',
      desc: '说明文字（显示在作弊页）',
-     script: '...你的 JS...'  // 在游戏脚本运行前注入
+     script: '...你的 JS...',  // 在游戏脚本运行前注入
+     // 可选：数值型参数（作弊页自动出现 Slider，脚本里读 __CHEAT_PARAMS__.<id>）
+     param: { id: 'money', label: '倍率', min: 1, max: 100, default: 10, step: 1, unit: 'x' }
    }
    ```
-2. **不需要改任何 UI/状态代码**：作弊页自动遍历 `CHEATS` 渲染，开关自动持久化。
+2. **不需要改任何 UI/状态代码**：作弊页自动遍历 `CHEATS` 渲染，开关与数值参数自动持久化。
 3. 验证：`hvigorw assembleHap` → 安装 → 设置开「作弊模式」→ 首页「作弊设置」打开该条 → 开始游戏 → 抓日志确认。
 
 ### script 运行环境与约定
 - **执行时机**：`index.html` 解析到 `<head>` 后、游戏自身脚本之前（加载时注入）。
 - **运行环境**：游戏页面 `http://127.0.0.1:18787`，可用 `window`/`document`/`performance` 等；适合 hook 原型、替换函数、改常量等「启动前改逻辑」。
+- **数值参数**：条目声明 `param` 后，`buildBootScript()` 会在 IIFE 顶部注入 `var __CHEAT_PARAMS__={ <paramId>: <value>, ... };`，脚本内用 `__CHEAT_PARAMS__.xxx` 读取（值已按 `min/max` 夹取）。
 - 多条按 `CHEATS` 顺序拼接，整体包在一个 IIFE 内；**每条单独 try/catch**，单条报错不影响其它（错误以 `CHEAT err <id>` 打到 `ARKWEB-CONSOLE`）。
 - 总开关关闭或无启用条目时，`/__cheats__.js` 返回空内容（不报错）。
 - **生效方式**：改配置后需**重新开始游戏**（全新加载才重新注入），游戏运行中不会热生效。
@@ -222,4 +225,5 @@ entry/src/main/ets/
 ### 注意
 - `script` 是字符串，注意转义（外层单引号则内部用双引号，或用反引号）；它是纯 JS，不受 ArkTS 类型限制。
 - ⚠️ 作弊会污染存档，官方有检测机制（可能被标记/封禁），仅离线使用，**勿导入在线版**。
-- v1 只支持布尔开关；若要「数值型参数」（如数量输入），需扩展 `Cheat` 接口与 `CheatState`。
+- **hook 游戏内部函数的坑**：游戏是 ES Module，模块作用域内的类/实例（如 `GameData`/`BattleScene`）**无法**从注入的普通脚本访问，`window.xxx = ...` 无效。需要 hook 时，优先选浏览器全局（如 `Storage.prototype`）。
+- 现有「糖果获取倍率」就是通过 hook `Storage.prototype.getItem/setItem` 拦截 `localStorage` 系统存档（key `data_Guest`，`btoa(encodeURIComponent(JSON))`）实现「增量 ×N」；存档字段为 `starterData[<speciesId>].candyCount`。
