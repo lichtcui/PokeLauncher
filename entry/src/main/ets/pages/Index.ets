@@ -467,24 +467,23 @@ struct Index {
           .fontColor('#DA3838')
       }
 
-      // 一排两键：暂停/继续为主（实心），取消下载为次（浅灰），点击后二次确认
-      Row({ space: 12 }) {
+      // 一排两键：暂停/继续为主（实心，适中宽度），取消下载仅文字
+      Row({ space: 16 }) {
         Button(this.paused ? '继续' : '暂停')
-          .layoutWeight(1)
-          .height(46)
-          .fontSize(17)
+          .width(140)
+          .height(44)
+          .fontSize(16)
           .backgroundColor('#DA3838')
           .fontColor('#FFFFFF')
           .onClick(() => this.togglePause())
         Button('取消下载')
-          .width(112)
-          .height(46)
           .fontSize(14)
-          .backgroundColor('#F0F0F0')
           .fontColor('#999999')
+          .backgroundColor('#00000000')
           .onClick(() => this.confirmCancel())
       }
       .width('80%')
+      .justifyContent(FlexAlign.Center)
       .margin({ top: 6 })
     }
     .width('100%')
