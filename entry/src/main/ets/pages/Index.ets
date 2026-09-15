@@ -6,6 +6,7 @@ import { hilog } from '@kit.PerformanceAnalysisKit';
 import { GameRepository, ReleaseInfo, normalizeVersion } from '../model/GameRepository';
 import { Notifier } from '../model/Notifier';
 import { setWindowBackground, HOME_BG_COLOR } from '../model/WindowHolder';
+import { PokeballLoader } from '../components/PokeballLoader';
 import { DEBUG_UI } from '../common/Const';
 
 const DOMAIN: number = 0x0000;
@@ -30,6 +31,31 @@ function formatBytes(n: number): string {
   return (n / 1024).toFixed(0) + ' KB';
 }
 
+/** 速度：8.2 MB/s / 356 KB/s */
+function formatSpeed(bytesPerSec: number): string {
+  if (bytesPerSec <= 0) {
+    return '';
+  }
+  return formatBytes(bytesPerSec) + '/s';
+}
+
+/** 剩余时间（中文概数）：约 3 分钟 / 约 25 秒 */
+function formatDuration(seconds: number): string {
+  if (seconds <= 0 || !isFinite(seconds)) {
+    return '';
+  }
+  if (seconds < 60) {
+    return '约 ' + Math.max(1, Math.round(seconds)) + ' 秒';
+  }
+  const minutes: number = Math.round(seconds / 60);
+  if (minutes < 60) {
+    return '约 ' + minutes + ' 分钟';
+  }
+  const hours: number = Math.floor(minutes / 60);
+  const rest: number = minutes % 60;
+  return '约 ' + hours + ' 小时' + (rest > 0 ? ' ' + rest + ' 分钟' : '');
+}
+
 /**
  * 首页启动器：未下载 / 下载中 / 解压中 / 已就绪。
  * 核心路径：进入 → 下载核心包（已下载可跳过）→ 游玩。
@@ -41,6 +67,8 @@ struct Index {
   @State progress: number = 0;
   @State receivedText: string = '';
   @State totalText: string = '';
+  @State speedText: string = '';
+  @State etaText: string = '';
   @State version: string = '';
   @State error: string = '';
   @State sourceText: string = '';
@@ -53,6 +81,9 @@ struct Index {
   private ctx: common.UIAbilityContext | null = null;
   private adoptDone: boolean = false;
   private expectedSize: number = 0;
+  private speedBps: number = 0;
+  private lastReceived: number = 0;
+  private lastTime: number = 0;
 
   aboutToAppear(): void {
     const ctx = this.getUIContext().getHostContext() as common.UIAbilityContext;
@@ -103,6 +134,7 @@ struct Index {
       if (adopted && !this.adoptDone) {
         this.stage = Stage.Downloading;
         this.sourceText = '';
+        this.resetSpeed();
         // 接管后补一次资源包大小，保证进度百分比可计算
         repo.fetchRelease().then((info: ReleaseInfo) => {
           this.expectedSize = info.assetSize;
@@ -118,9 +150,43 @@ struct Index {
 
   private applyProgress(received: number, total: number, fallbackTotal: number): void {
     const t: number = total > 0 ? total : fallbackTotal;
-    this.progress = t > 0 ? Math.floor(received * 100 / t) : 0;
+    this.progress = t > 0 ? Math.min(100, Math.floor(received * 100 / t)) : 0;
     this.receivedText = formatBytes(received);
     this.totalText = t > 0 ? formatBytes(t) : '未知大小';
+
+    // 速度：指数平滑，避免抖动
+    const now: number = Date.now();
+    if (this.lastTime > 0 && received >= this.lastReceived) {
+      const dt: number = (now - this.lastTime) / 1000;
+      if (dt >= 0.3) {
+        const inst: number = (received - this.lastReceived) / dt;
+        this.speedBps = this.speedBps > 0 ? this.speedBps * 0.6 + inst * 0.4 : inst;
+        this.lastReceived = received;
+        this.lastTime = now;
+      }
+    } else {
+      this.lastReceived = received;
+      this.lastTime = now;
+    }
+
+    if (this.paused) {
+      this.speedText = '';
+      this.etaText = '已暂停';
+    } else if (this.speedBps > 1024) {
+      this.speedText = formatSpeed(this.speedBps);
+      this.etaText = t > received ? '剩余' + formatDuration((t - received) / this.speedBps) : '';
+    } else {
+      this.speedText = '测速中…';
+      this.etaText = '';
+    }
+  }
+
+  private resetSpeed(): void {
+    this.speedBps = 0;
+    this.lastReceived = 0;
+    this.lastTime = 0;
+    this.speedText = '';
+    this.etaText = '';
   }
 
   /** 每次打开 App 自动检查更新（无弹窗、无提示文字） */
@@ -150,6 +216,7 @@ struct Index {
     this.progress = 0;
     this.error = '';
     this.paused = false;
+    this.resetSpeed();
     this.sourceText = '正在测速选择下载源…';
     if (this.ctx !== null) {
       Notifier.requestPermission(this.ctx);
@@ -210,9 +277,12 @@ struct Index {
     if (this.paused) {
       repo.resumeDownload();
       this.paused = false;
+      this.resetSpeed();
     } else {
       repo.pauseDownload();
       this.paused = true;
+      this.speedText = '';
+      this.etaText = '已暂停';
     }
   }
 
@@ -308,16 +378,39 @@ struct Index {
   @Builder
   downloadingView() {
     Column({ space: 14 }) {
+      PokeballLoader({ mode: 'shake', active: !this.paused })
       Text(this.paused ? '已暂停' : '正在下载核心包').fontSize(18).fontWeight(FontWeight.Medium)
-      if (DEBUG_UI && this.sourceText.length > 0) {
-        Text(this.sourceText).fontSize(12).fontColor('#AAAAAA')
+
+      // 加粗圆角进度条
+      Stack({ alignContent: Alignment.Start }) {
+        Row()
+          .width('100%')
+          .height(14)
+          .borderRadius(7)
+          .backgroundColor('#EEEEEE')
+        Row()
+          .width(Math.max(0, Math.min(100, this.progress)) + '%')
+          .height(14)
+          .borderRadius(7)
+          .backgroundColor('#DA3838')
       }
-      Progress({ value: this.progress, total: 100, type: ProgressType.Linear })
-        .width('80%')
-        .height(8)
-      Text(this.progress.toString() + '%').fontSize(22).fontWeight(FontWeight.Bold)
+      .width('80%')
+
+      Text(this.progress.toString() + '%').fontSize(26).fontWeight(FontWeight.Bold)
       Text(this.receivedText + ' / ' + this.totalText).fontSize(14).fontColor('#666666')
+
+      // 速度 · 剩余时间
+      if (this.speedText.length > 0 || this.etaText.length > 0) {
+        Text(this.speedText + (this.speedText.length > 0 && this.etaText.length > 0 ? ' · ' : '') + this.etaText)
+          .fontSize(13)
+          .fontColor('#DA3838')
+      }
+
       Text('下载中可切后台，完成后会通知你').fontSize(12).fontColor('#AAAAAA')
+      if (DEBUG_UI && this.sourceText.length > 0) {
+        Text(this.sourceText).fontSize(11).fontColor('#BBBBBB')
+      }
+
       Row({ space: 16 }) {
         Button(this.paused ? '继续' : '暂停')
           .width(120)
@@ -342,8 +435,8 @@ struct Index {
   @Builder
   extractingView() {
     Column({ space: 14 }) {
+      PokeballLoader({ mode: 'open', active: true })
       Text('正在解压核心包…').fontSize(18).fontWeight(FontWeight.Medium)
-      LoadingProgress().width(48).height(48).color('#DA3838')
       Text('请勿关闭应用').fontSize(13).fontColor('#888888')
     }
     .width('100%')
