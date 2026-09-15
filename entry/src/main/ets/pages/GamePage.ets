@@ -8,6 +8,21 @@ import { GAME_START_URL, GAME_DIR_NAME } from '../common/Const';
 const DOMAIN: number = 0x0000;
 const TAG: string = 'GamePage';
 
+/** 切后台时暂停游戏音频（best-effort，PokeRogue 用 Phaser/WebAudio） */
+const JS_PAUSE_AUDIO: string =
+  '(function(){try{' +
+  'document.querySelectorAll("audio,video").forEach(function(e){e.pause();});' +
+  'var g=window.game||window.PhaserGame;' +
+  'if(g&&g.sound&&g.sound.pauseAll){g.sound.pauseAll();}' +
+  '}catch(e){}})();';
+
+/** 回前台恢复音频 */
+const JS_RESUME_AUDIO: string =
+  '(function(){try{' +
+  'var g=window.game||window.PhaserGame;' +
+  'if(g&&g.sound&&g.sound.resumeAll){g.sound.resumeAll();}' +
+  '}catch(e){}})();';
+
 /**
  * 离线游戏页：Web 组件加载 https://pokerogue.local/index.html，
  * 由 LocalContentProvider 从沙箱 filesDir/game 提供资源。
@@ -72,5 +87,22 @@ struct GamePage {
   onBackPress(): boolean {
     router.back();
     return true;
+  }
+
+  onPageHide(): void {
+    // 切后台/离开页面：保留游戏但停止背景音乐
+    try {
+      this.controller.runJavaScript(JS_PAUSE_AUDIO);
+    } catch (err) {
+      hilog.warn(DOMAIN, TAG, 'pause audio failed: %{public}s', JSON.stringify(err));
+    }
+  }
+
+  onPageShow(): void {
+    try {
+      this.controller.runJavaScript(JS_RESUME_AUDIO);
+    } catch (err) {
+      hilog.warn(DOMAIN, TAG, 'resume audio failed: %{public}s', JSON.stringify(err));
+    }
   }
 }

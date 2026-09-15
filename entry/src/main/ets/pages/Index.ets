@@ -3,6 +3,7 @@ import { router, promptAction } from '@kit.ArkUI';
 import { BusinessError } from '@kit.BasicServicesKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { GameRepository, ReleaseInfo } from '../model/GameRepository';
+import { Notifier } from '../model/Notifier';
 
 const DOMAIN: number = 0x0000;
 const TAG: string = 'Home';
@@ -42,9 +43,11 @@ struct Index {
   @State error: string = '';
 
   private repo: GameRepository | null = null;
+  private ctx: common.UIAbilityContext | null = null;
 
   aboutToAppear(): void {
     const ctx = this.getUIContext().getHostContext() as common.UIAbilityContext;
+    this.ctx = ctx;
     this.repo = new GameRepository(ctx);
     this.refresh();
   }
@@ -69,6 +72,9 @@ struct Index {
     this.progress = 0;
     this.error = '';
     this.message = '';
+    if (this.ctx !== null) {
+      Notifier.requestPermission(this.ctx);
+    }
     const repo: GameRepository = this.repo;
     repo.fetchRelease()
       .then((info: ReleaseInfo) => {
@@ -90,11 +96,13 @@ struct Index {
       .then(() => {
         this.version = repo.readVersion();
         this.stage = Stage.Ready;
+        Notifier.publishComplete();
         promptAction.showToast({ message: '核心包下载完成' });
       })
       .catch((err: BusinessError) => {
         hilog.error(DOMAIN, TAG, 'download flow failed: %{public}s', JSON.stringify(err));
         this.error = '下载失败：' + (err.message !== undefined ? err.message : '未知错误');
+        Notifier.publishFailed(this.error);
         this.stage = repo.hasGameFiles() ? Stage.Ready : Stage.NotDownloaded;
       });
   }

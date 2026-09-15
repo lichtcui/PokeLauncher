@@ -17,6 +17,13 @@ export default class EntryAbility extends UIAbility {
   onWindowStageCreate(windowStage: window.WindowStage): void {
     hilog.info(DOMAIN, TAG, '%{public}s', 'Ability onWindowStageCreate');
 
+    // 默认竖屏（后续可在设置中扩展「跟随系统 / 横屏锁定」）
+    try {
+      windowStage.getMainWindowSync().setPreferredOrientation(window.Orientation.PORTRAIT);
+    } catch (err) {
+      hilog.warn(DOMAIN, TAG, 'setPreferredOrientation failed: %{public}s', JSON.stringify(err));
+    }
+
     windowStage.loadContent('pages/Index', (err) => {
       if (err.code) {
         hilog.error(DOMAIN, TAG, 'Failed to load the content. Cause: %{public}s', JSON.stringify(err) ?? '');

@@ -1,0 +1,53 @@
+import { notificationManager } from '@kit.NotificationKit';
+import { common } from '@kit.AbilityKit';
+import { BusinessError } from '@kit.BasicServicesKit';
+import { hilog } from '@kit.PerformanceAnalysisKit';
+
+const DOMAIN: number = 0x0000;
+const TAG: string = 'Notifier';
+
+/** 完成/失败通知 id（进度通知由下载后台任务自带） */
+const ID_COMPLETE: number = 1001;
+const ID_FAILED: number = 1002;
+
+/**
+ * 通知封装：
+ * - 下载进度由 request.downloadFile 的 background 通知负责；
+ * - 本类负责「通知权限申请」与「完成/失败」通知。
+ */
+export class Notifier {
+  /** 申请通知权限（首次下载前调用；用户拒绝后不再弹窗） */
+  static requestPermission(ctx: common.UIAbilityContext): void {
+    notificationManager.requestEnableNotification(ctx)
+      .then(() => {
+        hilog.info(DOMAIN, TAG, '%{public}s', 'notification enabled');
+      })
+      .catch((err: BusinessError) => {
+        hilog.warn(DOMAIN, TAG, 'requestEnableNotification failed: %{public}s', JSON.stringify(err));
+      });
+  }
+
+  static publishComplete(): void {
+    Notifier.publish(ID_COMPLETE, '核心包下载完成', '点击开始游戏');
+  }
+
+  static publishFailed(reason: string): void {
+    Notifier.publish(ID_FAILED, '核心包下载失败', reason.length > 0 ? reason : '点击重试');
+  }
+
+  private static publish(id: number, title: string, text: string): void {
+    const request: notificationManager.NotificationRequest = {
+      id: id,
+      content: {
+        notificationContentType: notificationManager.ContentType.NOTIFICATION_CONTENT_BASIC_TEXT,
+        normal: {
+          title: title,
+          text: text
+        }
+      }
+    };
+    notificationManager.publish(request).catch((err: BusinessError) => {
+      hilog.warn(DOMAIN, TAG, 'publish failed: %{public}s', JSON.stringify(err));
+    });
+  }
+}
