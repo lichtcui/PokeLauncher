@@ -51,6 +51,7 @@ export class GameRepository {
   private tid: string = '';
   private cancelled: boolean = false;
   private paused: boolean = false;
+  private pollTimer: number = -1;
 
   constructor(ctx: common.UIAbilityContext) {
     this.ctx = ctx;
@@ -84,7 +85,7 @@ export class GameRepository {
   /** 读取本地已安装版本号；不存在返回空串 */
   readVersion(): string {
     try {
-      return fs.readTextSync(this.versionFile);
+      return fs.readTextSync(this.versionFile).trim();
     } catch (err) {
       return '';
     }
@@ -222,6 +223,7 @@ export class GameRepository {
   ): Promise<void> {
     this.cancelled = false;
     this.paused = false;
+    this.stopPolling();
     const urls: string[] = await this.rankSources(this.buildDownloadUrls(info.assetUrl));
     let lastErr: Error | null = null;
     for (let i = 0; i < urls.length; i++) {
@@ -262,66 +264,136 @@ export class GameRepository {
     onError: (msg: string) => void
   ): Promise<boolean> {
     try {
+      const all: string[] = await request.agent.search({
+        action: request.agent.Action.DOWNLOAD,
+        mode: request.agent.Mode.BACKGROUND
+      });
+      if (all.length === 0) {
+        return false;
+      }
       const completed: string[] = await request.agent.search({
         action: request.agent.Action.DOWNLOAD,
         mode: request.agent.Mode.BACKGROUND,
         state: request.agent.State.COMPLETED
       });
-      if (completed.length > 0) {
-        if (!this.hasGameFiles()) {
-          onExtractStart();
-          await this.extract();
-          onDone();
-        }
-        await request.agent.remove(completed[0]);
-        return true;
-      }
+      const active: string[] = all.filter((id: string) => completed.indexOf(id) < 0);
 
-      const active: string[] = await request.agent.search({
-        action: request.agent.Action.DOWNLOAD,
-        mode: request.agent.Mode.BACKGROUND
-      });
-      if (active.length === 0 || this.hasGameFiles()) {
-        for (let i = 0; i < active.length; i++) {
-          await request.agent.remove(active[i]);
-        }
+      // 已安装：清掉所有残留任务（含历史通知）
+      if (this.hasGameFiles()) {
+        await this.removeTasks(all);
         return false;
       }
 
-      const task: request.agent.Task = await request.agent.getTask(this.ctx, active[0]);
-      this.task = task;
-      this.tid = task.tid;
-      this.cancelled = false;
-      this.paused = false;
-      task.on('progress', (p: request.agent.Progress) => {
-        const total: number = (p.sizes !== undefined && p.sizes.length > 0) ? p.sizes[0] : -1;
-        onProgress(p.processed, total);
-      });
-      task.on('completed', () => {
-        this.task = null;
-        if (this.cancelled) {
-          return;
-        }
+      // 有已完成任务且 zip 还在：直接解压
+      if (completed.length > 0 && this.hasZip()) {
         onExtractStart();
-        this.extract().then(() => {
-          this.removeTask();
+        try {
+          await this.extract();
+          await this.removeTasks(all);
           onDone();
-        }).catch((err: BusinessError) => {
+          return true;
+        } catch (err) {
           hilog.error(DOMAIN, TAG, 'adopt extract failed: %{public}s', JSON.stringify(err));
-          onError('解压失败');
-        });
-      });
-      task.on('failed', (p: request.agent.Progress) => {
-        this.task = null;
-        if (this.cancelled) {
-          return;
         }
-        onError('下载失败');
-      });
-      return true;
+      }
+
+      // 有进行中的任务：接管第一个，清掉其余
+      if (active.length > 0) {
+        const task: request.agent.Task = await request.agent.getTask(this.ctx, active[0]);
+        for (let i = 1; i < active.length; i++) {
+          try {
+            await request.agent.remove(active[i]);
+          } catch (err) {
+            hilog.warn(DOMAIN, TAG, 'remove extra task failed: %{public}s', JSON.stringify(err));
+          }
+        }
+        this.task = task;
+        this.tid = task.tid;
+        this.cancelled = false;
+        this.paused = false;
+        // 重新显示该任务的通知（App 重启后通知可能已被清理）
+        request.agent.show(task.tid).catch((err: BusinessError) => {
+          hilog.warn(DOMAIN, TAG, 'show adopted task failed: %{public}s', JSON.stringify(err));
+        });
+        task.on('progress', (p: request.agent.Progress) => {
+          const total: number = (p.sizes !== undefined && p.sizes.length > 0) ? p.sizes[0] : -1;
+          onProgress(p.processed, total);
+        });
+        // 接管的任务不一定会回调 progress，用文件大小轮询兜底
+        this.startPolling(onProgress);
+        task.on('completed', () => {
+          this.stopPolling();
+          this.task = null;
+          if (this.cancelled) {
+            return;
+          }
+          onExtractStart();
+          this.extract().then(() => {
+            this.removeTask();
+            onDone();
+          }).catch((err: BusinessError) => {
+            hilog.error(DOMAIN, TAG, 'adopt extract failed: %{public}s', JSON.stringify(err));
+            onError('解压失败');
+          });
+        });
+        task.on('failed', (p: request.agent.Progress) => {
+          this.stopPolling();
+          this.task = null;
+          if (this.cancelled) {
+            return;
+          }
+          onError('下载失败');
+        });
+        return true;
+      }
+
+      // 其余（失败/已移除）全部清掉
+      await this.removeTasks(all);
+      return false;
     } catch (err) {
       hilog.warn(DOMAIN, TAG, 'adoptDownload failed: %{public}s', JSON.stringify(err));
       return false;
+    }
+  }
+
+  private hasZip(): boolean {
+    try {
+      return fs.accessSync(this.zipPath);
+    } catch (err) {
+      return false;
+    }
+  }
+
+  /** 接管任务时用文件大小轮询兜底进度 */
+  private startPolling(onProgress: (received: number, total: number) => void): void {
+    this.stopPolling();
+    this.pollTimer = setInterval(() => {
+      try {
+        if (fs.accessSync(this.zipPath)) {
+          const size: number = fs.statSync(this.zipPath).size;
+          onProgress(size, -1);
+        }
+      } catch (err) {
+        // 文件暂不可读时忽略
+      }
+    }, 1000);
+  }
+
+  private stopPolling(): void {
+    if (this.pollTimer >= 0) {
+      clearInterval(this.pollTimer);
+      this.pollTimer = -1;
+    }
+  }
+
+  private async removeTasks(tids: string[]): Promise<void> {
+    for (let i = 0; i < tids.length; i++) {
+      try {
+        await request.agent.remove(tids[i]);
+      } catch (err) {
+        hilog.warn(DOMAIN, TAG, 'remove task %{public}s failed: %{public}s',
+          tids[i], JSON.stringify(err));
+      }
     }
   }
 
@@ -385,8 +457,8 @@ export class GameRepository {
     const config: request.agent.Config = {
       action: request.agent.Action.DOWNLOAD,
       url: url,
-      title: 'PokeRogue 核心包',
-      description: '正在下载核心包',
+      title: '正在下载核心包',
+      description: 'PokeRogue',
       mode: request.agent.Mode.BACKGROUND,
       overwrite: true,
       method: 'GET',
@@ -397,9 +469,7 @@ export class GameRepository {
       retry: false,
       gauge: true,
       notification: {
-        title: '正在下载核心包',
-        text: 'PokeRogue',
-        visibility: request.agent.VISIBILITY_COMPLETION | request.agent.VISIBILITY_PROGRESS,
+        visibility: request.agent.VISIBILITY_PROGRESS,
         wantAgent: agentObj
       }
     };
@@ -430,6 +500,7 @@ export class GameRepository {
   cancelDownload(): void {
     this.cancelled = true;
     this.paused = false;
+    this.stopPolling();
     const t: request.agent.Task | null = this.task;
     this.task = null;
     const id: string = t !== null ? t.tid : this.tid;
@@ -443,6 +514,7 @@ export class GameRepository {
   }
 
   private async removeTask(): Promise<void> {
+    this.stopPolling();
     const id: string = this.tid;
     this.tid = '';
     this.task = null;
@@ -486,15 +558,22 @@ export class GameRepository {
     });
   }
 
-  /** 删除本地核心包 */
-  clear(): void {
+  /** 删除本地核心包（异步，避免同步删除 3 万+ 文件阻塞主线程导致闪退） */
+  async clear(): Promise<void> {
+    this.stopPolling();
     try {
       if (fs.accessSync(this.gameDir)) {
-        fs.rmdirSync(this.gameDir);
+        await fs.rmdir(this.gameDir);
       }
     } catch (err) {
-      hilog.warn(DOMAIN, TAG, 'clear error: %{public}s', JSON.stringify(err));
+      hilog.warn(DOMAIN, TAG, 'clear gameDir error: %{public}s', JSON.stringify(err));
     }
-    this.removePartialZip();
+    try {
+      if (fs.accessSync(this.zipPath)) {
+        await fs.unlink(this.zipPath);
+      }
+    } catch (err) {
+      hilog.warn(DOMAIN, TAG, 'clear zip error: %{public}s', JSON.stringify(err));
+    }
   }
 }

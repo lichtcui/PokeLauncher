@@ -46,15 +46,19 @@ struct Index {
   @State paused: boolean = false;
   @State updateAvailable: boolean = false;
   @State checkingUpdate: boolean = false;
+  @State deleting: boolean = false;
 
   private repo: GameRepository | null = null;
   private ctx: common.UIAbilityContext | null = null;
   private adoptDone: boolean = false;
+  private expectedSize: number = 0;
 
   aboutToAppear(): void {
     const ctx = this.getUIContext().getHostContext() as common.UIAbilityContext;
     this.ctx = ctx;
     this.repo = new GameRepository(ctx);
+    // 清理上次遗留的通知（下载进度/完成等）
+    Notifier.cancelAll();
     this.init();
   }
 
@@ -72,7 +76,7 @@ struct Index {
     // 尝试接管上次未完成的后台下载任务
     repo.adoptDownload(
       (received: number, total: number) => {
-        this.applyProgress(received, total, 0);
+        this.applyProgress(received, total, this.expectedSize);
       },
       () => {
         this.stage = Stage.Extracting;
@@ -93,6 +97,13 @@ struct Index {
       if (adopted && !this.adoptDone) {
         this.stage = Stage.Downloading;
         this.sourceText = '';
+        // 接管后补一次资源包大小，保证进度百分比可计算
+        repo.fetchRelease().then((info: ReleaseInfo) => {
+          this.expectedSize = info.assetSize;
+          this.totalText = formatBytes(info.assetSize);
+        }).catch((err: BusinessError) => {
+          hilog.warn(DOMAIN, TAG, 'adopt fetchRelease failed: %{public}s', JSON.stringify(err));
+        });
       } else if (!adopted) {
         this.stage = Stage.NotDownloaded;
       }
@@ -212,14 +223,43 @@ struct Index {
     this.stage = repo.hasGameFiles() ? Stage.Ready : Stage.NotDownloaded;
   }
 
+  /** 删除是危险操作：先确认，再异步删除并显示进度 */
   private deleteGame(): void {
-    const repo: GameRepository | null = this.repo;
-    if (repo === null) {
+    if (this.deleting || this.repo === null) {
       return;
     }
-    repo.clear();
-    this.version = '';
-    this.updateAvailable = false;
+    promptAction.showDialog({
+      title: '删除本地数据',
+      message: '将删除已下载的游戏核心包（约 531MB），游戏存档不受影响。确定删除吗？',
+      buttons: [
+        { text: '取消', color: '#666666' },
+        { text: '删除', color: '#DA3838' }
+      ]
+    }).then((result: promptAction.ShowDialogSuccessResponse) => {
+      if (result.index === 1) {
+        this.doDelete();
+      }
+    }).catch((err: BusinessError) => {
+      hilog.warn(DOMAIN, TAG, 'showDialog failed: %{public}s', JSON.stringify(err));
+    });
+  }
+
+  private async doDelete(): Promise<void> {
+    const repo: GameRepository | null = this.repo;
+    if (repo === null || this.deleting) {
+      return;
+    }
+    this.deleting = true;
+    this.error = '';
+    try {
+      await repo.clear();
+      this.version = '';
+      this.updateAvailable = false;
+    } catch (err) {
+      hilog.error(DOMAIN, TAG, 'clear failed: %{public}s', JSON.stringify(err));
+      this.error = '删除失败';
+    }
+    this.deleting = false;
     this.init();
   }
 
@@ -327,11 +367,12 @@ struct Index {
               this.startDownload();
             }
           })
-        Button('删除数据')
+        Button(this.deleting ? '删除中…' : '删除数据')
           .fontSize(14)
           .height(38)
+          .enabled(!this.deleting)
           .backgroundColor('#EEEEEE')
-          .fontColor('#333333')
+          .fontColor(this.deleting ? '#999999' : '#333333')
           .onClick(() => this.deleteGame())
       }
       Button('刷新缓存')
@@ -345,28 +386,45 @@ struct Index {
   }
 
   build() {
-    Column() {
+    Stack() {
       Column() {
-        if (this.stage === Stage.Checking) {
-          LoadingProgress().width(40).height(40)
-        } else if (this.stage === Stage.NotDownloaded) {
-          this.notDownloadedView()
-        } else if (this.stage === Stage.Downloading) {
-          this.downloadingView()
-        } else if (this.stage === Stage.Extracting) {
-          this.extractingView()
-        } else {
-          this.readyView()
-        }
+        Column() {
+          if (this.stage === Stage.Checking) {
+            LoadingProgress().width(40).height(40)
+          } else if (this.stage === Stage.NotDownloaded) {
+            this.notDownloadedView()
+          } else if (this.stage === Stage.Downloading) {
+            this.downloadingView()
+          } else if (this.stage === Stage.Extracting) {
+            this.extractingView()
+          } else {
+            this.readyView()
+          }
 
-        if (this.error.length > 0) {
-          Text(this.error).fontSize(13).fontColor('#DA3838').margin({ top: 16 })
-            .padding({ left: 24, right: 24 })
+          if (this.error.length > 0) {
+            Text(this.error).fontSize(13).fontColor('#DA3838').margin({ top: 16 })
+              .padding({ left: 24, right: 24 })
+          }
         }
+        .layoutWeight(1)
+        .width('100%')
+        .justifyContent(FlexAlign.Center)
       }
-      .layoutWeight(1)
       .width('100%')
-      .justifyContent(FlexAlign.Center)
+      .height('100%')
+
+      // 删除中的全屏遮罩，避免误操作和看起来没反应
+      if (this.deleting) {
+        Column({ space: 14 }) {
+          Text('正在删除本地数据…').fontSize(18).fontWeight(FontWeight.Medium)
+          LoadingProgress().width(48).height(48).color('#DA3838')
+          Text('请勿关闭应用').fontSize(13).fontColor('#888888')
+        }
+        .width('100%')
+        .height('100%')
+        .justifyContent(FlexAlign.Center)
+        .backgroundColor('#FFFFFF')
+      }
     }
     .width('100%')
     .height('100%')

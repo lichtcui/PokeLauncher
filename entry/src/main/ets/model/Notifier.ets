@@ -27,6 +27,13 @@ export class Notifier {
       });
   }
 
+  /** 清空本应用的所有通知（含历史残留的下载通知） */
+  static cancelAll(): void {
+    notificationManager.cancelAll().catch((err: BusinessError) => {
+      hilog.warn(DOMAIN, TAG, 'cancelAll failed: %{public}s', JSON.stringify(err));
+    });
+  }
+
   static publishComplete(): void {
     Notifier.publish(ID_COMPLETE, '核心包下载完成', '点击开始游戏');
   }

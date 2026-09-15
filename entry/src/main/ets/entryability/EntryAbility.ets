@@ -35,11 +35,12 @@ export default class EntryAbility extends UIAbility {
     try {
       const win: window.Window = windowStage.getMainWindowSync();
       win.setPreferredOrientation(window.Orientation.PORTRAIT);
-      // 全屏：布局延伸到系统栏下方，并隐藏状态栏/导航栏，消除底部白条
-      win.setWindowLayoutFullScreen(true).catch((err: Error) => {
+      // 保留顶部状态栏（时间/电量，同时避开挖孔摄像头），隐藏底部导航栏（避免底部白条）。
+      // 不使用 layoutFullScreen，让内容区域自动避开状态栏。
+      win.setWindowLayoutFullScreen(false).catch((err: Error) => {
         hilog.warn(DOMAIN, TAG, 'setWindowLayoutFullScreen failed: %{public}s', JSON.stringify(err));
       });
-      win.setWindowSystemBarEnable([]).catch((err: Error) => {
+      win.setWindowSystemBarEnable(['status']).catch((err: Error) => {
         hilog.warn(DOMAIN, TAG, 'setWindowSystemBarEnable failed: %{public}s', JSON.stringify(err));
       });
     } catch (err) {
