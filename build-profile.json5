@@ -4,7 +4,7 @@
     "products": [
       {
         "name": "default",
-        "compatibleSdkVersion": "26.0.0",
+        "compatibleSdkVersion": "6.1.1(24)",
         "runtimeOS": "HarmonyOS",
         "buildOption": {
           "strictMode": {
@@ -12,7 +12,7 @@
             "useNormalizedOHMUrl": true
           }
         },
-        "targetSdkVersion": ""
+        "targetSdkVersion": "6.1.1(24)"
       }
     ],
     "buildModeSet": [
