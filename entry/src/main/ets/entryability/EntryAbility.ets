@@ -1,6 +1,8 @@
 import { AbilityConstant, UIAbility, Want } from '@kit.AbilityKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { window } from '@kit.ArkUI';
+import { startSharedServer } from '../model/LocalHttpServer';
+import { GAME_DIR_NAME } from '../common/Const';
 
 const DOMAIN: number = 0x0000;
 const TAG: string = 'PokeRogue';
@@ -17,11 +19,22 @@ export default class EntryAbility extends UIAbility {
   onWindowStageCreate(windowStage: window.WindowStage): void {
     hilog.info(DOMAIN, TAG, '%{public}s', 'Ability onWindowStageCreate');
 
+    // 提前启动本地 HTTP 服务（游戏页直接加载固定地址，避免端口未就绪）
+    startSharedServer(this.context.filesDir + '/' + GAME_DIR_NAME);
+
     // 默认竖屏（后续可在设置中扩展「跟随系统 / 横屏锁定」）
     try {
-      windowStage.getMainWindowSync().setPreferredOrientation(window.Orientation.PORTRAIT);
+      const win: window.Window = windowStage.getMainWindowSync();
+      win.setPreferredOrientation(window.Orientation.PORTRAIT);
+      // 全屏：布局延伸到系统栏下方，并隐藏状态栏/导航栏，消除底部白条
+      win.setWindowLayoutFullScreen(true).catch((err: Error) => {
+        hilog.warn(DOMAIN, TAG, 'setWindowLayoutFullScreen failed: %{public}s', JSON.stringify(err));
+      });
+      win.setWindowSystemBarEnable([]).catch((err: Error) => {
+        hilog.warn(DOMAIN, TAG, 'setWindowSystemBarEnable failed: %{public}s', JSON.stringify(err));
+      });
     } catch (err) {
-      hilog.warn(DOMAIN, TAG, 'setPreferredOrientation failed: %{public}s', JSON.stringify(err));
+      hilog.warn(DOMAIN, TAG, 'window setup failed: %{public}s', JSON.stringify(err));
     }
 
     windowStage.loadContent('pages/Index', (err) => {
