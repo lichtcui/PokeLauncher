@@ -4,8 +4,7 @@ import { isMasterEnabled, isCheatEnabled, toggleCheat, getParamNumber, setParam 
 
 /**
  * 作弊条目页（独立页面）：从首页就绪页的「作弊设置」入口进入。
- * 条目按生效时机分组展示（开始游戏时生效 / 读档后生效），
- * 组内条目统一为「加载时注入」，更改在开始游戏时随全新加载生效。
+ * 条目按分组展示（倍率修改 / 其他），均为「实时生效」（开启后无需重启）。
  * 声明了 param 的条目额外显示一个数值滑块（倍率等）。
  */
 @Entry
@@ -68,6 +67,20 @@ struct Cheats {
     setParam(p.id, v);
   }
 
+  /** 参数当前值的显示文本：优先用 labels 映射，否则 unit + 数值 */
+  private paramText(index: number): string {
+    const p: CheatParam | undefined = CHEATS[index].param;
+    if (p === undefined) {
+      return '';
+    }
+    const v: number = this.paramValues[index];
+    const labels: string[] | undefined = p.labels;
+    if (labels !== undefined && v >= 0 && v < labels.length) {
+      return labels[v];
+    }
+    return (p.unit !== undefined ? p.unit : '') + v;
+  }
+
   build() {
     Column() {
       // 顶部返回栏
@@ -86,12 +99,18 @@ struct Cheats {
       .padding({ left: 8, right: 16, top: 8, bottom: 4 })
 
       // 风险提示（常驻）
-      Row() {
+      Column() {
         Text('账号风险：开启作弊后存档可能被官方标记/封禁，且已污染的存档不建议导入在线版。')
           .fontSize(12)
           .fontColor('#DA3838')
-          .layoutWeight(1)
+          .width('100%')
+        Text('兼容性风险：作弊依赖游戏内部实现，游戏更新后可能失效或表现异常。')
+          .fontSize(12)
+          .fontColor('#C77700')
+          .width('100%')
+          .margin({ top: 6 })
       }
+      .alignItems(HorizontalAlign.Start)
       .width('100%')
       .padding(12)
       .backgroundColor('#FFF3F3')
@@ -178,7 +197,7 @@ struct Cheats {
                         .selectedColor('#DA3838')
                         .enabled(this.masterOn && this.flags[this.cheatIndex(c.id)])
                         .onChange((v: number, mode: SliderChangeMode) => this.onParamChange(this.cheatIndex(c.id), v))
-                      Text((c.param.unit !== undefined ? c.param.unit : '') + this.paramValues[this.cheatIndex(c.id)])
+                      Text(this.paramText(this.cheatIndex(c.id)))
                         .fontSize(14)
                         .fontColor('#333333')
                         .width(56)
