@@ -2,7 +2,7 @@
 
 本仓库是 **HarmonyOS NEXT 原生 HAP 项目**（ArkTS）。本文件记录开发/编译/真机验证的操作步骤与约定，供后续 AI 或开发者直接照做。
 
-> 技术方案见 `方案.md`，UI 设计见 `设计.md`，项目说明见 `README.md`。
+> 技术方案见 `方案.md`，项目说明见 `README.md`。
 
 ---
 
@@ -86,7 +86,7 @@ HDC=/Applications/DevEco-Studio.app/Contents/sdk/default/openharmony/toolchains/
 HPID=$!; sleep 1; ...触发操作...; kill $HPID
 
 # 抓完过滤（本 App 的 tag 形如 A00000/<Tag>）
-rg -i "GameRepository|GamePage|Home|LocalHttp|Notifier" /tmp/log.txt
+rg -i "GameRepository|GamePage|Home|Settings|LocalHttp|Notifier" /tmp/log.txt
 ```
 
 - 本 App 代码里的 `hilog.info(0x0000, TAG, ...)` 会以 `A00000/<TAG>` 出现。
@@ -117,7 +117,7 @@ entry/src/main/ets/
 ├─ common/
 │  ├─ Const.ets                    # 常量（URL/镜像/DEBUG_UI/FORCE_CANVAS 等）
 │  └─ Mime.ets                     # 扩展名 → MIME
-├─ components/PokeballLoader.ets   # 精灵球动画（shake/open）
+├─ components/PokeballLoader.ets   # 精灵球动画（shake=下载/解压摇晃；open=逐帧打开，暂未使用）
 ├─ model/
 │  ├─ GameRepository.ets           # 下载(request.agent+镜像) / 解压(zlib) / 删除 / 版本 / 接管
 │  ├─ LocalHttpServer.ets          # 本地 HTTP 服务(127.0.0.1:18787) + index.html 注入
@@ -125,8 +125,9 @@ entry/src/main/ets/
 │  ├─ Notifier.ets                 # 通知权限 + 完成/失败通知
 │  └─ WindowHolder.ets             # 主窗口引用 + setWindowBackgroundColor
 └─ pages/
-   ├─ Index.ets                    # 首页启动器（状态机 + 下载 UI + 更新/删除/刷新缓存）
-   └─ GamePage.ets                 # 离线游戏页（Web + 下载代理 + 音频静音）
+   ├─ Index.ets                  # 首页启动器（状态机 + 下载 UI；就绪页极简：精灵球 + 开始游戏 + 齿轮）
+   ├─ Settings.ets               # 设置页（游戏选项占位 / 更新·缓存·删除 / 关于）
+   └─ GamePage.ets               # 离线游戏页（Web + 下载代理 + 音频静音）
 ```
 
 ### 运行原理（重要）
@@ -143,6 +144,7 @@ entry/src/main/ets/
 - **导出存档**：游戏用 blob URL + `<a download>`；由 `GamePage` 的 `WebDownloadDelegate` 捕获，`DocumentViewPicker` 保存到 `下载/com.lichtcui.pokerogue/`。**必须在 `onControllerAttached` 里注册**（在 `aboutToAppear` 注册会报 17100001）。
 - **后台静音**：`onPageHide` → `controller.setAudioMuted(true)`；`onPageShow` → `false`。
 - **窗口**：保留顶部状态栏、隐藏底部导航栏、`setWindowLayoutFullScreen(false)`（安全区避让），底部留白用 `setWindowBackgroundColor` 染成游戏色 `#484050`。
+- **设置页与更新**：首页就绪页右上角齿轮 → `pages/Settings.ets`。设置页「更新」置 `AppStorage.setOrCreate('pendingUpdate', true)` 后 `router.back()`，由 `Index.onPageShow` 消费并调 `startDownload()`（复用首页下载/解压 UI）；删除数据后返回首页，`onPageShow` 重新判定并回落未下载态。
 
 ## 8. 约定
 
@@ -156,7 +158,8 @@ entry/src/main/ets/
     git update-index --skip-worktree build-profile.json5      # 再恢复
     ```
 - 临时调试开关：`common/Const.ets` 的 `DEBUG_UI`（开发显示镜像源/开 Web 调试）、`FORCE_CANVAS`（实验，默认 false）。
-- 改 UI 文案/布局主要在 `pages/Index.ets` 的 `@Builder`（`downloadingView`/`extractingView`/`readyView` 等）。
+- 改 UI 文案/布局主要在 `pages/Index.ets` 与 `pages/Settings.ets` 的 `@Builder`/`build()`。
+- **ArkUI 坑**：`@Builder` 的**值参数**不会触发重渲染，动态文案要直接在 `build()` 里读 `@State`（见 `Settings.ets` 的「检查更新」「删除本地数据」行）。
 - 新增静态资源放 `entry/src/main/resources/base/media/`，引用 `$r('app.media.xxx')`。
 - 提交前先 `hvigorw assembleHap` 确认编译通过，再真机验证。
 
@@ -168,4 +171,5 @@ entry/src/main/ets/
 | `17100001 Init error` | 调用了需要 Web 组件已挂载的 API（如 `setDownloadDelegate`/`setAudioMuted`），移到 `onControllerAttached` |
 | 启动白屏/极慢 | 检查 index.html 注入是否生效（`willReadFrequently`） |
 | 下载通知堆积/孤儿任务 | 首页启动时会清理；必要时卸载重装 |
+| `@Builder` 里的动态文字不刷新 | `@Builder` 值参数不触发重渲染；动态文案直接在 `build()` 里读 `@State`（`Settings.ets` 检查更新/删除行） |
 | DevTools 连不上 | 确认已进游戏页、PID 正确、先删旧 fport 再转发 |

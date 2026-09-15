@@ -1,6 +1,5 @@
 import { common } from '@kit.AbilityKit';
 import { router, promptAction } from '@kit.ArkUI';
-import { webview } from '@kit.ArkWeb';
 import { BusinessError } from '@kit.BasicServicesKit';
 import { preferences } from '@kit.ArkData';
 import { statfs } from '@kit.CoreFileKit';
@@ -78,9 +77,6 @@ struct Index {
   @State error: string = '';
   @State paused: boolean = false;
   @State probing: boolean = false;
-  @State updateAvailable: boolean = false;
-  @State checkingUpdate: boolean = false;
-  @State deleting: boolean = false;
   @State storageInsufficient: boolean = false;
   @State freeSizeText: string = '';
 
@@ -104,6 +100,14 @@ struct Index {
   onPageShow(): void {
     // 首页底部安全区留白用白色
     setWindowBackground(HOME_BG_COLOR);
+    // 从设置页返回：更新标记优先，其次刷新就绪态（核心包可能已被删除）
+    const pending: boolean | undefined = AppStorage.get<boolean>('pendingUpdate');
+    if (pending === true) {
+      AppStorage.setOrCreate('pendingUpdate', false);
+      this.startDownload();
+      return;
+    }
+    this.refreshReadyState();
   }
 
   private init(): void {
@@ -114,7 +118,6 @@ struct Index {
     if (repo.hasGameFiles()) {
       this.version = repo.readVersion();
       this.stage = Stage.Ready;
-      this.autoCheckUpdate();
       return;
     }
     // 先取资源包大小（用于进度与完成判定），再尝试接管上次未完成的任务
@@ -145,7 +148,6 @@ struct Index {
         this.version = repo.readVersion();
         this.stage = Stage.Ready;
         Notifier.publishComplete();
-        this.autoCheckUpdate();
       },
       (msg: string) => {
         this.adoptDone = true;
@@ -270,22 +272,18 @@ struct Index {
     }
   }
 
-  /** 每次打开 App 自动检查更新（无弹窗、无提示文字） */
-  private autoCheckUpdate(): void {
+  /** 从设置页返回后刷新就绪态（核心包可能已被删除） */
+  private refreshReadyState(): void {
     const repo: GameRepository | null = this.repo;
-    if (repo === null || this.checkingUpdate) {
+    if (repo === null || this.stage !== Stage.Ready) {
       return;
     }
-    this.checkingUpdate = true;
-    repo.fetchRelease()
-      .then((info: ReleaseInfo) => {
-        this.updateAvailable = normalizeVersion(info.tag) !== normalizeVersion(this.version);
-        this.checkingUpdate = false;
-      })
-      .catch((err: BusinessError) => {
-        this.checkingUpdate = false;
-        hilog.warn(DOMAIN, TAG, 'auto check update failed: %{public}s', JSON.stringify(err));
-      });
+    if (!repo.hasGameFiles()) {
+      this.version = '';
+      this.enterNotDownloaded();
+      return;
+    }
+    this.version = repo.readVersion();
   }
 
   private startDownload(): void {
@@ -331,7 +329,6 @@ struct Index {
       })
       .then(() => {
         this.version = repo.readVersion();
-        this.updateAvailable = false;
         this.stage = Stage.Ready;
         Notifier.publishComplete();
         promptAction.showToast({ message: '核心包下载完成' });
@@ -409,63 +406,15 @@ struct Index {
     }
   }
 
-  /** 删除是危险操作：先确认，再异步删除并显示进度 */
-  private deleteGame(): void {
-    if (this.deleting || this.repo === null) {
-      return;
-    }
-    promptAction.showDialog({
-      title: '删除本地数据',
-      message: '将删除已下载的游戏核心包（约 531MB），游戏存档不受影响。确定删除吗？',
-      buttons: [
-        { text: '取消', color: '#666666' },
-        { text: '删除', color: '#DA3838' }
-      ]
-    }).then((result: promptAction.ShowDialogSuccessResponse) => {
-      if (result.index === 1) {
-        this.doDelete();
-      }
-    }).catch((err: BusinessError) => {
-      hilog.warn(DOMAIN, TAG, 'showDialog failed: %{public}s', JSON.stringify(err));
-    });
-  }
-
-  private async doDelete(): Promise<void> {
-    const repo: GameRepository | null = this.repo;
-    if (repo === null || this.deleting) {
-      return;
-    }
-    this.deleting = true;
-    this.error = '';
-    try {
-      await repo.clear();
-      this.version = '';
-      this.updateAvailable = false;
-    } catch (err) {
-      hilog.error(DOMAIN, TAG, 'clear failed: %{public}s', JSON.stringify(err));
-      this.error = '删除失败';
-    }
-    this.deleting = false;
-    this.init();
-  }
-
-  /**
-   * 刷新 Web 缓存（HTTP 缓存 + JS 代码缓存）。
-   * 手动改过游戏资源包后，缓存不刷新会继续用旧文件，这里强制清掉。
-   */
-  private refreshCache(): void {
-    try {
-      webview.WebviewController.removeAllCache(true);
-      promptAction.showToast({ message: '缓存已刷新，下次进入游戏将重新加载资源' });
-    } catch (err) {
-      hilog.error(DOMAIN, TAG, 'removeAllCache failed: %{public}s', JSON.stringify(err));
-      promptAction.showToast({ message: '刷新缓存失败' });
-    }
-  }
-
   private startGame(): void {
     router.pushUrl({ url: 'pages/GamePage' }).catch((err: BusinessError) => {
       hilog.error(DOMAIN, TAG, 'pushUrl GamePage failed: %{public}s', JSON.stringify(err));
+    });
+  }
+
+  private startSettings(): void {
+    router.pushUrl({ url: 'pages/Settings' }).catch((err: BusinessError) => {
+      hilog.error(DOMAIN, TAG, 'pushUrl Settings failed: %{public}s', JSON.stringify(err));
     });
   }
 
@@ -599,7 +548,7 @@ struct Index {
   @Builder
   extractingView() {
     Column({ space: 14 }) {
-      PokeballLoader({ mode: 'open', active: true })
+      PokeballLoader({ mode: 'shake', active: true })
       Text('正在解压核心包…').fontSize(18).fontWeight(FontWeight.Medium)
       Text('请勿关闭应用').fontSize(13).fontColor('#888888')
     }
@@ -609,41 +558,21 @@ struct Index {
   @Builder
   readyView() {
     Column({ space: 12 }) {
-      Text('🎮').fontSize(64)
-      Text('核心包已就绪').fontSize(18).fontWeight(FontWeight.Medium)
+      Image($r('app.media.pokeball'))
+        .width(96)
+        .height(96)
+        .objectFit(ImageFit.Contain)
+      Text('核心包已就绪').fontSize(20).fontWeight(FontWeight.Medium)
       Text('版本 ' + (this.version.length > 0 ? normalizeVersion(this.version) : '未知'))
         .fontSize(13).fontColor('#888888')
       Button('开始游戏')
         .width('70%')
-        .height(52)
+        .height(54)
         .fontSize(18)
+        .backgroundColor('#DA3838')
+        .fontColor('#FFFFFF')
+        .margin({ top: 16 })
         .onClick(() => this.startGame())
-      Row({ space: 16 }) {
-        Button(this.updateAvailable ? '可更新' : '已是最新')
-          .fontSize(14)
-          .height(38)
-          .enabled(this.updateAvailable)
-          .backgroundColor(this.updateAvailable ? '#DA3838' : '#EEEEEE')
-          .fontColor(this.updateAvailable ? '#FFFFFF' : '#999999')
-          .onClick(() => {
-            if (this.updateAvailable) {
-              this.startDownload();
-            }
-          })
-        Button(this.deleting ? '删除中…' : '删除数据')
-          .fontSize(14)
-          .height(38)
-          .enabled(!this.deleting)
-          .backgroundColor('#EEEEEE')
-          .fontColor(this.deleting ? '#999999' : '#333333')
-          .onClick(() => this.deleteGame())
-      }
-      Button('刷新缓存')
-        .fontSize(13)
-        .height(34)
-        .backgroundColor('#F5F5F5')
-        .fontColor('#888888')
-        .onClick(() => this.refreshCache())
     }
     .width('100%')
   }
@@ -651,6 +580,25 @@ struct Index {
   build() {
     Stack() {
       Column() {
+        // 右上角设置入口（仅就绪态显示）
+        if (this.stage === Stage.Ready) {
+          Row() {
+            Button({ type: ButtonType.Circle }) {
+              Image($r('app.media.settings'))
+                .width(22)
+                .height(22)
+                .objectFit(ImageFit.Contain)
+            }
+            .width(40)
+            .height(40)
+            .backgroundColor('#F2F2F2')
+            .onClick(() => this.startSettings())
+          }
+          .width('100%')
+          .justifyContent(FlexAlign.End)
+          .padding({ right: 16, top: 8 })
+        }
+
         Column() {
           if (this.stage === Stage.Checking) {
             LoadingProgress().width(40).height(40)
@@ -675,19 +623,6 @@ struct Index {
       }
       .width('100%')
       .height('100%')
-
-      // 删除中的全屏遮罩，避免误操作和看起来没反应
-      if (this.deleting) {
-        Column({ space: 14 }) {
-          Text('正在删除本地数据…').fontSize(18).fontWeight(FontWeight.Medium)
-          LoadingProgress().width(48).height(48).color('#DA3838')
-          Text('请勿关闭应用').fontSize(13).fontColor('#888888')
-        }
-        .width('100%')
-        .height('100%')
-        .justifyContent(FlexAlign.Center)
-        .backgroundColor('#FFFFFF')
-      }
     }
     .width('100%')
     .height('100%')
