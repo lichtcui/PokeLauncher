@@ -4,6 +4,7 @@ import { BusinessError } from '@kit.BasicServicesKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { GameRepository, ReleaseInfo } from '../model/GameRepository';
 import { Notifier } from '../model/Notifier';
+import { DEBUG_UI } from '../common/Const';
 
 const DOMAIN: number = 0x0000;
 const TAG: string = 'Home';
@@ -41,6 +42,7 @@ struct Index {
   @State version: string = '';
   @State message: string = '';
   @State error: string = '';
+  @State sourceText: string = '';
 
   private repo: GameRepository | null = null;
   private ctx: common.UIAbilityContext | null = null;
@@ -74,6 +76,7 @@ struct Index {
     this.progress = 0;
     this.error = '';
     this.message = '';
+    this.sourceText = '';
     if (this.ctx !== null) {
       Notifier.requestPermission(this.ctx);
     }
@@ -92,6 +95,20 @@ struct Index {
           },
           () => {
             this.stage = Stage.Extracting;
+          },
+          (url: string, sourceIndex: number, sourceCount: number) => {
+            if (!DEBUG_UI) {
+              return;
+            }
+            let host: string = url;
+            const schemeAt: number = url.indexOf('://');
+            if (schemeAt >= 0) {
+              const rest: string = url.substring(schemeAt + 3);
+              const slash: number = rest.indexOf('/');
+              host = slash >= 0 ? rest.substring(0, slash) : rest;
+            }
+            const kind: string = sourceIndex < sourceCount - 1 ? '镜像' : '直连';
+            this.sourceText = '[dev] ' + (sourceIndex + 1) + '/' + sourceCount + ' ' + kind + ' · ' + host;
           }
         );
       })
@@ -181,7 +198,12 @@ struct Index {
   downloadingView() {
     Column({ space: 14 }) {
       Text('正在下载核心包').fontSize(18).fontWeight(FontWeight.Medium)
-      Text('game.zip').fontSize(13).fontColor('#888888')
+      if (DEBUG_UI) {
+        Text('game.zip').fontSize(13).fontColor('#888888')
+        if (this.sourceText.length > 0) {
+          Text(this.sourceText).fontSize(12).fontColor('#AAAAAA')
+        }
+      }
       Progress({ value: this.progress, total: 100, type: ProgressType.Linear })
         .width('80%')
         .height(8)

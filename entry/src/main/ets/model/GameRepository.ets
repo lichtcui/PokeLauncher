@@ -3,7 +3,7 @@ import { http } from '@kit.NetworkKit';
 import { fileIo as fs } from '@kit.CoreFileKit';
 import { common, wantAgent, WantAgent } from '@kit.AbilityKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
-import { RELEASE_API, USER_AGENT, DEFAULT_ASSET, GAME_DIR_NAME } from '../common/Const';
+import { RELEASE_API, USER_AGENT, DEFAULT_ASSET, GAME_DIR_NAME, DOWNLOAD_MIRRORS, API_MIRROR } from '../common/Const';
 
 const DOMAIN: number = 0x0000;
 const TAG: string = 'GameRepository';
@@ -80,11 +80,39 @@ export class GameRepository {
     }
   }
 
-  /** 查询 Release 中指定资产的信息 */
+  /** 查询 Release 中指定资产的信息（先直连 GitHub API，失败回退 API 镜像） */
   async fetchRelease(assetName: string = DEFAULT_ASSET): Promise<ReleaseInfo> {
+    const candidates: string[] = [RELEASE_API, API_MIRROR + RELEASE_API];
+    let lastErr: Error | null = null;
+    for (let i = 0; i < candidates.length; i++) {
+      const apiUrl: string = candidates[i];
+      try {
+        const text: string = await this.requestText(apiUrl);
+        const data: ReleaseData = JSON.parse(text) as ReleaseData;
+        const asset: ReleaseAsset | undefined =
+          data.assets.find((a: ReleaseAsset) => a.name === assetName);
+        if (asset === undefined) {
+          throw new Error('asset not found: ' + assetName);
+        }
+        const info: ReleaseInfo = new ReleaseInfo();
+        info.tag = data.tag_name;
+        info.assetName = asset.name;
+        info.assetUrl = asset.browser_download_url;
+        info.assetSize = asset.size;
+        return info;
+      } catch (err) {
+        lastErr = err as Error;
+        hilog.warn(DOMAIN, TAG, 'fetchRelease via %{public}s failed: %{public}s',
+          apiUrl, JSON.stringify(err));
+      }
+    }
+    throw lastErr !== null ? lastErr : new Error('fetchRelease failed');
+  }
+
+  private async requestText(url: string): Promise<string> {
     const httpRequest: http.HttpRequest = http.createHttp();
     try {
-      const resp: http.HttpResponse = await httpRequest.request(RELEASE_API, {
+      const resp: http.HttpResponse = await httpRequest.request(url, {
         method: http.RequestMethod.GET,
         header: {
           'User-Agent': USER_AGENT,
@@ -94,22 +122,31 @@ export class GameRepository {
         readTimeout: 30000
       });
       if (resp.responseCode !== 200) {
-        throw new Error('GitHub API HTTP ' + resp.responseCode);
+        throw new Error('HTTP ' + resp.responseCode);
       }
-      const data: ReleaseData = JSON.parse(resp.result as string) as ReleaseData;
-      const asset: ReleaseAsset | undefined =
-        data.assets.find((a: ReleaseAsset) => a.name === assetName);
-      if (asset === undefined) {
-        throw new Error('asset not found: ' + assetName);
-      }
-      const info: ReleaseInfo = new ReleaseInfo();
-      info.tag = data.tag_name;
-      info.assetName = asset.name;
-      info.assetUrl = asset.browser_download_url;
-      info.assetSize = asset.size;
-      return info;
+      return resp.result as string;
     } finally {
       httpRequest.destroy();
+    }
+  }
+
+  /** 构造下载候选地址：镜像优先，最后回退 GitHub 直连 */
+  private buildDownloadUrls(assetUrl: string): string[] {
+    const urls: string[] = [];
+    for (let i = 0; i < DOWNLOAD_MIRRORS.length; i++) {
+      urls.push(DOWNLOAD_MIRRORS[i] + assetUrl);
+    }
+    urls.push(assetUrl);
+    return urls;
+  }
+
+  private removePartialZip(): void {
+    try {
+      if (fs.accessSync(this.zipPath)) {
+        fs.unlinkSync(this.zipPath);
+      }
+    } catch (err) {
+      hilog.warn(DOMAIN, TAG, 'remove partial zip failed: %{public}s', JSON.stringify(err));
     }
   }
 
@@ -122,15 +159,36 @@ export class GameRepository {
   async downloadAndExtract(
     info: ReleaseInfo,
     onProgress: (received: number, total: number) => void,
-    onExtractStart: () => void
+    onExtractStart: () => void,
+    onSourceChange: (url: string, sourceIndex: number, sourceCount: number) => void
   ): Promise<void> {
     this.cancelled = false;
-    await this.download(info, onProgress);
-    if (this.cancelled) {
-      return;
+    const urls: string[] = this.buildDownloadUrls(info.assetUrl);
+    let lastErr: Error | null = null;
+    for (let i = 0; i < urls.length; i++) {
+      if (this.cancelled) {
+        return;
+      }
+      onSourceChange(urls[i], i, urls.length);
+      this.removePartialZip();
+      try {
+        await this.download(urls[i], onProgress);
+        if (this.cancelled) {
+          return;
+        }
+        onExtractStart();
+        await this.extract(info);
+        return;
+      } catch (err) {
+        if (this.cancelled) {
+          return;
+        }
+        lastErr = err as Error;
+        hilog.warn(DOMAIN, TAG, 'download attempt %{public}d failed: %{public}s',
+          i, JSON.stringify(err));
+      }
     }
-    onExtractStart();
-    await this.extract(info);
+    throw lastErr !== null ? lastErr : new Error('all download sources failed');
   }
 
   /** 取消正在进行的下载（移除系统后台下载任务） */
@@ -178,7 +236,7 @@ export class GameRepository {
   }
 
   private async download(
-    info: ReleaseInfo,
+    url: string,
     onProgress: (received: number, total: number) => void
   ): Promise<void> {
     const wantAgentInfo: wantAgent.WantAgentInfo = {
@@ -201,7 +259,7 @@ export class GameRepository {
 
     const config: request.agent.Config = {
       action: request.agent.Action.DOWNLOAD,
-      url: info.assetUrl,
+      url: url,
       title: 'PokeRogue 核心包',
       description: '正在下载核心包',
       mode: request.agent.Mode.BACKGROUND,
@@ -211,7 +269,7 @@ export class GameRepository {
       network: request.agent.Network.ANY,
       metered: true,
       roaming: true,
-      retry: true,
+      retry: false,
       gauge: true,
       notification: {
         title: '正在下载核心包',
