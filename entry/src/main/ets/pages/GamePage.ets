@@ -70,6 +70,7 @@ struct GamePage {
   controller: webview.WebviewController = new webview.WebviewController();
   private gameUrl: string = FALLBACK_BASE + '/index.html';
   @State loadError: string = '';
+  @StorageProp('statusBarHeightPx') statusBarHeightPx: number = 0;
 
   aboutToAppear(): void {
     const base: string = sharedServerBaseUrl();
@@ -125,6 +126,8 @@ struct GamePage {
     }
     .width('100%')
     .height('100%')
+    .backgroundColor('#484050')
+    .padding({ top: px2vp(this.statusBarHeightPx) })
   }
 
   onBackPress(): boolean {

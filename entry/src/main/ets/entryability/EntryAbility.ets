@@ -35,14 +35,21 @@ export default class EntryAbility extends UIAbility {
     try {
       const win: window.Window = windowStage.getMainWindowSync();
       win.setPreferredOrientation(window.Orientation.PORTRAIT);
-      // 保留顶部状态栏（时间/电量，同时避开挖孔摄像头），隐藏底部导航栏（避免底部白条）。
-      // 不使用 layoutFullScreen，让内容区域自动避开状态栏。
-      win.setWindowLayoutFullScreen(false).catch((err: Error) => {
+      // 全屏布局（内容延伸到系统栏下方，消除底部白条），保留顶部状态栏（避开挖孔摄像头）
+      win.setWindowLayoutFullScreen(true).catch((err: Error) => {
         hilog.warn(DOMAIN, TAG, 'setWindowLayoutFullScreen failed: %{public}s', JSON.stringify(err));
       });
       win.setWindowSystemBarEnable(['status']).catch((err: Error) => {
         hilog.warn(DOMAIN, TAG, 'setWindowSystemBarEnable failed: %{public}s', JSON.stringify(err));
       });
+      // 记录状态栏高度，供页面顶部留白使用
+      try {
+        const avoid: window.AvoidArea = win.getWindowAvoidArea(window.AvoidAreaType.TYPE_SYSTEM);
+        AppStorage.setOrCreate('statusBarHeightPx', avoid.topRect.height);
+        hilog.info(DOMAIN, TAG, 'statusBarHeightPx=%{public}d', avoid.topRect.height);
+      } catch (err) {
+        hilog.warn(DOMAIN, TAG, 'getWindowAvoidArea failed: %{public}s', JSON.stringify(err));
+      }
     } catch (err) {
       hilog.warn(DOMAIN, TAG, 'window setup failed: %{public}s', JSON.stringify(err));
     }
