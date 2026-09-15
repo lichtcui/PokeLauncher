@@ -3,6 +3,7 @@ import { fileIo as fs } from '@kit.CoreFileKit';
 import { util } from '@kit.ArkTS';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { mimeOf } from '../common/Mime';
+import { FORCE_CANVAS } from '../common/Const';
 
 const DOMAIN: number = 0x0000;
 const TAG: string = 'LocalHttp';
@@ -181,6 +182,12 @@ export class LocalHttpServer {
       return;
     }
 
+    // 实验：强制 Phaser 回退到 Canvas（不改游戏文件，仅在返回 index.html 时注入脚本）
+    if (FORCE_CANVAS && path === '/index.html') {
+      this.servePatchedIndex(conn, this.gameDir + path, keepAlive);
+      return;
+    }
+
     const filePath: string = this.gameDir + path;
     try {
       const stat: fs.Stat = fs.statSync(filePath);
@@ -221,6 +228,48 @@ export class LocalHttpServer {
       });
     } catch (err) {
       this.sendText(conn, 404, 'Not Found', keepAlive);
+    }
+  }
+
+  /** 读取 index.html 并注入「禁用 WebGL，强制 Phaser 回退 Canvas」脚本后返回 */
+  private servePatchedIndex(conn: socket.TCPSocketConnection, filePath: string,
+    keepAlive: boolean): void {
+    try {
+      const html: string = fs.readTextSync(filePath);
+      const inject: string = '<script>(function(){try{' +
+        'var o=HTMLCanvasElement.prototype.getContext;' +
+        'HTMLCanvasElement.prototype.getContext=function(t){' +
+        'if(t==="webgl"||t==="webgl2"||t==="experimental-webgl"){' +
+        'console.log("CANVAS-PATCH blocked "+t);return null;}' +
+        'return o.apply(this,arguments);};' +
+        '}catch(e){console.log("CANVAS-PATCH err "+e);}})();<\/script>';
+      const headIdx: number = html.indexOf('<head>');
+      const patched: string = headIdx >= 0
+        ? html.substring(0, headIdx + 6) + inject + html.substring(headIdx + 6)
+        : inject + html;
+
+      const arr: Uint8Array = util.TextEncoder.create('utf-8').encodeInto(patched);
+      const buf: ArrayBuffer = new ArrayBuffer(arr.byteLength);
+      new Uint8Array(buf).set(arr);
+      const header: string = 'HTTP/1.1 200 OK\r\n' +
+        'Content-Type: text/html\r\n' +
+        'Content-Length: ' + arr.byteLength + '\r\n' +
+        'Cache-Control: no-cache\r\n' +
+        'Connection: ' + (keepAlive ? 'keep-alive' : 'close') + '\r\n' +
+        '\r\n';
+      conn.send({ data: header }).then(() => {
+        conn.send({ data: buf }).then(() => {
+          if (!keepAlive) {
+            conn.close();
+          }
+        }).catch((err: Error) => {
+          hilog.warn(DOMAIN, TAG, 'send patched html failed: %{public}s', JSON.stringify(err));
+        });
+      });
+      hilog.info(DOMAIN, TAG, '%{public}s', 'served patched index.html (force canvas)');
+    } catch (err) {
+      hilog.error(DOMAIN, TAG, 'servePatchedIndex failed: %{public}s', JSON.stringify(err));
+      this.sendText(conn, 500, 'Internal Error', keepAlive);
     }
   }
 

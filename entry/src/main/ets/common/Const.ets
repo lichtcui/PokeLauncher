@@ -40,5 +40,12 @@ export const DEFAULT_ASSET: string = 'game.zip';
  */
 export const DEBUG_UI: boolean = true;
 
+/**
+ * 实验开关：强制游戏回退到 Canvas 渲染器（绕过 ArkWeb 慢的 WebGL texImage2D）。
+ * 结论：无效——PokeRogue 依赖 WebGL，禁用后会报
+ * "Uncaught Error: Cannot create WebGL context, aborting." 并卡死。故默认关闭。
+ */
+export const FORCE_CANVAS: boolean = false;
+
 /** 沙箱内游戏目录名（filesDir/game） */
 export const GAME_DIR_NAME: string = 'game';
