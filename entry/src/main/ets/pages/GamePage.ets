@@ -1,5 +1,5 @@
 import { webview } from '@kit.ArkWeb';
-import { router } from '@kit.ArkUI';
+import { router, promptAction } from '@kit.ArkUI';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { picker, fileUri, fileIo as fs } from '@kit.CoreFileKit';
 import { BusinessError } from '@kit.BasicServicesKit';
@@ -88,6 +88,9 @@ struct GamePage {
       }
       hilog.info(DOMAIN, TAG, 'web download finish: %{public}s exists=%{public}s size=%{public}d',
         this.lastSavePath, exists.toString(), size);
+      // 给用户明确反馈（文件保存位置）
+      const name: string = item.getSuggestedFileName();
+      promptAction.showToast({ message: '已导出 ' + name + ' 到「下载/com.lichtcui.pokerogue」' });
     });
     try {
       this.controller.setDownloadDelegate(this.downloadDelegate);
