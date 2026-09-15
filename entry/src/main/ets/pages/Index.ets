@@ -8,7 +8,6 @@ import { GameRepository, ReleaseInfo, normalizeVersion } from '../model/GameRepo
 import { Notifier } from '../model/Notifier';
 import { setWindowBackground, HOME_BG_COLOR } from '../model/WindowHolder';
 import { PokeballLoader } from '../components/PokeballLoader';
-import { DEBUG_UI } from '../common/Const';
 
 const DOMAIN: number = 0x0000;
 const TAG: string = 'Home';
@@ -72,8 +71,8 @@ struct Index {
   @State etaText: string = '';
   @State version: string = '';
   @State error: string = '';
-  @State sourceText: string = '';
   @State paused: boolean = false;
+  @State probing: boolean = false;
   @State updateAvailable: boolean = false;
   @State checkingUpdate: boolean = false;
   @State deleting: boolean = false;
@@ -111,7 +110,22 @@ struct Index {
       this.autoCheckUpdate();
       return;
     }
-    // 尝试接管上次未完成的后台下载任务
+    // 先取资源包大小（用于进度与完成判定），再尝试接管上次未完成的任务
+    repo.fetchRelease().then((info: ReleaseInfo) => {
+      this.expectedSize = info.assetSize;
+      this.totalText = formatBytes(info.assetSize);
+      this.tryAdopt();
+    }).catch((err: BusinessError) => {
+      hilog.warn(DOMAIN, TAG, 'init fetchRelease failed: %{public}s', JSON.stringify(err));
+      this.tryAdopt();
+    });
+  }
+
+  private tryAdopt(): void {
+    const repo: GameRepository | null = this.repo;
+    if (repo === null) {
+      return;
+    }
     repo.adoptDownload(
       (received: number, total: number) => {
         this.applyProgress(received, total, this.expectedSize);
@@ -130,19 +144,12 @@ struct Index {
         this.adoptDone = true;
         this.error = msg;
         this.stage = repo.hasGameFiles() ? Stage.Ready : Stage.NotDownloaded;
-      }
+      },
+      this.expectedSize
     ).then((adopted: boolean) => {
       if (adopted && !this.adoptDone) {
         this.stage = Stage.Downloading;
-        this.sourceText = '';
         this.resetSpeed();
-        // 接管后补一次资源包大小，保证进度百分比可计算
-        repo.fetchRelease().then((info: ReleaseInfo) => {
-          this.expectedSize = info.assetSize;
-          this.totalText = formatBytes(info.assetSize);
-        }).catch((err: BusinessError) => {
-          hilog.warn(DOMAIN, TAG, 'adopt fetchRelease failed: %{public}s', JSON.stringify(err));
-        });
       } else if (!adopted) {
         this.stage = Stage.NotDownloaded;
       }
@@ -177,8 +184,8 @@ struct Index {
       this.speedText = formatSpeed(this.speedBps);
       this.etaText = t > received ? '剩余' + formatDuration((t - received) / this.speedBps) : '';
     } else {
-      this.speedText = '测速中…';
-      this.etaText = '';
+      this.speedText = '';
+      this.etaText = '连接中…';
     }
   }
 
@@ -239,7 +246,9 @@ struct Index {
     this.error = '';
     this.paused = false;
     this.resetSpeed();
-    this.sourceText = '正在测速选择下载源…';
+    // 测速选源阶段会停在 0% 几秒，给出明确提示
+    this.probing = true;
+    this.etaText = '正在测速，选择最快的下载源…';
     if (this.ctx !== null) {
       Notifier.requestPermission(this.ctx);
     }
@@ -257,10 +266,10 @@ struct Index {
             this.stage = Stage.Extracting;
           },
           (url: string, sourceIndex: number, sourceCount: number) => {
-            if (!DEBUG_UI) {
-              this.sourceText = '';
-              return;
-            }
+            // 已开始从某个源下载，测速阶段结束
+            this.probing = false;
+            this.etaText = '';
+            // 下载源只写日志，不在界面上展示
             let host: string = url;
             const schemeAt: number = url.indexOf('://');
             if (schemeAt >= 0) {
@@ -269,7 +278,8 @@ struct Index {
               host = slash >= 0 ? rest.substring(0, slash) : rest;
             }
             const kind: string = sourceIndex < sourceCount - 1 ? '镜像' : '直连';
-            this.sourceText = '[dev] ' + (sourceIndex + 1) + '/' + sourceCount + ' ' + kind + ' · ' + host;
+            hilog.info(DOMAIN, TAG, 'download source %{public}d/%{public}d %{public}s %{public}s',
+              sourceIndex + 1, sourceCount, kind, host);
           }
         );
       })
@@ -404,22 +414,28 @@ struct Index {
       PokeballLoader({ mode: 'shake', active: !this.paused })
       Text(this.paused ? '已暂停' : '正在下载核心包').fontSize(18).fontWeight(FontWeight.Medium)
 
-      // 加粗圆角进度条（百分比内嵌在条上）
+      // 进度条：从左往右填充；百分比居中，白色 + 深色描边（红/灰底都可见）
       Stack() {
-        Row()
-          .width('100%')
-          .height(22)
-          .borderRadius(11)
-          .backgroundColor('#EEEEEE')
-        Row()
-          .width(Math.max(0, Math.min(100, this.progress)) + '%')
-          .height(22)
-          .borderRadius(11)
-          .backgroundColor('#DA3838')
+        Stack({ alignContent: Alignment.Start }) {
+          Row()
+            .width('100%')
+            .height(22)
+            .borderRadius(11)
+            .backgroundColor('#EEEEEE')
+          Row()
+            .width(Math.max(0, Math.min(100, this.progress)) + '%')
+            .height(22)
+            .borderRadius(11)
+            .backgroundColor('#DA3838')
+        }
+        .width('100%')
+        .height(22)
+
         Text(this.progress.toString() + '%')
           .fontSize(13)
           .fontWeight(FontWeight.Bold)
-          .fontColor(this.progress >= 55 ? '#FFFFFF' : '#DA3838')
+          .fontColor('#FFFFFF')
+          .textShadow({ radius: 2, color: '#99000000', offsetX: 0, offsetY: 1 })
       }
       .width('80%')
 
@@ -428,10 +444,6 @@ struct Index {
         Text(this.speedText + (this.speedText.length > 0 && this.etaText.length > 0 ? ' · ' : '') + this.etaText)
           .fontSize(13)
           .fontColor('#DA3838')
-      }
-
-      if (DEBUG_UI && this.sourceText.length > 0) {
-        Text(this.sourceText).fontSize(11).fontColor('#BBBBBB')
       }
 
       Row({ space: 16 }) {

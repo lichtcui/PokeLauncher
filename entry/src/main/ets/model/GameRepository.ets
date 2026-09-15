@@ -261,22 +261,14 @@ export class GameRepository {
     onProgress: (received: number, total: number) => void,
     onExtractStart: () => void,
     onDone: () => void,
-    onError: (msg: string) => void
+    onError: (msg: string) => void,
+    expectedSize: number
   ): Promise<boolean> {
     try {
       const all: string[] = await request.agent.search({
         action: request.agent.Action.DOWNLOAD,
         mode: request.agent.Mode.BACKGROUND
       });
-      if (all.length === 0) {
-        return false;
-      }
-      const completed: string[] = await request.agent.search({
-        action: request.agent.Action.DOWNLOAD,
-        mode: request.agent.Mode.BACKGROUND,
-        state: request.agent.State.COMPLETED
-      });
-      const active: string[] = all.filter((id: string) => completed.indexOf(id) < 0);
 
       // 已安装：清掉所有残留任务（含历史通知）
       if (this.hasGameFiles()) {
@@ -284,75 +276,111 @@ export class GameRepository {
         return false;
       }
 
-      // 有已完成任务且 zip 还在：直接解压
-      if (completed.length > 0 && this.hasZip()) {
-        onExtractStart();
+      // 找到第一个仍然有效的任务（search 可能返回已失效的 id）
+      let task: request.agent.Task | null = null;
+      let taskId: string = '';
+      for (let i = 0; i < all.length; i++) {
         try {
-          await this.extract();
-          await this.removeTasks(all);
-          onDone();
-          return true;
+          task = await request.agent.getTask(this.ctx, all[i]);
+          taskId = all[i];
+          break;
         } catch (err) {
-          hilog.error(DOMAIN, TAG, 'adopt extract failed: %{public}s', JSON.stringify(err));
+          hilog.warn(DOMAIN, TAG, 'skip invalid task %{public}s', all[i]);
         }
       }
 
-      // 有进行中的任务：接管第一个，清掉其余
-      if (active.length > 0) {
-        const task: request.agent.Task = await request.agent.getTask(this.ctx, active[0]);
-        for (let i = 1; i < active.length; i++) {
-          try {
-            await request.agent.remove(active[i]);
-          } catch (err) {
-            hilog.warn(DOMAIN, TAG, 'remove extra task failed: %{public}s', JSON.stringify(err));
-          }
-        }
-        this.task = task;
-        this.tid = task.tid;
-        this.cancelled = false;
-        this.paused = false;
-        // 重新显示该任务的通知（App 重启后通知可能已被清理）
-        request.agent.show(task.tid).catch((err: BusinessError) => {
-          hilog.warn(DOMAIN, TAG, 'show adopted task failed: %{public}s', JSON.stringify(err));
-        });
-        task.on('progress', (p: request.agent.Progress) => {
-          const total: number = (p.sizes !== undefined && p.sizes.length > 0) ? p.sizes[0] : -1;
-          onProgress(p.processed, total);
-        });
-        // 接管的任务不一定会回调 progress，用文件大小轮询兜底
-        this.startPolling(onProgress);
-        task.on('completed', () => {
-          this.stopPolling();
-          this.task = null;
-          if (this.cancelled) {
-            return;
-          }
+      // 没有有效任务：若 zip 已完整，直接解压（兜底）
+      if (task === null) {
+        if (this.hasZip() && (expectedSize <= 0 || this.zipSize() >= expectedSize)) {
+          hilog.info(DOMAIN, TAG, '%{public}s', 'no valid task but zip complete, extracting');
           onExtractStart();
-          this.extract().then(() => {
-            this.removeTask();
+          try {
+            await this.extract();
+            await this.removeTasks(all);
             onDone();
-          }).catch((err: BusinessError) => {
-            hilog.error(DOMAIN, TAG, 'adopt extract failed: %{public}s', JSON.stringify(err));
-            onError('解压失败');
-          });
-        });
-        task.on('failed', (p: request.agent.Progress) => {
-          this.stopPolling();
-          this.task = null;
-          if (this.cancelled) {
-            return;
+            return true;
+          } catch (err) {
+            hilog.error(DOMAIN, TAG, 'fallback extract failed: %{public}s', JSON.stringify(err));
           }
-          onError('下载失败');
-        });
-        return true;
+        }
+        await this.removeTasks(all);
+        return false;
       }
 
-      // 其余（失败/已移除）全部清掉
-      await this.removeTasks(all);
-      return false;
+      const activeTask: request.agent.Task = task;
+
+      // 清掉其余任务
+      for (let i = 0; i < all.length; i++) {
+        if (all[i] === taskId) {
+          continue;
+        }
+        try {
+          await request.agent.remove(all[i]);
+        } catch (err) {
+          // 失效任务忽略
+        }
+      }
+
+      this.task = activeTask;
+      this.tid = taskId;
+      this.cancelled = false;
+      this.paused = false;
+      // 重新显示该任务的通知（App 重启后通知可能已被清理）
+      request.agent.show(taskId).catch((err: BusinessError) => {
+        hilog.warn(DOMAIN, TAG, 'show adopted task failed: %{public}s', JSON.stringify(err));
+      });
+
+      let finished: boolean = false;
+      const finish = (): void => {
+        if (finished) {
+          return;
+        }
+        finished = true;
+        this.stopPolling();
+        this.task = null;
+        if (this.cancelled) {
+          return;
+        }
+        onExtractStart();
+        this.extract().then(() => {
+          this.removeTask();
+          onDone();
+        }).catch((err: BusinessError) => {
+          hilog.error(DOMAIN, TAG, 'adopt extract failed: %{public}s', JSON.stringify(err));
+          onError('解压失败');
+        });
+      };
+
+      activeTask.on('progress', (p: request.agent.Progress) => {
+        const total: number = (p.sizes !== undefined && p.sizes.length > 0) ? p.sizes[0] : -1;
+        onProgress(p.processed, total);
+      });
+      activeTask.on('completed', finish);
+      activeTask.on('failed', (p: request.agent.Progress) => {
+        if (finished) {
+          return;
+        }
+        finished = true;
+        this.stopPolling();
+        this.task = null;
+        if (!this.cancelled) {
+          onError('下载失败');
+        }
+      });
+      // 接管的任务事件不可靠：用文件大小轮询兜底进度，达到预期大小即判定完成
+      this.startPolling(onProgress, expectedSize, finish);
+      return true;
     } catch (err) {
       hilog.warn(DOMAIN, TAG, 'adoptDownload failed: %{public}s', JSON.stringify(err));
       return false;
+    }
+  }
+
+  private zipSize(): number {
+    try {
+      return fs.statSync(this.zipPath).size;
+    } catch (err) {
+      return 0;
     }
   }
 
@@ -364,14 +392,19 @@ export class GameRepository {
     }
   }
 
-  /** 接管任务时用文件大小轮询兜底进度 */
-  private startPolling(onProgress: (received: number, total: number) => void): void {
+  /** 接管任务时用文件大小轮询兜底进度；达到预期大小即判定完成 */
+  private startPolling(onProgress: (received: number, total: number) => void,
+    expectedSize: number, onComplete: () => void): void {
     this.stopPolling();
     this.pollTimer = setInterval(() => {
       try {
         if (fs.accessSync(this.zipPath)) {
           const size: number = fs.statSync(this.zipPath).size;
           onProgress(size, -1);
+          if (expectedSize > 0 && size >= expectedSize) {
+            hilog.info(DOMAIN, TAG, 'poll detected complete: %{public}d >= %{public}d', size, expectedSize);
+            onComplete();
+          }
         }
       } catch (err) {
         // 文件暂不可读时忽略
