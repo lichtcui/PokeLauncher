@@ -181,11 +181,13 @@ struct Index {
       this.speedText = '';
       this.etaText = '已暂停';
     } else if (this.speedBps > 1024) {
+      this.probing = false;
       this.speedText = formatSpeed(this.speedBps);
       this.etaText = t > received ? '剩余' + formatDuration((t - received) / this.speedBps) : '';
     } else {
+      // 还没测出速度：保持测速提示，避免中间出现空档
       this.speedText = '';
-      this.etaText = '连接中…';
+      this.etaText = this.probing ? '正在测速，选择最快的下载源…' : '连接中…';
     }
   }
 
@@ -266,10 +268,7 @@ struct Index {
             this.stage = Stage.Extracting;
           },
           (url: string, sourceIndex: number, sourceCount: number) => {
-            // 已开始从某个源下载，测速阶段结束
-            this.probing = false;
-            this.etaText = '';
-            // 下载源只写日志，不在界面上展示
+            // 下载源只写日志，不在界面上展示（测速提示保留到速度出现为止）
             let host: string = url;
             const schemeAt: number = url.indexOf('://');
             if (schemeAt >= 0) {
