@@ -131,5 +131,46 @@ export const CHEATS: Cheat[] = [
   };
   console.log("CHEAT party-shiny installed");
 })();`
+  },
+  {
+    id: 'voucher',
+    name: '扭蛋券数量',
+    desc: '存档时把四种扭蛋券数量设为指定值（读档后生效）',
+    param: {
+      id: 'voucher',
+      label: '数量',
+      min: 0,
+      max: 99,
+      default: 50,
+      step: 1
+    },
+    script: `(function(){
+  var P = (typeof __CHEAT_PARAMS__ !== "undefined" && __CHEAT_PARAMS__) ? __CHEAT_PARAMS__ : {};
+  var N = Math.floor(Number(P.voucher));
+  if (isNaN(N)) { N = 50; }
+  if (N < 0) { N = 0; }
+  if (N > 99) { N = 99; }
+  var KEY = /^data_/;
+  function dec(v){
+    var s = atob(v);
+    if (s.substring(0,3).toUpperCase() === "%7B") return JSON.parse(decodeURIComponent(s));
+    return JSON.parse(s);
+  }
+  function enc(o){ return btoa(encodeURIComponent(JSON.stringify(o))); }
+  var si = Storage.prototype.setItem;
+  Storage.prototype.setItem = function(k, v){
+    if (KEY.test(k) && typeof v === "string") {
+      try {
+        var sd = dec(v);
+        if (sd && sd.voucherCounts) {
+          for (var t in sd.voucherCounts) { sd.voucherCounts[t] = N; }
+          v = enc(sd);
+        }
+      } catch(e){ console.log("CHEAT voucher err " + e); }
+    }
+    return si.call(this, k, v);
+  };
+  console.log("CHEAT voucher installed N=" + N);
+})();`
   }
 ];
