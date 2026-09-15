@@ -3,7 +3,6 @@
 在 HarmonyOS NEXT 上以**原生 HAP** 运行 PokeRogue 的离线启动器。
 
 - 开发/编译/真机操作手册：[`AGENTS.md`](./AGENTS.md) ← **改代码前先看这个**
-- 技术方案：[`方案.md`](./方案.md)
 
 ## 原理
 
