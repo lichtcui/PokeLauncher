@@ -150,8 +150,9 @@ entry/src/main/ets/
 - **导出存档**：游戏用 blob URL + `<a download>`；由 `GamePage` 的 `WebDownloadDelegate` 捕获，`DocumentViewPicker` 保存到 `下载/com.lichtcui.pokerogue/`。**必须在 `onControllerAttached` 里注册**（在 `aboutToAppear` 注册会报 17100001）。
 - **后台静音**：`onPageHide` → `controller.setAudioMuted(true)`；`onPageShow` → `false`。
 - **窗口**：保留顶部状态栏、隐藏底部导航栏、`setWindowLayoutFullScreen(false)`（安全区避让），底部留白用 `setWindowBackgroundColor` 染成游戏色 `#484050`。
+- **返回按钮**：游戏页右上角「返回」全显 3 秒后自动淡出（`GamePage.resetBackTimer`），避免遮挡游戏信息；点击淡出的按钮可唤回、再点才返回；系统返回手势（`onBackPress`）作为兜底。
 - **设置页与更新**：首页就绪页右上角齿轮 → `pages/Settings.ets`。设置页「更新」置 `AppStorage.setOrCreate('pendingUpdate', true)` 后 `router.back()`，由 `Index.onPageShow` 消费并调 `startDownload()`（复用首页下载/解压 UI）；删除数据后返回首页，`onPageShow` 重新判定并回落未下载态。
-- **作弊**：设置页开「作弊模式」（需确认账号风险）→ 首页就绪页出现「作弊设置」入口 → 进 `pages/Cheats` 选条目 → 开始游戏时 `/__cheats__.js` 按启用清单注入。改配置需**重新开始游戏**才生效。新增条目见 §10。
+- **作弊**：设置页开「作弊模式」（需确认账号风险 + 兼容性风险）→ 首页就绪页出现「作弊设置」入口 → 进 `pages/Cheats` 选条目 → 进入游戏页时 `/__cheats__.js` 按启用清单注入，**注入后在游戏内实时生效**（无需像旧方案那样存档 + 读档）。**更改配置后需重新进入游戏页**（返回首页再进，或重启 App）才会重新注入。新增条目见 §10。
 
 ## 8. 约定
 
@@ -181,14 +182,14 @@ entry/src/main/ets/
 | 下载通知堆积/孤儿任务 | 首页启动时会清理；必要时卸载重装 |
 | `@Builder` 里的动态文字不刷新 | `@Builder` 值参数不触发重渲染；动态文案直接在 `build()` 里读 `@State`（`Settings.ets` 检查更新/删除行） |
 | DevTools 连不上 | 确认已进游戏页、PID 正确、先删旧 fport 再转发 |
-| 作弊没生效 | 作弊是**加载时注入**：改配置后要**重新开始游戏**（不能热生效）；抓日志看 `served /__cheats__.js` 与 `ARKWEB-CONSOLE` 的 `CHEAT ...` |
+| 作弊没生效 | 作弊是**加载时注入**：改配置后要**重新进入游戏页**（返回首页再进，或重启 App）才会重新注入（不能热生效）；抓日志看 `served /__cheats__.js` 与 `ARKWEB-CONSOLE` 的 `CHEAT ...` |
 | 作弊页入口不显示 | 首页「作弊设置」仅在设置页开启「作弊模式」后显示 |
 
 ---
 
 ## 10. 作弊框架（如何新增作弊条目）
 
-所有作弊都是**实时**的：注入脚本在游戏启动前捕获运行中的 Phaser 场景（`BattleScene`），再 hook 游戏方法或直接改内存数据，**开启后即时生效、无需重启**。
+所有作弊都是**实时 hook**：注入脚本在游戏启动前捕获运行中的 Phaser 场景（`BattleScene`），再 hook 游戏方法或直接改内存数据；**注入后在游戏内即时生效**（无需像旧方案那样存档 + 读档）。⚠️ 更改开关/数值需要**重新进入游戏页**（或重启 App）才会重新注入。
 
 ### 架构
 | 文件 | 职责 |
@@ -253,7 +254,7 @@ entry/src/main/ets/
 - **实时 hook 约定**：hook 前先判 `typeof proto.x === "function"` 且用标记位（如 `proto.__cheatMoney`）防重复；hook 时保留 `orig` 并 `orig.call(this, ...)`，保证 `this` 正确。
 - 多条按 `CHEATS` 顺序拼接，整体包在一个 IIFE 内；**每条单独 try/catch**，单条报错不影响其它（错误以 `CHEAT err <id>` 打到 `ARKWEB-CONSOLE`）。
 - 总开关关闭或无启用条目时，`/__cheats__.js` 返回空内容（不报错）。
-- **生效方式**：改配置后需**重新开始/继续一局游戏**（全新加载才重新注入）；已进入的对局不会热更新脚本。
+- **生效方式**：改配置后需**重新进入游戏页**（返回首页再进，或重启 App）才会重新加载并注入；已进入的对局不会热更新脚本。
 - **调试**：用 §6 的 DevTools，`window.__cheatScene` 可直接访问实时场景；`ARKWEB-CONSOLE` 看注入日志。
 
 ### 注意
