@@ -2,6 +2,7 @@ import { common } from '@kit.AbilityKit';
 import { router, promptAction } from '@kit.ArkUI';
 import { webview } from '@kit.ArkWeb';
 import { BusinessError } from '@kit.BasicServicesKit';
+import { preferences } from '@kit.ArkData';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { GameRepository, ReleaseInfo, normalizeVersion } from '../model/GameRepository';
 import { Notifier } from '../model/Notifier';
@@ -189,6 +190,27 @@ struct Index {
     this.etaText = '';
   }
 
+  /** 首次下载时提示一次「可切后台」（之后不再打扰） */
+  private async maybeShowBgHint(): Promise<void> {
+    const hint: string = '下载中可切后台，完成后会通知你';
+    const ctx: common.UIAbilityContext | null = this.ctx;
+    if (ctx === null) {
+      promptAction.showToast({ message: hint });
+      return;
+    }
+    try {
+      const store: preferences.Preferences = await preferences.getPreferences(ctx, 'pokerogue_settings');
+      const shown: boolean = await store.get('bgHintShown', false) as boolean;
+      if (!shown) {
+        promptAction.showToast({ message: hint });
+        await store.put('bgHintShown', true);
+        await store.flush();
+      }
+    } catch (err) {
+      hilog.warn(DOMAIN, TAG, 'show bg hint failed: %{public}s', JSON.stringify(err));
+    }
+  }
+
   /** 每次打开 App 自动检查更新（无弹窗、无提示文字） */
   private autoCheckUpdate(): void {
     const repo: GameRepository | null = this.repo;
@@ -221,6 +243,7 @@ struct Index {
     if (this.ctx !== null) {
       Notifier.requestPermission(this.ctx);
     }
+    this.maybeShowBgHint();
     repo.fetchRelease()
       .then((info: ReleaseInfo) => {
         this.receivedText = '0 MB';
@@ -377,27 +400,28 @@ struct Index {
 
   @Builder
   downloadingView() {
-    Column({ space: 14 }) {
+    Column({ space: 16 }) {
       PokeballLoader({ mode: 'shake', active: !this.paused })
       Text(this.paused ? '已暂停' : '正在下载核心包').fontSize(18).fontWeight(FontWeight.Medium)
 
-      // 加粗圆角进度条
-      Stack({ alignContent: Alignment.Start }) {
+      // 加粗圆角进度条（百分比内嵌在条上）
+      Stack() {
         Row()
           .width('100%')
-          .height(14)
-          .borderRadius(7)
+          .height(22)
+          .borderRadius(11)
           .backgroundColor('#EEEEEE')
         Row()
           .width(Math.max(0, Math.min(100, this.progress)) + '%')
-          .height(14)
-          .borderRadius(7)
+          .height(22)
+          .borderRadius(11)
           .backgroundColor('#DA3838')
+        Text(this.progress.toString() + '%')
+          .fontSize(13)
+          .fontWeight(FontWeight.Bold)
+          .fontColor(this.progress >= 55 ? '#FFFFFF' : '#DA3838')
       }
       .width('80%')
-
-      Text(this.progress.toString() + '%').fontSize(26).fontWeight(FontWeight.Bold)
-      Text(this.receivedText + ' / ' + this.totalText).fontSize(14).fontColor('#666666')
 
       // 速度 · 剩余时间
       if (this.speedText.length > 0 || this.etaText.length > 0) {
@@ -406,7 +430,6 @@ struct Index {
           .fontColor('#DA3838')
       }
 
-      Text('下载中可切后台，完成后会通知你').fontSize(12).fontColor('#AAAAAA')
       if (DEBUG_UI && this.sourceText.length > 0) {
         Text(this.sourceText).fontSize(11).fontColor('#BBBBBB')
       }
