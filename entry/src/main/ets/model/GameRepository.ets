@@ -689,6 +689,10 @@ export class GameRepository {
       await zlib.decompressFile(this.zipPath, this.stagingDir, {
         parallel: zlib.ParallelStrategy.PARALLEL_STRATEGY_PARALLEL_DECOMPRESSION
       });
+      // 校验解压结果，避免把损坏/结构不符的包切换上去（否则会显示「已就绪」却打不开游戏）
+      if (!fs.accessSync(this.stagingDir + '/index.html')) {
+        throw new Error('解压结果缺少 index.html');
+      }
       // 解压完成才写标记：recover() 据此区分完整包与半成品
       this.writeMarker(this.stagingMarker);
       try {
@@ -698,7 +702,7 @@ export class GameRepository {
       }
       hilog.info(DOMAIN, TAG, '%{public}s', 'extract to staging complete');
     } catch (err) {
-      hilog.error(DOMAIN, TAG, 'decompressFile error: %{public}s', JSON.stringify(err));
+      hilog.error(DOMAIN, TAG, 'decompress/validate error: %{public}s', JSON.stringify(err));
       // 清掉半成品，保留现有安装
       this.removeDirAsync(this.stagingDir);
       throw err as Error;

@@ -447,7 +447,11 @@ struct Index {
           return;
         }
         hilog.error(DOMAIN, TAG, 'download flow failed: %{public}s', JSON.stringify(err));
-        this.error = '下载失败：' + (err.message !== undefined ? err.message : '未知错误');
+        // BusinessError 的 message 可能为空，此时回退到错误码，避免出现「下载失败：」
+        const detail: string = (err.message !== undefined && err.message.length > 0)
+          ? err.message
+          : (err.code !== undefined ? '错误码 ' + err.code : '未知错误');
+        this.error = '下载失败：' + detail;
         Notifier.publishFailed(this.error);
         if (repo.hasGameFiles()) {
           this.stage = Stage.Ready;

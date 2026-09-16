@@ -29,9 +29,8 @@ export const DEFAULT_ASSET: string = 'game.zip';
 
 /**
  * 开发模式：正式发布必须为 false。
- * - true：开启 ArkWeb 远程调试（`setWebDebuggingAccess`），并在游戏页注入
- *   fetch/XHR/LOAF 性能探针（有性能开销与日志噪音）；
- * - false：上述调试能力全部关闭。
+ * - true：开启 ArkWeb 远程调试（`setWebDebuggingAccess`，见 `docs/debugging.md`）；
+ * - false：关闭，避免调试端口暴露。
  */
 export const DEBUG_UI: boolean = false;
 

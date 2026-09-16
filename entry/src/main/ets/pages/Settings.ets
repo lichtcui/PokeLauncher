@@ -12,6 +12,7 @@ import {
   readLocalVersion
 } from '../model/AppUpdate';
 import { setWindowBackground, HOME_BG_COLOR } from '../model/WindowHolder';
+import { clearWebCache } from '../common/WebCache';
 import { ORI_PORTRAIT, ORI_LANDSCAPE, ORI_SYSTEM, readOrientation, saveOrientation } from '../model/OrientationPref';
 import { isMasterEnabled, setMaster } from '../model/CheatState';
 
@@ -150,6 +151,8 @@ struct Settings {
     this.deleting = true;
     try {
       await repo.clear();
+      // 一并清掉 Web 缓存，避免残留的游戏资源继续占用空间
+      clearWebCache();
       promptAction.showToast({ message: '本地数据已删除' });
     } catch (err) {
       hilog.error(DOMAIN, TAG, 'clear failed: %{public}s', JSON.stringify(err));
