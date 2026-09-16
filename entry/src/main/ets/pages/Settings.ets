@@ -198,6 +198,11 @@ struct Settings {
     });
   }
 
+  /** 赞助 / 评分入口占位：应用上架应用市场前先给出提示 */
+  private showComingSoon(): void {
+    promptAction.showToast({ message: '即将推出，敬请期待' });
+  }
+
   @Builder
   groupTitle(text: string) {
     Text(text)
@@ -357,6 +362,12 @@ struct Settings {
           .width('100%')
           .padding({ left: 16, right: 16, top: 15, bottom: 15 })
           .onClick(() => this.confirmDelete())
+
+          this.groupTitle('支持作者')
+          // 赞助与评分：待应用上架华为应用市场后接入 IAPKit 与 AppGalleryKit
+          this.navRow('请作者喝咖啡', '', '#999999', true, () => this.showComingSoon())
+          this.divider()
+          this.navRow('前往应用市场评分', '', '#999999', true, () => this.showComingSoon())
 
           this.groupTitle('关于')
           this.navRow('应用版本', this.appVersion, '#999999', false, () => {})
