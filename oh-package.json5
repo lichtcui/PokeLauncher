@@ -1,5 +1,8 @@
 {
   "modelVersion": "5.0.0",
   "description": "PokeRogue offline launcher for HarmonyOS",
-  "dependencies": {}
+  "dependencies": {},
+  "devDependencies": {
+    "@ohos/hypium": "1.0.19"
+  }
 }

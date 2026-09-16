@@ -48,9 +48,26 @@
 - 新增静态资源放 `entry/src/main/resources/base/media/`，引用 `$r('app.media.xxx')`。
 - **新增作弊条目只改 `model/Cheats.ets`**（见 [`docs/cheats.md`](./docs/cheats.md)），UI/状态/注入会自动生效。
 
+### 测试（ohosTest，跑在真机）
+
+测试源码在 `entry/src/ohosTest/ets/test/`（hypium，项目根 `oh-package.json5` 的 `devDependencies`）。**新增套件要在 `List.test.ets` 里注册**。只放纯函数/无副作用逻辑（当前覆盖 `normalizeVersion` / `mimeOf`）。
+
+```bash
+export DEVECO_SDK_HOME=/Applications/DevEco-Studio.app/Contents/sdk
+export PATH="/Applications/DevEco-Studio.app/Contents/tools/node/bin:/Applications/DevEco-Studio.app/Contents/tools/ohpm/bin:$PATH"
+HVIGOR=/Applications/DevEco-Studio.app/Contents/tools/hvigor/bin/hvigorw
+HDC=/Applications/DevEco-Studio.app/Contents/sdk/default/openharmony/toolchains/hdc
+
+"$HVIGOR" assembleHap --mode module -p module=entry@ohosTest -p product=default -p buildMode=debug --no-daemon
+"$HDC" install -r entry/build/default/outputs/default/entry-default-signed.hap
+"$HDC" install -r entry/build/default/outputs/ohosTest/entry-ohosTest-signed.hap
+"$HDC" shell aa test -b com.lichtcui.pokerogue -m entry_test -s unittest OpenHarmonyTestRunner -s timeout 60000
+# 通过判据：输出 `OHOS_REPORT_RESULT: ... Failure: 0, Error: 0`
+```
+
 ### 调试开关（`common/Const.ets`）
 
-- `DEBUG_UI`（**默认 false**）：true 时开 Web 调试并注入性能探针，仅本地调试用。
+- `DEBUG_UI`（**默认 false**）：true 时开 ArkWeb 远程调试，仅本地调试用。
 - `FORCE_WILL_READ_FREQUENTLY`（默认 true）：强制 2D canvas 走 CPU，消除 `getImageData` GPU 读回开销。
 
 ## 3. 专题文档（`docs/`）
