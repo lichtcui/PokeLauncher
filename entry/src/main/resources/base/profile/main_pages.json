@@ -3,6 +3,7 @@
     "pages/Index",
     "pages/GamePage",
     "pages/Settings",
-    "pages/Cheats"
+    "pages/Cheats",
+    "pages/Legal"
   ]
 }

@@ -366,6 +366,9 @@ struct Settings {
             '#999999', false, () => {})
           this.divider()
           this.navRow('资源来源', '原版 PokeRogue', '#999999', false, () => {})
+          this.divider()
+          this.navRow('法律与免责声明', '', '#999999', true,
+            () => router.pushUrl({ url: 'pages/Legal' }))
 
           Text('PokeRogue 鸿蒙离线版 · 仅供学习交流')
             .fontSize(12)
