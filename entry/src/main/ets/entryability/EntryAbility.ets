@@ -10,7 +10,7 @@ import { setMainWindow } from '../model/WindowHolder';
 import { GAME_DIR_NAME, DEBUG_UI } from '../common/Const';
 
 const DOMAIN: number = 0x0000;
-const TAG: string = 'PokeRogue';
+const TAG: string = 'PokeLauncher';
 
 export default class EntryAbility extends UIAbility {
   onCreate(want: Want, launchParam: AbilityConstant.LaunchParam): void {

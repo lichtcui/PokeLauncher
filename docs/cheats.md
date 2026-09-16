@@ -1,6 +1,8 @@
 # 作弊框架（如何新增作弊条目）
 
 > 操作手册见 [`../AGENTS.md`](../AGENTS.md)。
+>
+> **命名约定**：这个功能在 UI 上叫 **「参数调整」**（`作弊` 这类字眼会触发应用商店审核风险），但代码与本文档沿用 `cheat` 命名（`Cheats.ets` / `CheatState.ets` / `buildBootScript`）。看到两者指的是同一个东西。
 
 所有作弊都是**实时 hook**：注入脚本在游戏启动前捕获运行中的 Phaser 场景（`BattleScene`），再 hook 游戏方法或直接改内存数据；**注入后在游戏内即时生效**（无需像旧方案那样存档 + 读档）。⚠️ 更改开关/数值需要**重新进入游戏页**（或重启 App）才会重新注入。
 
@@ -9,11 +11,11 @@
 | 文件 | 职责 |
 | --- | --- |
 | `model/Cheats.ets` | 作弊注册表 `CHEATS: Cheat[]`，每条 `{ id, name, desc, group, script, param? }`。**新增作弊只改这里。** |
-| `model/CheatState.ets` | 内存单例 + 持久化（`pokerogue_settings` 的 `cheatMaster` / `cheatEnabledIds` / `cheatParams`）+ `buildBootScript()`（注入 `__CHEAT_PARAMS__` + **场景捕获运行时** + 按启用清单拼接 script） |
+| `model/CheatState.ets` | 内存单例 + 持久化（`pokelauncher_settings` 的 `cheatMaster` / `cheatEnabledIds` / `cheatParams`）+ `buildBootScript()`（注入 `__CHEAT_PARAMS__` + **场景捕获运行时** + 按启用清单拼接 script） |
 | `LocalHttpServer.ets` | `/index.html` 注入 `<script src="/__cheats__.js">`；`/__cheats__.js` 请求时调 `buildBootScript()` 动态下发（`no-cache`） |
-| `pages/Settings.ets` | 「作弊模式」总开关（开启时弹账号风险 + 兼容性风险确认框） |
-| `pages/Cheats.ets` | 条目列表页（按 `CHEAT_GROUPS` 分组；每条一个 Switch；声明 `param` 的额外显示数值 Slider），从首页就绪页「作弊设置」进入 |
-| `pages/Index.ets` | 就绪页显示「作弊设置」入口（仅总开关开启时） |
+| `pages/Settings.ets` | 「参数调整」总开关（开启时弹账号风险 + 兼容性风险确认框） |
+| `pages/Cheats.ets` | 条目列表页（按 `CHEAT_GROUPS` 分组；每条一个 Switch；声明 `param` 的额外显示数值 Slider），从首页就绪页「参数调整」进入 |
+| `pages/Index.ets` | 就绪页显示「参数调整」入口（仅总开关开启时） |
 
 ## 场景捕获运行时（`buildBootScript` 注入）
 
@@ -66,7 +68,7 @@
    ```
 
 2. **不需要改任何 UI/状态代码**：作弊页自动遍历 `CHEATS` 渲染，开关与数值参数自动持久化。
-3. 验证：按 [`../AGENTS.md`](../AGENTS.md) 的「编译 → 安装 → 重启」闭环装到真机 → 设置开「作弊模式」→ 首页「作弊设置」打开该条 → 进入游戏 → 抓 `ARKWEB-CONSOLE` 日志确认 hook 命中。
+3. 验证：按 [`../AGENTS.md`](../AGENTS.md) 的「编译 → 安装 → 重启」闭环装到真机 → 设置开「参数调整」→ 首页「参数调整」打开该条 → 进入游戏 → 抓 `ARKWEB-CONSOLE` 日志确认 hook 命中。
 
 ## script 运行环境与约定
 

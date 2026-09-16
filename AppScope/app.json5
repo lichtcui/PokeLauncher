@@ -1,6 +1,6 @@
 {
   "app": {
-    "bundleName": "com.lichtcui.pokerogue",
+    "bundleName": "com.lichtcui.pokelauncher",
     "vendor": "lichtcui",
     "versionCode": 1000001,
     "versionName": "1.0.1",

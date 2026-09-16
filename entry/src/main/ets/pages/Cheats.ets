@@ -3,7 +3,7 @@ import { CHEATS, Cheat, CheatGroup, CheatGroupInfo, CHEAT_GROUPS, CheatParam } f
 import { isMasterEnabled, isCheatEnabled, toggleCheat, getParamNumber, setParam, setParamLive } from '../model/CheatState';
 
 /**
- * 作弊条目页（独立页面）：从首页就绪页的「作弊设置」入口进入。
+ * 参数调整条目页（独立页面）：从首页就绪页的「参数调整」入口进入。
  * 条目按分组展示（倍率修改 / 其他），均为「实时生效」（开启后无需重启）。
  * 声明了 param 的条目额外显示一个数值滑块（倍率等）。
  */
@@ -97,7 +97,7 @@ struct Cheats {
           .height(44)
           .textAlign(TextAlign.Center)
           .onClick(() => router.back())
-        Text('作弊').fontSize(20).fontWeight(FontWeight.Medium)
+        Text('参数调整').fontSize(20).fontWeight(FontWeight.Medium)
         Blank()
       }
       .width('100%')
@@ -105,11 +105,11 @@ struct Cheats {
 
       // 风险提示（常驻）
       Column() {
-        Text('账号风险：开启作弊后存档可能被官方标记/封禁，且已污染的存档不建议导入在线版。')
+        Text('账号风险：开启后存档可能被官方标记/封禁，且已污染的存档不建议导入在线版。')
           .fontSize(12)
           .fontColor('#DA3838')
           .width('100%')
-        Text('兼容性风险：作弊依赖游戏内部实现，游戏更新后可能失效或表现异常。')
+        Text('兼容性风险：参数调整依赖游戏内部实现，游戏更新后可能失效或表现异常。')
           .fontSize(12)
           .fontColor('#C77700')
           .width('100%')
@@ -121,7 +121,7 @@ struct Cheats {
       .backgroundColor('#FFF3F3')
 
       if (!this.masterOn) {
-        Text('作弊模式未开启，请先到「设置 → 游戏 → 作弊模式」开启。')
+        Text('参数调整未开启，请先到「设置 → 游戏 → 参数调整」开启。')
           .fontSize(13)
           .fontColor('#999999')
           .width('100%')

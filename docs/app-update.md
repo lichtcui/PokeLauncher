@@ -73,8 +73,8 @@ scripts/build-release-app.sh
   "minVersionCode": 1000000,
   "forceUpdate": false,
   "changelog": "1. 修复…\n2. 新增…",
-  "downloadUrl": "https://gitee.com/licht3345/harmony-pokerogue/releases",
-  "pageUrl": "https://gitee.com/licht3345/harmony-pokerogue/releases"
+  "downloadUrl": "https://gitee.com/licht3345/PokeLauncher/releases",
+  "pageUrl": "https://gitee.com/licht3345/PokeLauncher/releases"
 }
 ```
 
@@ -93,4 +93,4 @@ scripts/build-release-app.sh
 
 - 临时把远程 `versionCode` 调大 → 重启 App 应弹窗；设置页「应用更新」应显示「发现新版本」。
 - 手动检查失败会显示「检查失败」；启动自动检查失败仅打日志（`Settings`/`Home`/`AppUpdate` tag）。
-- 自动检查节流键：偏好 `pokerogue_settings` 的 `appUpdateLastCheck`。
+- 自动检查节流键：偏好 `pokelauncher_settings` 的 `appUpdateLastCheck`。

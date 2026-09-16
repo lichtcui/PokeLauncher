@@ -1,4 +1,4 @@
-# PokeRogue for HarmonyOS
+# PokeLauncher
 
 在 HarmonyOS NEXT 手机上**离线游玩 PokeRogue** 的启动器（原生 HAP）。
 
@@ -6,12 +6,12 @@
 
 ## 安装
 
-> 当前 [GitHub Release](https://github.com/lichtcui/harmony-pokerogue/releases) **仅提供源码，未附带 HAP**：本地构建产物使用 DevEco 自动签名（debug Profile，绑定开发者设备 UDID），其他人下载后无法安装。详见 [`docs/app-update.md`](./docs/app-update.md)。
+> 当前 [GitHub Release](https://github.com/lichtcui/PokeLauncher/releases) **仅提供源码，未附带 HAP**：本地构建产物使用 DevEco 自动签名（debug Profile，绑定开发者设备 UDID），其他人下载后无法安装。详见 [`docs/app-update.md`](./docs/app-update.md)。
 
 1. 克隆仓库并自行构建（需先用 DevEco Studio 打开一次，在 `File > Project Structure > Signing Configs` 配置自己的签名）：
 
    ```bash
-   git clone https://github.com/lichtcui/harmony-pokerogue.git
+   git clone https://github.com/lichtcui/PokeLauncher.git
    hvigorw assembleHap --mode module -p product=default -p buildMode=release
    ```
 
@@ -33,7 +33,7 @@
 ### 首页启动器
 
 - 四种状态：未下载 / 下载中 / 解压中 / 已就绪。
-- 已就绪后：中间精灵球 + 「开始游戏」+「作弊设置」（需先在设置里开启作弊模式），右上角齿轮进设置。
+- 已就绪后：中间精灵球 + 「开始游戏」+「参数调整」（需先在设置里开启），右上角齿轮进设置。
 - 下载中可暂停、继续、取消（取消需二次确认）。
 
 ### 游戏页
@@ -46,7 +46,7 @@
 ### 设置页
 
 - **屏幕方向**：竖屏 / 横屏 / 跟随系统。
-- **作弊模式**：总开关，开启时需确认账号风险与兼容性风险。
+- **参数调整**：总开关，开启时需确认账号风险与兼容性风险。
 - **数据管理**：
   - 应用更新：手动检查 App 新版本（发现新版本弹窗引导到下载页）。
   - 游戏资源更新：重新下载最新的游戏资源包。
@@ -57,7 +57,7 @@
 ### 存档导入 / 导出
 
 - **存档位置**：App 沙箱的 Web `localStorage`（物理路径 `<沙箱>/cache/web/`），并绑定本地服务地址 `http://127.0.0.1:18787`（端口固定，不会变）。
-- **导出**：游戏内「导出存档」会通过文件选择器保存到 `下载/com.lichtcui.pokerogue/`。
+- **导出**：游戏内「导出存档」会通过文件选择器保存到 `下载/com.lichtcui.pokelauncher/`。
 - **导入**：通过文件选择器选择存档文件导入。
 - **快照兜底**：App 会把 localStorage 镜像一份到 `<沙箱>/files/saves/`。若「清除缓存」把 localStorage 清空，进入游戏页时会自动从快照恢复，并弹提示告知。
 
@@ -74,9 +74,9 @@
 
 > 最可靠的做法：定期用游戏内「导出存档」存一份到 `下载/`——它在沙箱外，卸载重装也不受影响。
 
-## 作弊（离线）
+## 参数调整（离线）
 
-在「设置 → 作弊模式」开启后，首页就绪页会出现「作弊设置」入口。条目分两组：
+在「设置 → 参数调整」开启后，首页就绪页会出现「参数调整」入口。条目分两组：
 
 - **倍率修改**：糖果 / 经验 / 金币获取倍率（×N）
 - **其他**：幸运值拉满（SSS）、100% 捕获率、免费抽蛋、强制奖励稀有度
@@ -85,8 +85,8 @@
 
 ### 风险
 
-- **账号风险**：PokéRogue 官方有检测机制，修改数据可能被标记（Flagged）甚至封禁；作弊后的存档不纯净，**勿导入在线版**。
-- **兼容性风险**：实时作弊依赖游戏内部方法名。本 App 会从 GitHub Release 自动更新游戏资源，**游戏升级后作弊可能失效或表现异常**（届时关闭作弊即可）。
+- **账号风险**：PokéRogue 官方有检测机制，修改数据可能被标记（Flagged）甚至封禁；修改后的存档不纯净，**勿导入在线版**。
+- **兼容性风险**：实时调整依赖游戏内部方法名。本 App 会从 GitHub Release 自动更新游戏资源，**游戏升级后可能失效或表现异常**（届时关闭即可）。
 
 ## 更新
 
@@ -99,8 +99,8 @@
 | --- | --- |
 | 下载失败 / 很慢 | 换个网络重试；App 会自动在多个镜像间测速选源 |
 | 进入游戏白屏 | 返回首页重新进；仍不行就重启 App |
-| 作弊没生效 | 改完配置要**重新进入游戏页**；确认总开关和对应条目都已打开 |
-| 游戏更新后作弊异常 | 属正常现象，关闭作弊即可（作弊依赖游戏内部实现） |
+| 参数调整没生效 | 改完配置要**重新进入游戏页**；确认总开关和对应条目都已打开 |
+| 游戏更新后参数调整异常 | 属正常现象，关闭即可（依赖游戏内部实现） |
 | 存档丢了 | 见「存档导入 / 导出」的丢失场景表；用导出的存档文件重新导入即可恢复 |
 
 更多问题见 [`docs/troubleshooting.md`](./docs/troubleshooting.md)。

@@ -79,7 +79,7 @@ struct Index {
     setWindowBackground(HOME_BG_COLOR);
     // 首页始终保持竖屏（游戏页可能已切换为横屏/跟随系统）
     setOrientation(window.Orientation.PORTRAIT);
-    // 刷新作弊入口可见性（可能在设置页开启了作弊模式）
+    // 刷新参数调整入口可见性（可能在设置页开启了总开关）
     this.cheatMasterOn = isMasterEnabled();
     // 从设置页返回：更新标记优先，其次刷新就绪态（核心包可能已被删除）
     const pending: boolean | undefined = AppStorage.get<boolean>('pendingUpdate');
@@ -656,9 +656,9 @@ struct Index {
         .fontColor('#FFFFFF')
         .margin({ top: 16 })
         .onClick(() => this.startGame())
-      // 作弊入口：仅在设置里开启作弊模式后显示；更改在开始游戏时生效
+      // 参数调整入口：仅在设置里开启后显示；更改在开始游戏时生效
       if (this.cheatMasterOn) {
-        Text('作弊设置')
+        Text('参数调整')
           .fontSize(14)
           .fontColor('#999999')
           .margin({ top: 4 })

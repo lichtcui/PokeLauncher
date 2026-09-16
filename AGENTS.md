@@ -19,7 +19,7 @@
 > 这些是**本机全局安装**的 skill（由 triage 按需路由）。换机器 / CI / 别人 clone 时未必存在，此时按通用 HarmonyOS 流程自行处理。
 
 - 产物：`entry/build/default/outputs/default/entry-default-signed.hap`
-- App 名 **PokeRogue**，bundle = `com.lichtcui.pokerogue`
+- App 名 **PokeLauncher**，bundle = `com.lichtcui.pokelauncher`
 - **每次改完代码都必须走完「编译 → 安装 → 重启 → 截图观察」闭环**。只编译不安装，设备上跑的仍是旧版本，会误判「改动没生效」。
 - ⚠️ `build-profile.json5` 的 `compatibleSdkVersion` / `targetSdkVersion` 必须是 `"6.1.1(24)"`（本机 SDK 是 API 26，真机是 API 24）。报「sdk version 不匹配」先查这里。
 
@@ -47,6 +47,7 @@
 - **ArkUI 坑**：`@Builder` 的**值参数**不会触发重渲染，动态文案要直接在 `build()` 里读 `@State`（见 `Settings.ets` 的「检查更新」「删除本地数据」行）。
 - 新增静态资源放 `entry/src/main/resources/base/media/`，引用 `$r('app.media.xxx')`。
 - **新增作弊条目只改 `model/Cheats.ets`**（见 [`docs/cheats.md`](./docs/cheats.md)），UI/状态/注入会自动生效。
+  - ⚠️ 命名：该功能在 **UI 上叫「参数调整」**（`作弊` 字样会触发应用商店审核风险），代码/文档沿用 `cheat` 命名。**新增任何用户可见文案都用「参数调整」**。
 - **存档是 Web 的 `localStorage`，物理落在 `<沙箱>/cache/web/`**，会被「清除缓存」清掉。因此 `model/SaveGuard.ets` 会把它镜像到 `files/saves/` 并在清空时自动回填——**任何需要持久化的数据都不要放 `cache/`**，放 `files/`。
 
 ### 测试（ohosTest，跑在真机）
@@ -62,7 +63,7 @@ HDC=/Applications/DevEco-Studio.app/Contents/sdk/default/openharmony/toolchains/
 "$HVIGOR" assembleHap --mode module -p module=entry@ohosTest -p product=default -p buildMode=debug --no-daemon
 "$HDC" install -r entry/build/default/outputs/default/entry-default-signed.hap
 "$HDC" install -r entry/build/default/outputs/ohosTest/entry-ohosTest-signed.hap
-"$HDC" shell aa test -b com.lichtcui.pokerogue -m entry_test -s unittest OpenHarmonyTestRunner -s timeout 60000
+"$HDC" shell aa test -b com.lichtcui.pokelauncher -m entry_test -s unittest OpenHarmonyTestRunner -s timeout 60000
 # 通过判据：输出 `OHOS_REPORT_RESULT: ... Failure: 0, Error: 0`
 ```
 

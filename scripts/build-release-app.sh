@@ -9,10 +9,10 @@
 #   所以这里让 hvigor 只出**未签名**产物，再用官方 hap-sign-tool 依次签 HAP 和 App Pack。
 #
 # 签名材料放在仓库外（默认 ~/.ohos/release），密码单独放一个文件，不进 Git：
-#   ~/.ohos/release/pwd                 单行密码（keystore 密码 == key 密码）
-#   ~/.ohos/release/pokerogue.p12       密钥库
-#   ~/.ohos/release/pokerogue-release.cer   发布证书链（PEM，含根/中间/叶子）
-#   ~/.ohos/release/pokerogue-release.p7b   发布 Profile
+#   ~/.ohos/release/pwd                     单行密码（keystore 密码 == key 密码）
+#   ~/.ohos/release/pokerogue.p12           密钥库（keyAlias 仍是 pokerogue，改名会破坏现有证书）
+#   ~/.ohos/release/pokerogue-release.cer   发布证书链（PEM，含根/中间/叶子；账号级，可跨应用复用）
+#   ~/.ohos/release/PokeLauncherRelease.p7b 发布 Profile（绑 bundleName，换包名必须重新申请）
 #
 # 用法：
 #   scripts/build-release-app.sh
@@ -34,7 +34,7 @@ KEY_ALIAS="${KEY_ALIAS:-pokerogue}"
 PWD_FILE="${PWD_FILE:-$SIGN_DIR/pwd}"
 KEYSTORE="${KEYSTORE:-$SIGN_DIR/pokerogue.p12}"
 APP_CERT="${APP_CERT:-$SIGN_DIR/pokerogue-release.cer}"
-PROFILE="${PROFILE:-$SIGN_DIR/pokerogue-release.p7b}"
+PROFILE="${PROFILE:-$SIGN_DIR/PokeLauncherRelease.p7b}"
 # 与 build-profile.json5 的 compatibleSdkVersion 保持一致
 COMPATIBLE_VERSION="${COMPATIBLE_VERSION:-24}"
 

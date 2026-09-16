@@ -7,7 +7,7 @@ export const RELEASE_API: string =
   'https://api.github.com/repos/Admiral-Billy/pokerogue/releases/latest';
 
 /** GitHub API 需要的 User-Agent */
-export const USER_AGENT: string = 'Pokerogue-Harmony';
+export const USER_AGENT: string = 'PokeLauncher-Harmony';
 
 /**
  * 下载镜像前缀（按顺序尝试），拼接在原始 GitHub URL 之前：
@@ -51,15 +51,15 @@ export const GAME_DIR_NAME: string = 'game';
  * 应用内无法静默安装 HAP（需系统级权限），此处只做「检测 + 引导」。
  */
 export const APP_UPDATE_MANIFEST_URL: string =
-  'https://gitee.com/licht3345/harmony-pokerogue/raw/master/version.json';
+  'https://gitee.com/licht3345/PokeLauncher/raw/master/version.json';
 
 /** 应用下载页（检测到新版本后用浏览器打开） */
 export const APP_UPDATE_PAGE_URL: string =
-  'https://gitee.com/licht3345/harmony-pokerogue/releases';
+  'https://gitee.com/licht3345/PokeLauncher/releases';
 
 /** 项目 GitHub 仓库（设置页「关于」入口用浏览器打开） */
 export const PROJECT_GITHUB_URL: string =
-  'https://github.com/lichtcui/harmony-pokerogue';
+  'https://github.com/lichtcui/PokeLauncher';
 
 /** 启动时自动检查应用更新的最小间隔（24 小时节流） */
 export const APP_UPDATE_CHECK_INTERVAL_MS: number = 24 * 60 * 60 * 1000;

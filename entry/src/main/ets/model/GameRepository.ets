@@ -537,7 +537,7 @@ export class GameRepository {
       action: request.agent.Action.DOWNLOAD,
       url: url,
       title: '正在下载游戏资源',
-      description: 'PokeRogue',
+      description: 'PokeLauncher',
       mode: request.agent.Mode.BACKGROUND,
       overwrite: true,
       method: 'GET',

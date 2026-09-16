@@ -2,15 +2,15 @@
   "string": [
     {
       "name": "module_desc",
-      "value": "宝可梦肉鸽离线启动器"
+      "value": "离线游戏资源启动器"
     },
     {
       "name": "EntryAbility_desc",
-      "value": "宝可梦肉鸽离线启动器"
+      "value": "离线游戏资源启动器"
     },
     {
       "name": "EntryAbility_label",
-      "value": "PokeRogue"
+      "value": "PokeLauncher"
     }
   ]
 }

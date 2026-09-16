@@ -1,7 +1,7 @@
 {
   "name": "entry",
   "version": "1.0.0",
-  "description": "PokeRogue offline launcher entry module",
+  "description": "PokeLauncher offline launcher entry module",
   "main": "",
   "author": "",
   "license": "",

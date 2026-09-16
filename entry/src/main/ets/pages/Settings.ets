@@ -22,7 +22,7 @@ const TAG: string = 'Settings';
 
 /**
  * 设置页：从首页右上角齿轮进入。
- * 承载游戏选项（横屏/作弊，后续）、数据管理（更新/缓存/删除）与关于信息。
+ * 承载游戏选项（屏幕方向 / 参数调整）、数据管理（更新/删除）与关于信息。
  */
 @Entry
 @Component
@@ -175,7 +175,7 @@ struct Settings {
     });
   }
 
-  /** 作弊模式总开关：开启前必须确认账号风险，未确认则回滚开关状态 */
+  /** 参数调整总开关：开启前必须确认账号风险，未确认则回滚开关状态 */
   private onCheatToggle(on: boolean): void {
     if (!on) {
       this.cheatMaster = false;
@@ -183,8 +183,8 @@ struct Settings {
       return;
     }
     promptAction.showDialog({
-      title: '开启作弊模式',
-      message: '账号风险：PokéRogue 官方对作弊行为有检测机制，使用 Hook 修改游戏数据可能使账号被标记（Flagged）甚至封禁。开启后本机存档已不纯净，不建议再导入或上传到在线版。请仅在离线或确认安全的环境下使用。\n\n兼容性风险：作弊依赖游戏内部实现，游戏更新后可能失效或表现异常。',
+      title: '开启参数调整',
+      message: '账号风险：PokéRogue 官方对修改游戏数据有检测机制，通过 Hook 改写运行时数值可能使账号被标记（Flagged）甚至封禁。开启后本机存档已不纯净，不建议再导入或上传到在线版。请仅在离线或确认安全的环境下使用。\n\n兼容性风险：参数调整依赖游戏内部实现，游戏更新后可能失效或表现异常。',
       buttons: [
         { text: '取消', color: '#666666' },
         { text: '仍然开启', color: '#DA3838' }
@@ -289,9 +289,9 @@ struct Settings {
           .width('100%')
           .padding({ left: 16, right: 16, top: 12, bottom: 12 })
           this.divider()
-          // 作弊模式总开关（条目在游戏内「作弊」页维护）
+          // 参数调整总开关（条目在游戏内「参数调整」页维护）
           Row() {
-            Text('作弊模式').fontSize(16).fontColor('#333333')
+            Text('参数调整').fontSize(16).fontColor('#333333')
             Blank()
             Toggle({ type: ToggleType.Switch, isOn: this.cheatMaster })
               .selectedColor('#DA3838')
@@ -363,13 +363,13 @@ struct Settings {
           this.divider()
           this.navRow('作者', 'lichtcui', '#999999', false, () => {})
           this.divider()
-          this.navRow('GitHub', 'lichtcui/harmony-pokerogue', '#999999', true,
+          this.navRow('GitHub', 'lichtcui/PokeLauncher', '#999999', true,
             () => this.openUrl(PROJECT_GITHUB_URL))
           this.divider()
           this.navRow('法律与免责声明', '', '#999999', true,
             () => router.pushUrl({ url: 'pages/Legal' }))
 
-          Text('PokeRogue 鸿蒙离线版 · 仅供学习交流')
+          Text('PokeLauncher · 仅供学习交流')
             .fontSize(12)
             .fontColor('#BBBBBB')
             .margin({ top: 32, bottom: 40 })

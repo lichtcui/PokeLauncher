@@ -85,7 +85,7 @@ struct GamePage {
         this.lastSavePath, exists.toString(), size);
       // 给用户明确反馈（文件保存位置）
       const name: string = item.getSuggestedFileName();
-      promptAction.showToast({ message: '已导出 ' + name + ' 到「下载/com.lichtcui.pokerogue」' });
+      promptAction.showToast({ message: '已导出 ' + name + ' 到「下载/com.lichtcui.pokelauncher」' });
     });
     try {
       this.controller.setDownloadDelegate(this.downloadDelegate);

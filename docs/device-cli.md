@@ -7,7 +7,7 @@
 `hilog.info(0x0000, TAG, ...)` 会以 `A00000/<TAG>` 出现。本 App 用到的 TAG：
 
 ```
-GameRepository  GamePage  Home  Settings  LocalHttp  Notifier  CheatState  AppUpdate  WebCache  PokeRogue
+GameRepository  GamePage  Home  Settings  LocalHttp  Notifier  CheatState  AppUpdate  WebCache  PokeLauncher
 ```
 
 - 游戏内 `console.log` 以 `ARKWEB-CONSOLE` 出现（排查游戏侧与作弊注入时最有用）。
@@ -25,12 +25,12 @@ GameRepository  GamePage  Home  Settings  LocalHttp  Notifier  CheatState  AppUp
 
 ```bash
 # 读沙箱（游戏目录 / 下载中的 zip）
-B=com.lichtcui.pokerogue
+B=com.lichtcui.pokelauncher
 F=/data/app/el2/100/base/$B/haps/entry/files
 "$HDC" shell "ls -la $F $F/game | head"
 "$HDC" shell "ls -la /data/app/el2/100/base/$B/haps/entry/cache/game.zip"
 ```
 
-- **清数据**：`hdc shell bm clean -d -n com.lichtcui.pokerogue` 清空 filesDir（游戏资源）+ preferences + localStorage（**会丢存档与作弊设置**），之后需重启 App。
+- **清数据**：`hdc shell bm clean -d -n com.lichtcui.pokelauncher` 清空 filesDir（游戏资源）+ preferences + localStorage（**会丢存档与参数调整配置**），之后需重启 App。
 
 > 调试游戏 WebView（DevTools）见 [`debugging.md`](./debugging.md)。

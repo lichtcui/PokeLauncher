@@ -34,16 +34,16 @@
 | 快照没生成 | 看 `SaveGuard` tag 的 `init`（`initSaveGuard` 在 `EntryAbility.onWindowStageCreate`）；再看注入脚本是否执行（`ARKWEB-CONSOLE` 的 `SAVEGUARD ...`） |
 | 想清掉快照重来 | 删除 `<沙箱>/files/saves/`（`bm clean -d` 会一并清） |
 
-**快照覆盖不到的场景**：卸载重装、`bm clean -d` 清数据——这两种会删掉整个沙箱，只能用游戏内「导出存档」落到 `下载/com.lichtcui.pokerogue/` 兜底。
+**快照覆盖不到的场景**：卸载重装、`bm clean -d` 清数据——这两种会删掉整个沙箱，只能用游戏内「导出存档」落到 `下载/com.lichtcui.pokelauncher/` 兜底。
 
-**已验证（2026-09-16 真机）**：`bm clean -c -n com.lichtcui.pokerogue` 会删掉 `cache/web/`，即**确实会清空 localStorage 存档**；`files/saves/` 不受影响，重进游戏页后 8 个键（含 `data_Guest` 495KB）逐字节还原一致。所以「清除缓存」这条风险是真实的，不是理论推测。
+**已验证（2026-09-16 真机）**：`bm clean -c -n com.lichtcui.pokelauncher` 会删掉 `cache/web/`，即**确实会清空 localStorage 存档**；`files/saves/` 不受影响，重进游戏页后 8 个键（含 `data_Guest` 495KB）逐字节还原一致。所以「清除缓存」这条风险是真实的，不是理论推测。
 
 ## 作弊
 
 | 现象 | 处理 |
 | --- | --- |
 | 作弊没生效 | 作弊是**加载时注入**：改配置后要**重新进入游戏页**（返回首页再进，或重启 App）才会重新注入（不能热生效）；抓日志看 `served /__cheats__.js` 与 `ARKWEB-CONSOLE` 的 `CHEAT ...`（见 [`cheats.md`](./cheats.md)） |
-| 作弊页入口不显示 | 首页「作弊设置」仅在设置页开启「作弊模式」后显示 |
+| 参数调整入口不显示 | 首页「参数调整」仅在设置页开启总开关后显示 |
 | 游戏更新后作弊失效 | 实时 hook 依赖游戏内部方法名，属预期；关闭作弊即可 |
 
 ## 应用自更新
@@ -59,5 +59,5 @@
 | --- | --- |
 | `hdc shell` 无法写沙箱（`touch`/`mkdir` 被拒） | 正常：设备沙箱对 `shell` 只读。只能**读**（`ls`/`cat`/`hdc file recv`），无法人工制造中断状态 |
 | `uitest uiInput click` 点不动首页右上角齿轮 | 齿轮落在系统手势区，注入点击被吞。改用真机手点，或 `bm clean -d -n <bundle>` 造「未下载」态后从首页按钮触发下载 |
-| 想验证「未下载 → 下载 → 解压」全流程 | `hdc shell bm clean -d -n com.lichtcui.pokerogue` 清数据（**会丢存档与作弊设置**），重启 App 后点「下载游戏资源」 |
+| 想验证「未下载 → 下载 → 解压」全流程 | `hdc shell bm clean -d -n com.lichtcui.pokelauncher` 清数据（**会丢存档与参数调整配置**），重启 App 后点「下载游戏资源」 |
 | 想验证「下载中被杀 → 接管」 | 下载开始约 30s 后 `aa force-stop`（后台任务会继续，看 `cache/game.zip` 仍在增长），再启动 App，应显示进度并接管 |
