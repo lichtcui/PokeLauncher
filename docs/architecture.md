@@ -9,10 +9,13 @@ entry/src/main/ets/
 ├─ entryability/EntryAbility.ets   # 启动本地 HTTP 服务、窗口设置、DEBUG_UI 时开 Web 调试
 ├─ common/
 │  ├─ Const.ets                    # 常量（URL/镜像/DEBUG_UI/FORCE_WILL_READ_FREQUENTLY 等）
-│  └─ Mime.ets                     # 扩展名 → MIME
+│  ├─ Mime.ets                     # 扩展名 → MIME
+│  ├─ Prefs.ets                    # 共享 preferences 库名 + 实例缓存（getStore）
+│  ├─ Http.ets                     # 共享 GET 文本请求 requestText()
+│  └─ WebCache.ets                 # clearWebCache()：清 Web HTTP/JS 缓存
 ├─ components/PokeballLoader.ets   # 精灵球摇晃动画（下载/解压中）
 ├─ model/
-│  ├─ GameRepository.ets           # 下载(request.agent+镜像) / 解压(zlib) / 删除 / 版本 / 接管
+│  ├─ GameRepository.ets           # 下载(request.agent+镜像) / 原子解压(zlib) / 恢复 / 删除 / 版本 / 接管
 │  ├─ AppUpdate.ets                # 应用自更新：本地版本读取 + version.json 比对 + 引导下载（见 app-update.md）
 │  ├─ LocalHttpServer.ets          # 本地 HTTP 服务(127.0.0.1:18787 固定端口) + index.html 注入 + /__cheats__.js
 │  ├─ Notifier.ets                 # 通知权限 + 完成/失败通知
@@ -24,6 +27,7 @@ entry/src/main/ets/
    ├─ Index.ets                  # 首页启动器（状态机 + 下载 UI；就绪页：精灵球 + 开始游戏 + 作弊设置 + 齿轮）
    ├─ Settings.ets               # 设置页（屏幕方向 / 作弊模式开关 / 更新·删除 / 支持作者 / 关于 / 法律声明）
    ├─ Cheats.ets                 # 作弊条目页（从首页「作弊设置」进入）
+   ├─ Legal.ets                  # 法律与免责声明页
    └─ GamePage.ets               # 离线游戏页（Web + 下载代理 + 音频静音 + 方向应用）
 ```
 
@@ -36,6 +40,28 @@ entry/src/main/ets/
 5. `index.html` 由 `LocalHttpServer.servePatchedIndex` 注入：`<script src="/__cheats__.js">`（作弊注入）+ 强制 2D canvas `willReadFrequently:true`（消除 ArkWeb `getImageData` 的 GPU 读回开销，启动 28s → 4s）。
 6. `/__cheats__.js` 是**虚拟端点**：请求时按当前启用的作弊清单动态生成组合脚本，在游戏脚本前执行。详见 [`cheats.md`](./cheats.md)。
 7. 屏幕方向由 `OrientationPref` 持久化：首页/设置页始终竖屏（`Index.onPageShow` 强制 `PORTRAIT`），只有 `GamePage.onPageShow` 应用用户选择（横屏 `AUTO_ROTATION_LANDSCAPE` / 跟随系统 `UNSPECIFIED`）。
+
+## 下载与安装状态机（`GameRepository`）
+
+```
+fetchRelease(GitHub API，失败回退 API 镜像)
+   └─ rankSources：并发探测 4 个镜像 + 直连（Range 取 128KB；每源 4s 上限）
+        └─ 按速度排序，依次尝试：任一下载失败才换下一个源
+             └─ download(request.agent 后台任务，可暂停/继续/取消)
+                  └─ extract：解压到 game.new → 校验 index.html → 写 .extract-complete
+                       └─ 原子切换 game→game.old、game.new→game → 异步删 game.old
+```
+
+- **接管**：App 重启后 `adoptDownload()` 通过 `request.agent.search` 找回任务，但**只接管活跃任务**（`RUNNING/RETRYING/WAITING/PAUSED`）。已完成/失败的任务不可接管（事件不会再触发、轮询也等不到 zip，会把界面卡在下载中）；其余残留任务一律清掉。
+- **进度兜底**：接管任务的 `progress` 事件不可靠，故用 1s 轮询 `game.zip` 大小兜底，达到预期大小即判定完成。
+- **解压失败不换源**：换源只针对下载失败；解压失败直接抛出（换源会白下整个资源包）。
+
+## 本地 HTTP 服务（`LocalHttpServer`）
+
+- 固定端口 `127.0.0.1:18787`（**改端口会丢存档**），另外监听 `127.0.0.1:8001` 作为游戏内 API stub（未知路径 404，游戏按离线处理）。
+- 请求路径**全异步**：`fs.stat` + `fs.open/read`，避免主线程同步 IO 阻塞（音频/大 JS 可达数 MB）。
+- 请求头缓冲上限 16KB；编码器 `TextEncoder/TextDecoder` 模块级复用。
+- 端口占用等启动失败时 `startSharedServer` 记录错误，`sharedServerReady()` 为 false；`Index.startGame` 拦截并提示，避免白屏。
 
 ## 关键行为
 

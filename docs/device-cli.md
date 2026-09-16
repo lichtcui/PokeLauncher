@@ -7,7 +7,7 @@
 `hilog.info(0x0000, TAG, ...)` 会以 `A00000/<TAG>` 出现。本 App 用到的 TAG：
 
 ```
-GameRepository  GamePage  Home  Settings  LocalHttp  Notifier  CheatState  AppUpdate
+GameRepository  GamePage  Home  Settings  LocalHttp  Notifier  CheatState  AppUpdate  WebCache  PokeRogue
 ```
 
 - 游戏内 `console.log` 以 `ARKWEB-CONSOLE` 出现（排查游戏侧与作弊注入时最有用）。
@@ -17,5 +17,20 @@ GameRepository  GamePage  Home  Settings  LocalHttp  Notifier  CheatState  AppUp
 ## 坐标
 
 截图 **1260×2844**；`uitest uiInput` 的坐标是**物理像素**，别把缩放后的显示坐标直接拿去点。
+
+## 已知限制（本项目实测）
+
+- **沙箱只读**：`hdc shell`（uid 2000）能**读**应用沙箱（`ls`/`cat`/`hdc file recv`），但**不能写**（`touch`/`mkdir` 报 `Permission denied`），即使目录权限是 `drwxrwxrwx`。因此无法人工制造「解压中断」等状态来测 `recover()`。
+- **首页右上角齿轮点不动**：齿轮落在系统手势区，`uitest` 注入的 `click/doubleClick/longClick` 都会被吞。要进设置页用真机手点；要造「未下载」态用 `bm clean -d`。
+
+```bash
+# 读沙箱（游戏目录 / 下载中的 zip）
+B=com.lichtcui.pokerogue
+F=/data/app/el2/100/base/$B/haps/entry/files
+"$HDC" shell "ls -la $F $F/game | head"
+"$HDC" shell "ls -la /data/app/el2/100/base/$B/haps/entry/cache/game.zip"
+```
+
+- **清数据**：`hdc shell bm clean -d -n com.lichtcui.pokerogue` 清空 filesDir（游戏资源）+ preferences + localStorage（**会丢存档与作弊设置**），之后需重启 App。
 
 > 调试游戏 WebView（DevTools）见 [`debugging.md`](./debugging.md)。
