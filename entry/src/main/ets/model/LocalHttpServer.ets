@@ -15,6 +15,9 @@ const TAG: string = 'LocalHttp';
  */
 const PORT: number = 18787;
 
+/** 请求头缓冲区上限：防止畸形/异常请求无限占用内存（正常 GET 头仅数百字节） */
+const MAX_REQUEST_HEADER: number = 16 * 1024;
+
 let servedCount: number = 0;
 let servedBytes: number = 0;
 let lastStatAt: number = 0;
@@ -113,6 +116,12 @@ export class LocalHttpServer {
     conn.on('message', (info: socket.SocketMessageInfo) => {
       try {
         buf = concat(buf, new Uint8Array(info.message));
+        if (buf.length > MAX_REQUEST_HEADER) {
+          hilog.warn(DOMAIN, TAG, 'request header too large (%{public}d), closing', buf.length);
+          buf = new Uint8Array(0);
+          conn.close();
+          return;
+        }
         buf = this.processBuffer(conn, buf);
       } catch (err) {
         hilog.error(DOMAIN, TAG, 'handle message error: %{public}s', JSON.stringify(err));
@@ -189,8 +198,16 @@ export class LocalHttpServer {
     }
 
     const filePath: string = this.gameDir + path;
-    try {
-      const stat: fs.Stat = fs.statSync(filePath);
+    this.serveFile(conn, filePath, path, headOnly, keepAlive);
+  }
+
+  /**
+   * 异步 stat 后发送：同步 statSync/readSync 都在主线程，资源请求密集时（音频/大 JS）
+   * 会阻塞 UI，这里全部改为异步，读取完成后再发送。
+   */
+  private serveFile(conn: socket.TCPSocketConnection, filePath: string, path: string,
+    headOnly: boolean, keepAlive: boolean): void {
+    fs.stat(filePath).then((stat: fs.Stat) => {
       noteServed(stat.size);
       hilog.info(DOMAIN, TAG, 'GET %{public}s (%{public}d)', path, stat.size);
       const header: string = 'HTTP/1.1 200 OK\r\n' +
@@ -211,15 +228,12 @@ export class LocalHttpServer {
         return;
       }
       this.sendFile(conn, filePath, stat.size, header, keepAlive);
-    } catch (err) {
+    }).catch((err: Error) => {
       this.sendText(conn, 404, 'Not Found', keepAlive);
-    }
+    });
   }
 
-  /**
-   * 异步读取文件后发送：同步 readSync 会在主线程读取整个资源（音频/大 JS 可达数 MB），
-   * 阻塞 UI。改为异步 open/read，读取完成后再发送。
-   */
+  /** 异步读取文件后发送 */
   private sendFile(conn: socket.TCPSocketConnection, filePath: string, size: number,
     header: string, keepAlive: boolean): void {
     fs.open(filePath, fs.OpenMode.READ_ONLY).then((fd: fs.File) => {

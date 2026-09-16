@@ -12,6 +12,12 @@ const TAG: string = 'GameRepository';
 /** 速度探测读取的字节数 */
 const PROBE_BYTES: number = 131072;
 
+/**
+ * 单个源的测速上限。rankSources 用 Promise.all 等全部结果，
+ * 若某镜像卡住，没有上限时要等满 readTimeout（15s）才开始下载。
+ */
+const PROBE_TIMEOUT_MS: number = 4000;
+
 /** GitHub Release 中的一个资产 */
 class ReleaseAsset {
   name: string = '';
@@ -147,12 +153,31 @@ export class GameRepository {
     return sorted;
   }
 
-  /** 返回 bytes/ms；失败返回 -1 */
-  private async probe(url: string): Promise<number> {
+  /** 返回 bytes/ms；失败或超时返回 -1 */
+  private probe(url: string): Promise<number> {
     const req: http.HttpRequest = http.createHttp();
     const start: number = Date.now();
-    try {
-      const resp: http.HttpResponse = await req.request(url, {
+    return new Promise<number>((resolve: (v: number) => void) => {
+      let settled: boolean = false;
+      let timer: number = -1;
+      const finish = (v: number): void => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        if (timer >= 0) {
+          clearTimeout(timer);
+        }
+        try {
+          req.destroy();
+        } catch (err) {
+          hilog.warn(DOMAIN, TAG, 'probe destroy failed: %{public}s', JSON.stringify(err));
+        }
+        resolve(v);
+      };
+      // 全局上限：某个源卡住时不再拖慢整体测速
+      timer = setTimeout(() => finish(-1), PROBE_TIMEOUT_MS);
+      req.request(url, {
         method: http.RequestMethod.GET,
         header: {
           'User-Agent': USER_AGENT,
@@ -164,21 +189,19 @@ export class GameRepository {
         // 避免测速时把整个 531MB 资源包拉下来，同时耗时仍只反映 PROBE_BYTES 的下载速度。
         maxLimit: PROBE_BYTES,
         expectDataType: http.HttpDataType.ARRAY_BUFFER
-      });
-      const elapsed: number = Date.now() - start;
-      if (resp.responseCode >= 200 && resp.responseCode < 400 && elapsed > 0) {
-        const buf: ArrayBuffer = resp.result as ArrayBuffer;
-        const len: number = buf !== undefined ? buf.byteLength : 0;
-        if (len > 0) {
-          return len / elapsed;
+      }).then((resp: http.HttpResponse) => {
+        const elapsed: number = Date.now() - start;
+        if (resp.responseCode >= 200 && resp.responseCode < 400 && elapsed > 0) {
+          const buf: ArrayBuffer = resp.result as ArrayBuffer;
+          const len: number = buf !== undefined ? buf.byteLength : 0;
+          finish(len > 0 ? len / elapsed : -1);
+          return;
         }
-      }
-      return -1;
-    } catch (err) {
-      return -1;
-    } finally {
-      req.destroy();
-    }
+        finish(-1);
+      }).catch((err: Error) => {
+        finish(-1);
+      });
+    });
   }
 
   private removePartialZip(): void {

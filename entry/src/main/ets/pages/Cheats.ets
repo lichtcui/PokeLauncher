@@ -14,12 +14,16 @@ struct Cheats {
   @State paramValues: number[] = [];
   @State masterOn: boolean = false;
 
+  /** id → 全局下标，避免每次渲染线性查找 */
+  private indexById: Map<string, number> = new Map();
+
   aboutToAppear(): void {
     this.masterOn = isMasterEnabled();
     const f: boolean[] = [];
     const pv: number[] = [];
     for (let i = 0; i < CHEATS.length; i++) {
       const c: Cheat = CHEATS[i];
+      this.indexById.set(c.id, i);
       f.push(isCheatEnabled(c.id));
       const p: CheatParam | undefined = c.param;
       pv.push(p !== undefined ? getParamNumber(p.id, p.default) : 0);
@@ -41,12 +45,8 @@ struct Cheats {
 
   /** 条目在 CHEATS 中的全局下标（flags / paramValues 按全局下标存储） */
   private cheatIndex(id: string): number {
-    for (let i = 0; i < CHEATS.length; i++) {
-      if (CHEATS[i].id === id) {
-        return i;
-      }
-    }
-    return -1;
+    const i: number | undefined = this.indexById.get(id);
+    return i !== undefined ? i : -1;
   }
 
   private onToggle(index: number, id: string, on: boolean): void {

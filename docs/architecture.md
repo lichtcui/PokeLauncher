@@ -22,7 +22,7 @@ entry/src/main/ets/
 │  └─ CheatState.ets               # 作弊状态单例 + 持久化 + 生成注入脚本 buildBootScript()
 └─ pages/
    ├─ Index.ets                  # 首页启动器（状态机 + 下载 UI；就绪页：精灵球 + 开始游戏 + 作弊设置 + 齿轮）
-   ├─ Settings.ets               # 设置页（屏幕方向 / 作弊模式开关 / 更新·缓存·删除 / 关于）
+   ├─ Settings.ets               # 设置页（屏幕方向 / 作弊模式开关 / 更新·删除 / 支持作者 / 关于 / 法律声明）
    ├─ Cheats.ets                 # 作弊条目页（从首页「作弊设置」进入）
    └─ GamePage.ets               # 离线游戏页（Web + 下载代理 + 音频静音 + 方向应用）
 ```
@@ -45,4 +45,5 @@ entry/src/main/ets/
 - **窗口**：保留顶部状态栏、隐藏底部导航栏、`setWindowLayoutFullScreen(false)`（安全区避让），底部留白用 `setWindowBackgroundColor` 染成游戏色 `#484050`。
 - **返回按钮**：游戏页右上角「返回」全显 3 秒后自动淡出（`GamePage.resetBackTimer`），避免遮挡游戏信息；点击淡出的按钮可唤回、再点才返回；系统返回手势（`onBackPress`）作为兜底。
 - **设置页与更新**：首页就绪页右上角齿轮 → `pages/Settings.ets`。设置页「更新」置 `AppStorage.setOrCreate('pendingUpdate', true)` 后 `router.back()`，由 `Index.onPageShow` 消费并调 `startDownload()`（复用首页下载/解压 UI）；删除数据后返回首页，`onPageShow` 重新判定并回落未下载态。
+- **资源更新与缓存**：本地服务对静态资源返回 `Cache-Control: max-age=31536000` 且 URL 固定，资源包更新后必须清 Web 缓存，否则会继续加载旧文件。下载/解压完成后由 `Index` 自动调用 `clearWebCache()`（`common/WebCache.ets`），无需用户手动刷新。
 - **作弊**：设置页开「作弊模式」（需确认账号风险 + 兼容性风险）→ 首页就绪页出现「作弊设置」入口 → 进 `pages/Cheats` 选条目 → 进入游戏页时 `/__cheats__.js` 按启用清单注入，**注入后在游戏内实时生效**（无需像旧方案那样存档 + 读档）。**更改配置后需重新进入游戏页**（返回首页再进，或重启 App）才会重新注入。新增条目见 [`cheats.md`](./cheats.md)。

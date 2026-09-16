@@ -15,6 +15,7 @@ import {
 } from '../model/AppUpdate';
 import { Notifier } from '../model/Notifier';
 import { getStore } from '../common/Prefs';
+import { clearWebCache } from '../common/WebCache';
 import { setWindowBackground, setOrientation, HOME_BG_COLOR } from '../model/WindowHolder';
 import { isMasterEnabled } from '../model/CheatState';
 import { sharedServerReady } from '../model/LocalHttpServer';
@@ -233,6 +234,8 @@ struct Index {
       },
       () => {
         this.adoptDone = true;
+        // 资源刚解压完成：清掉 Web 缓存，避免继续加载旧文件
+        clearWebCache();
         this.version = repo.readVersion();
         this.stage = Stage.Ready;
         Notifier.publishComplete();
@@ -424,6 +427,8 @@ struct Index {
         );
       })
       .then(() => {
+        // 资源刚解压完成：清掉 Web 缓存，避免继续加载旧文件
+        clearWebCache();
         this.version = repo.readVersion();
         this.stage = Stage.Ready;
         Notifier.publishComplete();
