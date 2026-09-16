@@ -1,39 +1,21 @@
-# 真机命令与日志
+# 真机日志
 
-> 操作手册见 [`../AGENTS.md`](../AGENTS.md)。
+> 操作手册见 [`../AGENTS.md`](../AGENTS.md)。截图 / 点击 / 滑动 / `dumpLayout` / `hilog` 等通用 `hdc` 命令见 `harmony-next` skill（含 `device_ui_action.py`、`device_evidence_bundle.py`），不在此重复。
 
-## 真机交互（无 GUI 时用）
+## 本 App 的日志 tag
 
-```bash
-HDC=/Applications/DevEco-Studio.app/Contents/sdk/default/openharmony/toolchains/hdc
+`hilog.info(0x0000, TAG, ...)` 会以 `A00000/<TAG>` 出现。本 App 用到的 TAG：
 
-# 截图（设备端 → 本机）
-"$HDC" shell snapshot_display -f /data/local/tmp/s.jpeg
-"$HDC" file recv /data/local/tmp/s.jpeg /tmp/s.jpeg
-
-# 点击 / 按键 / 滑动（坐标为物理像素，1260x2844）
-"$HDC" shell uitest uiInput click 630 1738
-"$HDC" shell uitest uiInput keyEvent Back        # 或 Home / Power
-"$HDC" shell uitest uiInput swipe 630 5 630 2400 2000
-
-# 读取控件坐标（返回 JSON，含 text/bounds）
-"$HDC" shell uitest dumpLayout -p /data/local/tmp/l.json
-"$HDC" file recv /data/local/tmp/l.json /tmp/l.json
+```
+GameRepository  GamePage  Home  Settings  LocalHttp  Notifier  CheatState  AppUpdate
 ```
 
-> 注意：`uitest` 的坐标是**物理像素**。截图 1260×2844，别用截图显示坐标直接点。
+- 游戏内 `console.log` 以 `ARKWEB-CONSOLE` 出现（排查游戏侧与作弊注入时最有用）。
+- 抓日志：后台起 `hdc shell hilog > /tmp/log.txt`，抓完 `kill`。**不要加 `-x`**（那是「打印完缓冲区就退出」）。
+- 过滤：`rg -i "GameRepository|CheatState|ARKWEB-CONSOLE" /tmp/log.txt`
 
-## 日志
+## 坐标
 
-```bash
-# 流式抓日志（要后台起、抓完 kill；不要用 -x，-x 是"打印完缓冲区就退出"）
-"$HDC" shell hilog > /tmp/log.txt 2>&1 &
-HPID=$!; sleep 1; ...触发操作...; kill $HPID
+截图 **1260×2844**；`uitest uiInput` 的坐标是**物理像素**，别把缩放后的显示坐标直接拿去点。
 
-# 抓完过滤（本 App 的 tag 形如 A00000/<Tag>）
-rg -i "GameRepository|GamePage|Home|Settings|LocalHttp|Notifier|CheatState" /tmp/log.txt
-```
-
-- 本 App 代码里的 `hilog.info(0x0000, TAG, ...)` 会以 `A00000/<TAG>` 出现。
-- 游戏内 `console.log` 会以 `ARKWEB-CONSOLE` 出现（排查游戏侧问题时很有用）。
-- 调试游戏 WebView（DevTools）见 [`debugging.md`](./debugging.md)。
+> 调试游戏 WebView（DevTools）见 [`debugging.md`](./debugging.md)。
