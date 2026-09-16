@@ -17,6 +17,7 @@ import { Notifier } from '../model/Notifier';
 import { getStore } from '../common/Prefs';
 import { setWindowBackground, setOrientation, HOME_BG_COLOR } from '../model/WindowHolder';
 import { isMasterEnabled } from '../model/CheatState';
+import { sharedServerReady } from '../model/LocalHttpServer';
 import { PokeballLoader } from '../components/PokeballLoader';
 
 const DOMAIN: number = 0x0000;
@@ -98,6 +99,7 @@ struct Index {
   private speedBps: number = 0;
   private lastReceived: number = 0;
   private lastTime: number = 0;
+  private lastUiAt: number = 0;
 
   aboutToAppear(): void {
     const ctx = this.getUIContext().getHostContext() as common.UIAbilityContext;
@@ -257,11 +259,9 @@ struct Index {
 
   private applyProgress(received: number, total: number, fallbackTotal: number): void {
     const t: number = total > 0 ? total : fallbackTotal;
-    this.progress = t > 0 ? Math.min(100, Math.floor(received * 100 / t)) : 0;
-    this.receivedText = formatBytes(received);
-    this.totalText = t > 0 ? formatBytes(t) : '未知大小';
+    const pct: number = t > 0 ? Math.min(100, Math.floor(received * 100 / t)) : 0;
 
-    // 速度：指数平滑，避免抖动
+    // 速度：指数平滑，避免抖动（每次都更新内部计数，保证速度准确）
     const now: number = Date.now();
     if (this.lastTime > 0 && received >= this.lastReceived) {
       const dt: number = (now - this.lastTime) / 1000;
@@ -275,6 +275,15 @@ struct Index {
       this.lastReceived = received;
       this.lastTime = now;
     }
+
+    // 进度事件可能非常密集：节流 UI 刷新（暂停态与 100% 立即刷新）
+    if (!this.paused && pct < 100 && now - this.lastUiAt < 150) {
+      return;
+    }
+    this.lastUiAt = now;
+    this.progress = pct;
+    this.receivedText = formatBytes(received);
+    this.totalText = t > 0 ? formatBytes(t) : '未知大小';
 
     if (this.paused) {
       this.speedText = '';
@@ -294,6 +303,7 @@ struct Index {
     this.speedBps = 0;
     this.lastReceived = 0;
     this.lastTime = 0;
+    this.lastUiAt = 0;
     this.speedText = '';
     this.etaText = '';
   }
@@ -493,6 +503,12 @@ struct Index {
   }
 
   private startGame(): void {
+    // 本地服务未就绪（如端口被占用）时进入游戏只会白屏，提前拦截并提示
+    if (!sharedServerReady()) {
+      hilog.error(DOMAIN, TAG, '%{public}s', 'startGame blocked: local server not ready');
+      promptAction.showToast({ message: '本地服务未就绪，请重启应用后重试' });
+      return;
+    }
     router.pushUrl({ url: 'pages/GamePage' }).catch((err: BusinessError) => {
       hilog.error(DOMAIN, TAG, 'pushUrl GamePage failed: %{public}s', JSON.stringify(err));
     });

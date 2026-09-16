@@ -4,7 +4,7 @@ import { hilog } from '@kit.PerformanceAnalysisKit';
 import { picker, fileUri, fileIo as fs } from '@kit.CoreFileKit';
 import { BusinessError } from '@kit.BasicServicesKit';
 import { common } from '@kit.AbilityKit';
-import { sharedServerBaseUrl } from '../model/LocalHttpServer';
+import { sharedServerBaseUrl, sharedServerReady, sharedServerErrorText } from '../model/LocalHttpServer';
 import { setWindowBackground, setOrientation, GAME_BG_COLOR } from '../model/WindowHolder';
 import { readOrientation, toOrientation } from '../model/OrientationPref';
 
@@ -35,6 +35,11 @@ struct GamePage {
     const base: string = sharedServerBaseUrl();
     this.gameUrl = (base.length > 0 ? base : FALLBACK_BASE) + '/index.html';
     hilog.info(DOMAIN, TAG, 'game url = %{public}s', this.gameUrl);
+    if (!sharedServerReady()) {
+      const detail: string = sharedServerErrorText();
+      this.loadError = '本地服务未就绪' + (detail.length > 0 ? '：' + detail : '');
+      hilog.error(DOMAIN, TAG, 'local server not ready: %{public}s', detail);
+    }
   }
 
   /** 全显返回按钮并重置淡出计时 */
@@ -124,7 +129,8 @@ struct GamePage {
     Stack({ alignContent: Alignment.TopEnd }) {
       Web({ src: this.gameUrl, controller: this.controller })
         .domStorageAccess(true)
-        .fileAccess(true)
+        // 资源全部走本地 HTTP，无需 Web 直接访问沙箱文件系统
+        .fileAccess(false)
         .javaScriptAccess(true)
         .imageAccess(true)
         .onlineImageAccess(true)

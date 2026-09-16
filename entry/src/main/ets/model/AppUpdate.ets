@@ -1,15 +1,14 @@
 import { bundleManager, common, Want } from '@kit.AbilityKit';
-import { http } from '@kit.NetworkKit';
 import { preferences } from '@kit.ArkData';
 import { BusinessError } from '@kit.BasicServicesKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import {
   APP_UPDATE_MANIFEST_URL,
   APP_UPDATE_PAGE_URL,
-  APP_UPDATE_CHECK_INTERVAL_MS,
-  USER_AGENT
+  APP_UPDATE_CHECK_INTERVAL_MS
 } from '../common/Const';
 import { getStore, SETTINGS_STORE } from '../common/Prefs';
+import { requestText } from '../common/Http';
 
 const DOMAIN: number = 0x0000;
 const TAG: string = 'AppUpdate';
@@ -64,27 +63,6 @@ export function readLocalVersion(): AppVersion {
     hilog.warn(DOMAIN, TAG, 'getBundleInfoForSelfSync failed: %{public}s', JSON.stringify(err));
   }
   return v;
-}
-
-async function requestText(url: string): Promise<string> {
-  const httpRequest: http.HttpRequest = http.createHttp();
-  try {
-    const resp: http.HttpResponse = await httpRequest.request(url, {
-      method: http.RequestMethod.GET,
-      header: {
-        'User-Agent': USER_AGENT,
-        'Accept': 'application/json'
-      },
-      connectTimeout: 15000,
-      readTimeout: 30000
-    });
-    if (resp.responseCode !== 200) {
-      throw new Error('HTTP ' + resp.responseCode);
-    }
-    return resp.result as string;
-  } finally {
-    httpRequest.destroy();
-  }
 }
 
 /** 拉取并解析远程 version.json */

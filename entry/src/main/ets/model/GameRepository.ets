@@ -4,6 +4,7 @@ import { fileIo as fs } from '@kit.CoreFileKit';
 import { common, wantAgent, WantAgent } from '@kit.AbilityKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { RELEASE_API, USER_AGENT, DEFAULT_ASSET, GAME_DIR_NAME, DOWNLOAD_MIRRORS, API_MIRROR } from '../common/Const';
+import { requestText } from '../common/Http';
 
 const DOMAIN: number = 0x0000;
 const TAG: string = 'GameRepository';
@@ -94,7 +95,7 @@ export class GameRepository {
     for (let i = 0; i < candidates.length; i++) {
       const apiUrl: string = candidates[i];
       try {
-        const text: string = await this.requestText(apiUrl);
+        const text: string = await requestText(apiUrl, 'application/vnd.github+json');
         const data: ReleaseData = JSON.parse(text) as ReleaseData;
         const asset: ReleaseAsset | undefined =
           data.assets.find((a: ReleaseAsset) => a.name === assetName);
@@ -114,27 +115,6 @@ export class GameRepository {
       }
     }
     throw lastErr !== null ? lastErr : new Error('fetchRelease failed');
-  }
-
-  private async requestText(url: string): Promise<string> {
-    const httpRequest: http.HttpRequest = http.createHttp();
-    try {
-      const resp: http.HttpResponse = await httpRequest.request(url, {
-        method: http.RequestMethod.GET,
-        header: {
-          'User-Agent': USER_AGENT,
-          'Accept': 'application/vnd.github+json'
-        },
-        connectTimeout: 15000,
-        readTimeout: 30000
-      });
-      if (resp.responseCode !== 200) {
-        throw new Error('HTTP ' + resp.responseCode);
-      }
-      return resp.result as string;
-    } finally {
-      httpRequest.destroy();
-    }
   }
 
   /** 构造下载候选地址：镜像优先，最后回退 GitHub 直连 */
@@ -180,6 +160,9 @@ export class GameRepository {
         },
         connectTimeout: 6000,
         readTimeout: 15000,
+        // 兜底：若镜像忽略 Range 返回 200 全量，maxLimit 会在 PROBE_BYTES 处截断，
+        // 避免测速时把整个 531MB 资源包拉下来，同时耗时仍只反映 PROBE_BYTES 的下载速度。
+        maxLimit: PROBE_BYTES,
         expectDataType: http.HttpDataType.ARRAY_BUFFER
       });
       const elapsed: number = Date.now() - start;

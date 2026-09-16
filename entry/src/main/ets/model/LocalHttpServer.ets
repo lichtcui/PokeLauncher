@@ -19,6 +19,10 @@ let servedCount: number = 0;
 let servedBytes: number = 0;
 let lastStatAt: number = 0;
 
+/** 复用的编解码器：decodeToString / encodeInto 均为无状态整段转换，可安全复用 */
+const utf8Decoder: util.TextDecoder = util.TextDecoder.create('utf-8');
+const utf8Encoder: util.TextEncoder = util.TextEncoder.create('utf-8');
+
 function noteServed(size: number): void {
   servedCount++;
   servedBytes += size;
@@ -126,8 +130,7 @@ export class LocalHttpServer {
       if (headerEnd < 0) {
         break;
       }
-      const headerText: string = util.TextDecoder.create('utf-8')
-        .decodeToString(data.subarray(0, headerEnd));
+      const headerText: string = utf8Decoder.decodeToString(data.subarray(0, headerEnd));
       const lines: string[] = headerText.split('\r\n');
       const reqLine: string[] = lines[0].split(' ');
       const method: string = reqLine.length > 0 ? reqLine[0] : '';
@@ -274,7 +277,7 @@ export class LocalHttpServer {
       const js: string = buildBootScript();
       // 空内容（未启用作弊）时直接返回空脚本，避免 encodeInto('') 抛错
       const arr: Uint8Array = js.length > 0
-        ? util.TextEncoder.create('utf-8').encodeInto(js)
+        ? utf8Encoder.encodeInto(js)
         : new Uint8Array(0);
       const buf: ArrayBuffer = new ArrayBuffer(arr.byteLength);
       new Uint8Array(buf).set(arr);
@@ -315,7 +318,7 @@ export class LocalHttpServer {
         ? html.substring(0, headIdx + 6) + inject + html.substring(headIdx + 6)
         : inject + html;
 
-      const arr: Uint8Array = util.TextEncoder.create('utf-8').encodeInto(patched);
+      const arr: Uint8Array = utf8Encoder.encodeInto(patched);
       const buf: ArrayBuffer = new ArrayBuffer(arr.byteLength);
       new Uint8Array(buf).set(arr);
       const header: string = 'HTTP/1.1 200 OK\r\n' +
@@ -365,6 +368,8 @@ export class LocalHttpServer {
 }
 
 let sharedServer: LocalHttpServer | null = null;
+let sharedServerError: string = '';
+
 /** App 启动时调用：提前把本地服务跑起来，避免 Web 加载时端口未就绪 */
 export function startSharedServer(filesDir: string): void {
   if (sharedServer !== null) {
@@ -372,12 +377,25 @@ export function startSharedServer(filesDir: string): void {
   }
   const srv: LocalHttpServer = new LocalHttpServer(filesDir);
   sharedServer = srv;
-  srv.start().catch((err: Error) => {
-    hilog.error(DOMAIN, TAG, 'startSharedServer failed: %{public}s', JSON.stringify(err));
+  srv.start().then(() => {
+    sharedServerError = '';
+  }).catch((err: Error) => {
+    sharedServerError = JSON.stringify(err);
+    hilog.error(DOMAIN, TAG, 'startSharedServer failed: %{public}s', sharedServerError);
   });
 }
 
 /** 本地服务地址（未就绪返回空串） */
 export function sharedServerBaseUrl(): string {
   return sharedServer !== null ? sharedServer.baseUrl : '';
+}
+
+/** 本地服务是否已就绪（端口绑定成功）。端口被占用等情况下会一直为 false */
+export function sharedServerReady(): boolean {
+  return sharedServer !== null && sharedServer.baseUrl.length > 0;
+}
+
+/** 本地服务启动失败原因（未失败返回空串） */
+export function sharedServerErrorText(): string {
+  return sharedServerError;
 }
