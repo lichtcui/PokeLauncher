@@ -7,6 +7,7 @@ import { common } from '@kit.AbilityKit';
 import { sharedServerBaseUrl, sharedServerReady, sharedServerErrorText } from '../model/LocalHttpServer';
 import { setWindowBackground, setOrientation, GAME_BG_COLOR } from '../model/WindowHolder';
 import { readOrientation, toOrientation } from '../model/OrientationPref';
+import { SaveGuardBridge } from '../model/SaveGuard';
 
 const DOMAIN: number = 0x0000;
 const TAG: string = 'GamePage';
@@ -23,6 +24,8 @@ const FALLBACK_BASE: string = 'http://127.0.0.1:18787';
 struct GamePage {
   controller: webview.WebviewController = new webview.WebviewController();
   private downloadDelegate: webview.WebDownloadDelegate = new webview.WebDownloadDelegate();
+  /** 存档快照桥：注入脚本通过 window.PokeSaveGuard 读写 filesDir 下的快照 */
+  private saveBridge: SaveGuardBridge = new SaveGuardBridge();
   private gameUrl: string = FALLBACK_BASE + '/index.html';
   private attached: boolean = false;
   private lastSavePath: string = '';
@@ -134,6 +137,13 @@ struct GamePage {
         .javaScriptAccess(true)
         .imageAccess(true)
         .onlineImageAccess(true)
+        // 存档快照桥：必须在页面加载前注册，注入脚本才能拿到 PokeSaveGuard
+        .javaScriptProxy({
+          object: this.saveBridge,
+          name: 'PokeSaveGuard',
+          methodList: ['load', 'save', 'notifyRestored'],
+          controller: this.controller
+        })
         .onControllerAttached(() => {
           // 控制器挂载后才能注册下载代理/设置音频
           this.attached = true;
@@ -153,6 +163,14 @@ struct GamePage {
           // 页面加载成功：清掉上一次的错误浮层
           if (this.loadError.length > 0) {
             this.loadError = '';
+          }
+          // 存档是从快照回填的 → 明确告知用户，避免误以为进度被回滚
+          const restored: number = this.saveBridge.getRestoredCount();
+          if (restored > 0) {
+            promptAction.showToast({
+              message: '检测到本地存档缺失，已从快照恢复 ' + restored + ' 项数据'
+            });
+            hilog.info(DOMAIN, TAG, 'save restored from snapshot: %{public}d keys', restored);
           }
         })
         .width('100%')

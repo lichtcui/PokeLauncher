@@ -5,6 +5,7 @@ import { webview } from '@kit.ArkWeb';
 import { startSharedServer } from '../model/LocalHttpServer';
 import { GameRepository } from '../model/GameRepository';
 import { loadCheatState } from '../model/CheatState';
+import { initSaveGuard } from '../model/SaveGuard';
 import { setMainWindow } from '../model/WindowHolder';
 import { GAME_DIR_NAME, DEBUG_UI } from '../common/Const';
 
@@ -41,6 +42,9 @@ export default class EntryAbility extends UIAbility {
     loadCheatState(this.context).catch((err: Error) => {
       hilog.warn(DOMAIN, TAG, 'loadCheatState failed: %{public}s', JSON.stringify(err));
     });
+
+    // 存档快照目录（filesDir 下，不受「清除缓存」影响）
+    initSaveGuard(this.context);
 
     // 启动默认竖屏（首页/设置页恒竖屏；游戏页按用户选择在 onPageShow 应用方向）
     try {

@@ -47,6 +47,7 @@
 - **ArkUI 坑**：`@Builder` 的**值参数**不会触发重渲染，动态文案要直接在 `build()` 里读 `@State`（见 `Settings.ets` 的「检查更新」「删除本地数据」行）。
 - 新增静态资源放 `entry/src/main/resources/base/media/`，引用 `$r('app.media.xxx')`。
 - **新增作弊条目只改 `model/Cheats.ets`**（见 [`docs/cheats.md`](./docs/cheats.md)），UI/状态/注入会自动生效。
+- **存档是 Web 的 `localStorage`，物理落在 `<沙箱>/cache/web/`**，会被「清除缓存」清掉。因此 `model/SaveGuard.ets` 会把它镜像到 `files/saves/` 并在清空时自动回填——**任何需要持久化的数据都不要放 `cache/`**，放 `files/`。
 
 ### 测试（ohosTest，跑在真机）
 

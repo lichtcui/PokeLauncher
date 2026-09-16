@@ -23,6 +23,21 @@
 | 下载通知堆积 / 孤儿任务 | 首页启动时清理**本应用自己的**完成/失败通知；后台下载任务的进度通知由 `request.agent` 管理 |
 | 需要通知权限 | 首次进入未下载态时申请；拒绝后不再弹窗 |
 
+## 存档
+
+存档是 Web 的 `localStorage`，物理位置 `<沙箱>/cache/web/`，origin 固定 `http://127.0.0.1:18787`（端口固定不回落，见 `LocalHttpServer.PORT` 注释）。App 会把它镜像一份到 `<沙箱>/files/saves/localstorage.json`（`model/SaveGuard.ets`）。
+
+| 现象 | 处理 |
+| --- | --- |
+| 存档突然没了 | 先抓 `SaveGuard` tag：`snapshot saved` 表示快照在正常写入，`restored N keys from snapshot` 表示已自动回填 |
+| 「清除缓存」后进游戏弹「已从快照恢复」 | 预期行为：`cache/web` 被清空后由 `files/saves/` 回填，避免用户无感知丢档 |
+| 快照没生成 | 看 `SaveGuard` tag 的 `init`（`initSaveGuard` 在 `EntryAbility.onWindowStageCreate`）；再看注入脚本是否执行（`ARKWEB-CONSOLE` 的 `SAVEGUARD ...`） |
+| 想清掉快照重来 | 删除 `<沙箱>/files/saves/`（`bm clean -d` 会一并清） |
+
+**快照覆盖不到的场景**：卸载重装、`bm clean -d` 清数据——这两种会删掉整个沙箱，只能用游戏内「导出存档」落到 `下载/com.lichtcui.pokerogue/` 兜底。
+
+**已验证（2026-09-16 真机）**：`bm clean -c -n com.lichtcui.pokerogue` 会删掉 `cache/web/`，即**确实会清空 localStorage 存档**；`files/saves/` 不受影响，重进游戏页后 8 个键（含 `data_Guest` 495KB）逐字节还原一致。所以「清除缓存」这条风险是真实的，不是理论推测。
+
 ## 作弊
 
 | 现象 | 处理 |

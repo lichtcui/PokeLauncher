@@ -5,6 +5,7 @@ import { hilog } from '@kit.PerformanceAnalysisKit';
 import { mimeOf } from '../common/Mime';
 import { FORCE_WILL_READ_FREQUENTLY } from '../common/Const';
 import { buildBootScript } from './CheatState';
+import { buildSaveGuardScript } from './SaveGuard';
 
 const DOMAIN: number = 0x0000;
 const TAG: string = 'LocalHttp';
@@ -320,12 +321,14 @@ export class LocalHttpServer {
     }
   }
 
-  /** 读取 index.html 并注入作弊脚本标签 + 实验脚本后返回 */
+  /** 读取 index.html 并注入存档守卫 + 作弊脚本标签 + 实验脚本后返回 */
   private servePatchedIndex(conn: socket.TCPSocketConnection, filePath: string,
     headOnly: boolean, keepAlive: boolean): void {
     fs.readText(filePath).then((html: string) => {
+      // 存档守卫放最前：必须在游戏脚本读 localStorage 之前完成回填
       // 作弊脚本始终注入（未启用时 /__cheats__.js 返回空内容），保证先于游戏脚本执行
-      const inject: string = '<script src="/__cheats__.js"><\/script>' + this.buildInjectScript();
+      const inject: string = buildSaveGuardScript() +
+        '<script src="/__cheats__.js"><\/script>' + this.buildInjectScript();
       const headIdx: number = html.indexOf('<head>');
       const patched: string = headIdx >= 0
         ? html.substring(0, headIdx + 6) + inject + html.substring(headIdx + 6)
