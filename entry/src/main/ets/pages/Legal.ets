@@ -88,7 +88,7 @@ const LEGAL_SECTIONS: LegalSection[] = [
     title: '权利反馈',
     body: [
       '本项目尊重各方知识产权。若你是相关权利人或授权代表，认为本项目的任何内容（包括但不限于名称、图标、截图、说明文字）侵犯了你的合法权益，请通过项目仓库的 Issue 与我们联系。',
-      '项目仓库：gitee.com/licht3345/harmony-pokerogue',
+      '项目仓库：github.com/lichtcui/harmony-pokerogue',
       '我们将在核实后及时删除相关内容或采取其他必要措施。'
     ]
   }

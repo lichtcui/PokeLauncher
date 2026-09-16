@@ -8,6 +8,24 @@
 - AppGallery 的 `@hms.core.appgalleryservice.updateManager` **仅对华为应用市场发布的 app 生效**，侧载分发用不了。
 - 因此本 App 只做**检测 + 引导**：发现新版本弹窗，点「去更新」用浏览器打开下载页，用户自行下载侧载。
 
+## 分发渠道划分（Gitee / GitHub）
+
+| 用途 | 渠道 | 原因 |
+| --- | --- | --- |
+| 更新清单 `version.json` | **Gitee** Raw | **唯一由 App 自己发请求**的地址；`raw.githubusercontent.com` 国内常不可达 |
+| 下载页 / Release | **Gitee** | 更新链路统一走 Gitee，与清单保持一致 |
+| 项目主页 / Issue / 文档 | **GitHub** | 浏览器打开或纯文本，不走 App 请求，无被墙风险 |
+
+改地址前先归类：**只要 App 会自己去拉，就必须留在 Gitee**；其余一律 GitHub（`common/Const.ets` 的 `PROJECT_GITHUB_URL`）。
+
+## 已知限制：Release 页不附带 HAP
+
+`build-profile.json5` 目前用的是 DevEco **自动签名**，其 Profile 为 `type: debug`，`debug-info.device-ids` 只包含开发者单台设备的 UDID。因此：
+
+- 本地打出的 `entry-default-signed.hap` **只能装到那台设备**，传到 Release 对别人没有意义。
+- 要让别人能装，必须改用 **release 签名**（华为开发者账号 + 发布证书 / Profile），见 `harmonyos-release-signing` skill。
+- 在此之前 Release 页只放源码 + 自行构建说明（README「安装」一节）。
+
 ## 实现
 
 | 文件 | 职责 |
@@ -39,8 +57,9 @@
 ## 发版流程
 
 1. 递增 `AppScope/app.json5` 的 `versionCode` / `versionName`。
-2. 同步更新仓库根 `version.json`，提交并推到 Gitee `master`。
+2. 同步更新仓库根 `version.json`，提交并推到 `master`（Gitee 与 GitHub 各推一份，清单由 Gitee 读取）。
 3. 上传新 HAP 到 Gitee Release。
+4. 在 GitHub 建同名 tag + Release，附同一份 HAP（**需先具备 release 签名**，见上节）。
 
 ## 验证
 

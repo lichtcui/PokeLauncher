@@ -6,11 +6,19 @@
 
 ## 安装
 
-1. 打开 [Gitee Release](https://gitee.com/licht3345/harmony-pokerogue/releases) 下载最新的 `entry-default-signed.hap`。
-2. 把 HAP 传到手机安装（或 `hdc install -r entry-default-signed.hap`）。
+> 当前 [GitHub Release](https://github.com/lichtcui/harmony-pokerogue/releases) **仅提供源码，未附带 HAP**：本地构建产物使用 DevEco 自动签名（debug Profile，绑定开发者设备 UDID），其他人下载后无法安装。详见 [`docs/app-update.md`](./docs/app-update.md)。
+
+1. 克隆仓库并自行构建（需先用 DevEco Studio 打开一次，在 `File > Project Structure > Signing Configs` 配置自己的签名）：
+
+   ```bash
+   git clone https://github.com/lichtcui/harmony-pokerogue.git
+   hvigorw assembleHap --mode module -p product=default -p buildMode=release
+   ```
+
+2. 把 HAP 传到手机安装：`hdc install -r entry/build/default/outputs/default/entry-default-signed.hap`
 3. 系统要求：HarmonyOS NEXT（API 24 及以上）。
 
-> 侧载应用无法在 App 内自动安装新版本，更新 App 需手动重新下载 HAP（App 内会提示有新版本）。
+> 侧载应用无法在 App 内自动安装新版本，更新 App 需手动重新构建并安装 HAP（App 内会提示有新版本）。
 
 ## 首次使用
 
@@ -43,7 +51,7 @@
   - 应用更新：手动检查 App 新版本（发现新版本弹窗引导到下载页）。
   - 游戏资源更新：重新下载最新的游戏资源包。
   - 删除本地数据：清掉已下载的游戏资源。
-- **支持作者**：请喝咖啡 / 应用市场评分（当前为占位）。
+- **作者信息**：作者与 GitHub 仓库地址。
 - **关于 / 法律与免责声明**。
 
 ### 存档导入 / 导出
@@ -69,7 +77,7 @@
 ## 更新
 
 - **游戏资源**：设置页「游戏资源更新」可手动更新到最新资源包（也可随时「删除本地数据」后重新下载）。
-- **App 本体**：启动时自动检查（24 小时节流）+ 设置页「应用更新」手动检查；发现新版本会弹窗（强制更新时不可关闭），点「去更新」用浏览器打开下载页，自行下载安装。
+- **App 本体**：启动时自动检查（24 小时节流）+ 设置页「应用更新」手动检查；发现新版本会弹窗（强制更新时不可关闭），点「去更新」用浏览器打开下载页，自行构建并安装（见「安装」一节）。
 
 ## 常见问题
 

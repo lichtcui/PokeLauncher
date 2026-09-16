@@ -57,5 +57,9 @@ export const APP_UPDATE_MANIFEST_URL: string =
 export const APP_UPDATE_PAGE_URL: string =
   'https://gitee.com/licht3345/harmony-pokerogue/releases';
 
+/** 项目 GitHub 仓库（设置页「关于」入口用浏览器打开） */
+export const PROJECT_GITHUB_URL: string =
+  'https://github.com/lichtcui/harmony-pokerogue';
+
 /** 启动时自动检查应用更新的最小间隔（24 小时节流） */
 export const APP_UPDATE_CHECK_INTERVAL_MS: number = 24 * 60 * 60 * 1000;

@@ -15,6 +15,7 @@ import { setWindowBackground, HOME_BG_COLOR } from '../model/WindowHolder';
 import { clearWebCache } from '../common/WebCache';
 import { ORI_PORTRAIT, ORI_LANDSCAPE, ORI_SYSTEM, readOrientation, saveOrientation } from '../model/OrientationPref';
 import { isMasterEnabled, setMaster } from '../model/CheatState';
+import { PROJECT_GITHUB_URL } from '../common/Const';
 
 const DOMAIN: number = 0x0000;
 const TAG: string = 'Settings';
@@ -201,9 +202,10 @@ struct Settings {
     });
   }
 
-  /** 赞助 / 评分入口占位：应用上架应用市场前先给出提示 */
-  private showComingSoon(): void {
-    promptAction.showToast({ message: '即将推出，敬请期待' });
+  /** 用系统浏览器打开外部链接 */
+  private openUrl(url: string): void {
+    const ctx: common.UIAbilityContext = this.getUIContext().getHostContext() as common.UIAbilityContext;
+    openDownloadPage(ctx, url);
   }
 
   @Builder
@@ -246,22 +248,6 @@ struct Settings {
       .height(36)
       .borderRadius(18)
       .onClick(() => this.applyOrientation(value))
-  }
-
-  @Builder
-  comingSoonRow(label: string) {
-    Row() {
-      Text(label).fontSize(16).fontColor('#BBBBBB')
-      Blank()
-      Text('即将推出')
-        .fontSize(12)
-        .fontColor('#999999')
-        .backgroundColor('#EEEEEE')
-        .borderRadius(9)
-        .padding({ left: 8, right: 8, top: 3, bottom: 3 })
-    }
-    .width('100%')
-    .padding({ left: 16, right: 16, top: 15, bottom: 15 })
   }
 
   @Builder
@@ -366,12 +352,6 @@ struct Settings {
           .padding({ left: 16, right: 16, top: 15, bottom: 15 })
           .onClick(() => this.confirmDelete())
 
-          this.groupTitle('支持作者')
-          // 赞助与评分：待应用上架华为应用市场后接入 IAPKit 与 AppGalleryKit
-          this.navRow('请作者喝咖啡', '', '#999999', true, () => this.showComingSoon())
-          this.divider()
-          this.navRow('前往应用市场评分', '', '#999999', true, () => this.showComingSoon())
-
           this.groupTitle('关于')
           this.navRow('应用版本', this.appVersion, '#999999', false, () => {})
           this.divider()
@@ -380,6 +360,11 @@ struct Settings {
             '#999999', false, () => {})
           this.divider()
           this.navRow('资源来源', '原版 PokeRogue', '#999999', false, () => {})
+          this.divider()
+          this.navRow('作者', 'lichtcui', '#999999', false, () => {})
+          this.divider()
+          this.navRow('GitHub', 'lichtcui/harmony-pokerogue', '#999999', true,
+            () => this.openUrl(PROJECT_GITHUB_URL))
           this.divider()
           this.navRow('法律与免责声明', '', '#999999', true,
             () => router.pushUrl({ url: 'pages/Legal' }))
