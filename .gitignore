@@ -22,3 +22,7 @@ signature/
 
 # logs
 *.log
+
+# 本地开发工具（opencode / triage 等生成，不入库）
+/.opencode
+/session-backup.json

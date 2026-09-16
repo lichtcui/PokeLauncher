@@ -16,6 +16,8 @@
 | 发布前产物独立校验（`hap-sign-tool` / SHA-256 / 冒烟） | `harmonyos-release-check` |
 | ArkTS/ArkUI/NDK API 查询、DevEco Studio / 模拟器、`hdc`/`uitest`/`aa`/`bm`/`hilog`/`hidumper`、ArkWeb DevTools | `harmony-next` |
 
+> 这些是**本机全局安装**的 skill（由 triage 按需路由）。换机器 / CI / 别人 clone 时未必存在，此时按通用 HarmonyOS 流程自行处理。
+
 - 产物：`entry/build/default/outputs/default/entry-default-signed.hap`
 - App 名 **PokeRogue**，bundle = `com.lichtcui.pokerogue`
 - **每次改完代码都必须走完「编译 → 安装 → 重启 → 截图观察」闭环**。只编译不安装，设备上跑的仍是旧版本，会误判「改动没生效」。
