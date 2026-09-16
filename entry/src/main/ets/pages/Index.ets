@@ -726,7 +726,8 @@ struct Index {
           }
           .width('100%')
           .justifyContent(FlexAlign.End)
-          .padding({ right: 16, top: 8 })
+          // top 留够：右上角是系统手势区（下拉控制中心），贴太近会点不到
+          .padding({ right: 16, top: 24 })
         }
 
         Column() {
