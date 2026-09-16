@@ -236,21 +236,24 @@ export class GameRepository {
       this.removePartialZip();
       try {
         await this.download(urls[i], onProgress);
-        if (this.cancelled) {
-          return;
-        }
-        onExtractStart();
-        await this.extract();
-        await this.removeTask();
-        return;
       } catch (err) {
         if (this.cancelled) {
           return;
         }
+        // 下载失败才换源重试
         lastErr = err as Error;
         hilog.warn(DOMAIN, TAG, 'download attempt %{public}d failed: %{public}s',
           i, JSON.stringify(err));
+        continue;
       }
+      if (this.cancelled) {
+        return;
+      }
+      // 解压失败与下载失败不同：换源重下会白下整个资源包，直接抛出由上层提示
+      onExtractStart();
+      await this.extract();
+      await this.removeTask();
+      return;
     }
     throw lastErr !== null ? lastErr : new Error('all download sources failed');
   }
@@ -399,18 +402,16 @@ export class GameRepository {
     expectedSize: number, onComplete: () => void): void {
     this.stopPolling();
     this.pollTimer = setInterval(() => {
-      try {
-        if (fs.accessSync(this.zipPath)) {
-          const size: number = fs.statSync(this.zipPath).size;
-          onProgress(size, -1);
-          if (expectedSize > 0 && size >= expectedSize) {
-            hilog.info(DOMAIN, TAG, 'poll detected complete: %{public}d >= %{public}d', size, expectedSize);
-            onComplete();
-          }
+      fs.stat(this.zipPath).then((stat: fs.Stat) => {
+        const size: number = stat.size;
+        onProgress(size, -1);
+        if (expectedSize > 0 && size >= expectedSize) {
+          hilog.info(DOMAIN, TAG, 'poll detected complete: %{public}d >= %{public}d', size, expectedSize);
+          onComplete();
         }
-      } catch (err) {
-        // 文件暂不可读时忽略
-      }
+      }).catch((err: Error) => {
+        // 文件尚未落盘/暂不可读时忽略
+      });
     }, 1000);
   }
 

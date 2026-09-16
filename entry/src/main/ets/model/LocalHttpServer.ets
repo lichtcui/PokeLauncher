@@ -193,7 +193,7 @@ export class LocalHttpServer {
 
     // 始终走补丁流程：注入作弊脚本标签 + 实验性补丁（强制 Canvas / willReadFrequently）
     if (path === '/index.html') {
-      this.servePatchedIndex(conn, this.gameDir + path, keepAlive);
+      this.servePatchedIndex(conn, this.gameDir + path, headOnly, keepAlive);
       return;
     }
 
@@ -322,9 +322,8 @@ export class LocalHttpServer {
 
   /** 读取 index.html 并注入作弊脚本标签 + 实验脚本后返回 */
   private servePatchedIndex(conn: socket.TCPSocketConnection, filePath: string,
-    keepAlive: boolean): void {
-    try {
-      const html: string = fs.readTextSync(filePath);
+    headOnly: boolean, keepAlive: boolean): void {
+    fs.readText(filePath).then((html: string) => {
       // 作弊脚本始终注入（未启用时 /__cheats__.js 返回空内容），保证先于游戏脚本执行
       const inject: string = '<script src="/__cheats__.js"><\/script>' + this.buildInjectScript();
       const headIdx: number = html.indexOf('<head>');
@@ -341,6 +340,16 @@ export class LocalHttpServer {
         'Cache-Control: no-cache\r\n' +
         'Connection: ' + (keepAlive ? 'keep-alive' : 'close') + '\r\n' +
         '\r\n';
+      if (headOnly) {
+        conn.send({ data: header }).then(() => {
+          if (!keepAlive) {
+            conn.close();
+          }
+        }).catch((err: Error) => {
+          hilog.warn(DOMAIN, TAG, 'send patched html header failed: %{public}s', JSON.stringify(err));
+        });
+        return;
+      }
       conn.send({ data: header }).then(() => {
         conn.send({ data: buf }).then(() => {
           if (!keepAlive) {
@@ -349,12 +358,14 @@ export class LocalHttpServer {
         }).catch((err: Error) => {
           hilog.warn(DOMAIN, TAG, 'send patched html failed: %{public}s', JSON.stringify(err));
         });
+      }).catch((err: Error) => {
+        hilog.warn(DOMAIN, TAG, 'send patched html header failed: %{public}s', JSON.stringify(err));
       });
       hilog.info(DOMAIN, TAG, '%{public}s', 'served patched index.html (cheat + force canvas)');
-    } catch (err) {
+    }).catch((err: Error) => {
       hilog.error(DOMAIN, TAG, 'servePatchedIndex failed: %{public}s', JSON.stringify(err));
       this.sendText(conn, 500, 'Internal Error', keepAlive);
-    }
+    });
   }
 
   private sendText(conn: socket.TCPSocketConnection, code: number, reason: string,
