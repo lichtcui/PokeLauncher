@@ -1,6 +1,5 @@
 import { common } from '@kit.AbilityKit';
 import { router, promptAction } from '@kit.ArkUI';
-import { webview } from '@kit.ArkWeb';
 import { BusinessError } from '@kit.BasicServicesKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { GameRepository, ReleaseInfo, normalizeVersion } from '../model/GameRepository';
@@ -129,7 +128,7 @@ struct Settings {
     }
     promptAction.showDialog({
       title: '删除本地数据',
-      message: '将删除已下载的游戏核心包，游戏存档不受影响。确定删除吗？',
+      message: '将删除已下载的游戏资源，游戏存档不受影响。确定删除吗？',
       buttons: [
         { text: '取消', color: '#666666' },
         { text: '删除', color: '#DA3838' }
@@ -158,20 +157,6 @@ struct Settings {
     }
     this.deleting = false;
     router.back();
-  }
-
-  /**
-   * 刷新 Web 缓存（HTTP 缓存 + JS 代码缓存）。
-   * 手动改过游戏资源包后，缓存不刷新会继续用旧文件，这里强制清掉。
-   */
-  private refreshCache(): void {
-    try {
-      webview.WebviewController.removeAllCache(true);
-      promptAction.showToast({ message: '缓存已刷新，下次进入游戏将重新加载资源' });
-    } catch (err) {
-      hilog.error(DOMAIN, TAG, 'removeAllCache failed: %{public}s', JSON.stringify(err));
-      promptAction.showToast({ message: '刷新缓存失败' });
-    }
   }
 
   /** 应用屏幕方向：更新状态并持久化（实际旋转在进入游戏页时生效） */
@@ -363,8 +348,6 @@ struct Settings {
             this.divider()
             this.navRow('更新到新版本', '', '#999999', true, () => this.triggerUpdate())
           }
-          this.divider()
-          this.navRow('刷新缓存', '', '#999999', true, () => this.refreshCache())
           this.divider()
           Row() {
             Text(this.deleting ? '正在删除…' : '删除本地数据').fontSize(16).fontColor('#333333')

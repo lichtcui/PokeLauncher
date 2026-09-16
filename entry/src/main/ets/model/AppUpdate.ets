@@ -9,11 +9,11 @@ import {
   APP_UPDATE_CHECK_INTERVAL_MS,
   USER_AGENT
 } from '../common/Const';
+import { getStore, SETTINGS_STORE } from '../common/Prefs';
 
 const DOMAIN: number = 0x0000;
 const TAG: string = 'AppUpdate';
 
-const STORE: string = 'pokerogue_settings';
 const KEY_LAST_CHECK: string = 'appUpdateLastCheck';
 
 /** 本地应用版本（来自 AppScope/app.json5） */
@@ -120,7 +120,7 @@ export async function checkAppUpdate(): Promise<AppUpdateResult> {
 /** 是否到了自动检查的时间（默认 24h 一次） */
 export async function shouldAutoCheck(ctx: common.UIAbilityContext): Promise<boolean> {
   try {
-    const store: preferences.Preferences = await preferences.getPreferences(ctx, STORE);
+    const store: preferences.Preferences = await getStore(ctx, SETTINGS_STORE);
     const last: number = await store.get(KEY_LAST_CHECK, 0) as number;
     return Date.now() - last >= APP_UPDATE_CHECK_INTERVAL_MS;
   } catch (err) {
@@ -132,7 +132,7 @@ export async function shouldAutoCheck(ctx: common.UIAbilityContext): Promise<boo
 /** 记录本次检查时间（仅在成功拿到清单后调用） */
 export async function markChecked(ctx: common.UIAbilityContext): Promise<void> {
   try {
-    const store: preferences.Preferences = await preferences.getPreferences(ctx, STORE);
+    const store: preferences.Preferences = await getStore(ctx, SETTINGS_STORE);
     await store.put(KEY_LAST_CHECK, Date.now());
     await store.flush();
   } catch (err) {

@@ -2,11 +2,11 @@ import { preferences } from '@kit.ArkData';
 import { common } from '@kit.AbilityKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { Cheat, CheatParam, CHEATS } from './Cheats';
+import { getStore, SETTINGS_STORE } from '../common/Prefs';
 
 const DOMAIN: number = 0x0000;
 const TAG: string = 'CheatState';
 
-const STORE: string = 'pokerogue_settings';
 const KEY_MASTER: string = 'cheatMaster';
 const KEY_IDS: string = 'cheatEnabledIds';
 const KEY_PARAMS: string = 'cheatParams';
@@ -64,7 +64,7 @@ function persist(): void {
   if (ctx === null) {
     return;
   }
-  preferences.getPreferences(ctx, STORE).then((store: preferences.Preferences) => {
+  getStore(ctx, SETTINGS_STORE).then((store: preferences.Preferences) => {
     store.put(KEY_MASTER, masterEnabled).then(() => {
       return store.put(KEY_IDS, idsToString());
     }).then(() => {
@@ -83,7 +83,7 @@ function persist(): void {
 export async function loadCheatState(ctx: common.UIAbilityContext): Promise<void> {
   ctxRef = ctx;
   try {
-    const store: preferences.Preferences = await preferences.getPreferences(ctx, STORE);
+    const store: preferences.Preferences = await getStore(ctx, SETTINGS_STORE);
     masterEnabled = await store.get(KEY_MASTER, false) as boolean;
     const raw: preferences.ValueType = await store.get(KEY_IDS, '');
     enabledIds = parseIds(raw as string);
@@ -134,13 +134,17 @@ export function getParamNumber(id: string, fallback: number): number {
   return isNaN(n) ? fallback : n;
 }
 
-/** 设置数值参数（内存 + 持久化） */
-export function setParam(id: string, value: number): void {
+/** 仅更新内存中的数值参数（拖动中高频调用，不落盘） */
+export function setParamLive(id: string, value: number): void {
   const next: string = value.toString();
-  if (paramValues.get(id) === next) {
-    return;
+  if (paramValues.get(id) !== next) {
+    paramValues.set(id, next);
   }
-  paramValues.set(id, next);
+}
+
+/** 设置数值参数（内存 + 立即持久化） */
+export function setParam(id: string, value: number): void {
+  setParamLive(id, value);
   persist();
 }
 

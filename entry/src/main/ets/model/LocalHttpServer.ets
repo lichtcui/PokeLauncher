@@ -202,30 +202,56 @@ export class LocalHttpServer {
           if (!keepAlive) {
             conn.close();
           }
+        }).catch((err: Error) => {
+          hilog.warn(DOMAIN, TAG, 'send header failed: %{public}s', JSON.stringify(err));
         });
         return;
       }
-      const body: ArrayBuffer = new ArrayBuffer(stat.size);
-      const fd: fs.File = fs.openSync(filePath, fs.OpenMode.READ_ONLY);
-      try {
-        fs.readSync(fd.fd, body);
-      } finally {
-        fs.closeSync(fd);
-      }
-      conn.send({ data: header }).then(() => {
-        conn.send({ data: body }).then(() => {
-          if (!keepAlive) {
-            conn.close();
-          }
-        }).catch((err: Error) => {
-          hilog.warn(DOMAIN, TAG, 'send body failed: %{public}s', JSON.stringify(err));
-        });
-      }).catch((err: Error) => {
-        hilog.warn(DOMAIN, TAG, 'send header failed: %{public}s', JSON.stringify(err));
-      });
+      this.sendFile(conn, filePath, stat.size, header, keepAlive);
     } catch (err) {
       this.sendText(conn, 404, 'Not Found', keepAlive);
     }
+  }
+
+  /**
+   * 异步读取文件后发送：同步 readSync 会在主线程读取整个资源（音频/大 JS 可达数 MB），
+   * 阻塞 UI。改为异步 open/read，读取完成后再发送。
+   */
+  private sendFile(conn: socket.TCPSocketConnection, filePath: string, size: number,
+    header: string, keepAlive: boolean): void {
+    fs.open(filePath, fs.OpenMode.READ_ONLY).then((fd: fs.File) => {
+      const body: ArrayBuffer = new ArrayBuffer(size);
+      fs.read(fd.fd, body).then((bytesRead: number) => {
+        try {
+          fs.closeSync(fd);
+        } catch (err) {
+          hilog.warn(DOMAIN, TAG, 'close fd failed: %{public}s', JSON.stringify(err));
+        }
+        const payload: ArrayBuffer = bytesRead === size ? body : body.slice(0, bytesRead);
+        conn.send({ data: header }).then(() => {
+          conn.send({ data: payload }).then(() => {
+            if (!keepAlive) {
+              conn.close();
+            }
+          }).catch((err: Error) => {
+            hilog.warn(DOMAIN, TAG, 'send body failed: %{public}s', JSON.stringify(err));
+          });
+        }).catch((err: Error) => {
+          hilog.warn(DOMAIN, TAG, 'send header failed: %{public}s', JSON.stringify(err));
+        });
+      }).catch((err: Error) => {
+        try {
+          fs.closeSync(fd);
+        } catch (e) {
+          // ignore
+        }
+        hilog.warn(DOMAIN, TAG, 'read file failed: %{public}s', JSON.stringify(err));
+        this.sendText(conn, 500, 'Internal Error', keepAlive);
+      });
+    }).catch((err: Error) => {
+      hilog.warn(DOMAIN, TAG, 'open file failed: %{public}s', JSON.stringify(err));
+      this.sendText(conn, 404, 'Not Found', keepAlive);
+    });
   }
 
   /** 构建注入脚本（强制 2D canvas willReadFrequently），关闭时返回空串 */

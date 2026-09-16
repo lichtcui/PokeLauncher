@@ -486,7 +486,7 @@ export class GameRepository {
     const config: request.agent.Config = {
       action: request.agent.Action.DOWNLOAD,
       url: url,
-      title: '正在下载核心包',
+      title: '正在下载游戏资源',
       description: 'PokeRogue',
       mode: request.agent.Mode.BACKGROUND,
       overwrite: true,
@@ -557,34 +557,32 @@ export class GameRepository {
   }
 
   /** 解压 zip 到 gameDir（zip 内已含 currentVersion.txt） */
-  private extract(): Promise<void> {
-    return new Promise<void>((resolve, reject) => {
-      try {
-        if (fs.accessSync(this.gameDir)) {
-          fs.rmdirSync(this.gameDir);
-        }
-        fs.mkdirSync(this.gameDir, true);
-      } catch (err) {
-        hilog.error(DOMAIN, TAG, 'prepare dir error: %{public}s', JSON.stringify(err));
-        reject(err as Error);
-        return;
+  private async extract(): Promise<void> {
+    try {
+      // 重新解压前清空旧目录：同步删除 3 万+ 文件会阻塞主线程导致闪退，必须异步
+      if (fs.accessSync(this.gameDir)) {
+        await fs.rmdir(this.gameDir);
       }
+      fs.mkdirSync(this.gameDir, true);
+    } catch (err) {
+      hilog.error(DOMAIN, TAG, 'prepare dir error: %{public}s', JSON.stringify(err));
+      throw err as Error;
+    }
 
-      zlib.decompressFile(this.zipPath, this.gameDir, {
+    try {
+      await zlib.decompressFile(this.zipPath, this.gameDir, {
         parallel: zlib.ParallelStrategy.PARALLEL_STRATEGY_PARALLEL_DECOMPRESSION
-      }).then(() => {
-        try {
-          fs.unlinkSync(this.zipPath);
-        } catch (err) {
-          hilog.warn(DOMAIN, TAG, 'clean zip warn: %{public}s', JSON.stringify(err));
-        }
-        hilog.info(DOMAIN, TAG, '%{public}s', 'extract complete');
-        resolve();
-      }).catch((err: BusinessError) => {
-        hilog.error(DOMAIN, TAG, 'decompressFile error: %{public}s', JSON.stringify(err));
-        reject(err);
       });
-    });
+      try {
+        fs.unlinkSync(this.zipPath);
+      } catch (err) {
+        hilog.warn(DOMAIN, TAG, 'clean zip warn: %{public}s', JSON.stringify(err));
+      }
+      hilog.info(DOMAIN, TAG, '%{public}s', 'extract complete');
+    } catch (err) {
+      hilog.error(DOMAIN, TAG, 'decompressFile error: %{public}s', JSON.stringify(err));
+      throw err as Error;
+    }
   }
 
   /** 删除本地核心包（异步，避免同步删除 3 万+ 文件阻塞主线程导致闪退） */

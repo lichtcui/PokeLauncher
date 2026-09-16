@@ -2,11 +2,11 @@ import { window } from '@kit.ArkUI';
 import { preferences } from '@kit.ArkData';
 import { common } from '@kit.AbilityKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
+import { getStore, SETTINGS_STORE } from '../common/Prefs';
 
 const DOMAIN: number = 0x0000;
 const TAG: string = 'OrientationPref';
 
-const STORE: string = 'pokerogue_settings';
 const KEY: string = 'orientation';
 
 /** 屏幕方向偏好值 */
@@ -33,7 +33,7 @@ export function toOrientation(v: string): window.Orientation {
 /** 读取屏幕方向偏好（失败回退默认值） */
 export async function readOrientation(ctx: common.UIAbilityContext): Promise<string> {
   try {
-    const store: preferences.Preferences = await preferences.getPreferences(ctx, STORE);
+    const store: preferences.Preferences = await getStore(ctx, SETTINGS_STORE);
     const value: preferences.ValueType = await store.get(KEY, DEFAULT_ORIENTATION);
     return value as string;
   } catch (err) {
@@ -44,7 +44,7 @@ export async function readOrientation(ctx: common.UIAbilityContext): Promise<str
 
 /** 保存屏幕方向偏好 */
 export async function saveOrientation(ctx: common.UIAbilityContext, v: string): Promise<void> {
-  const store: preferences.Preferences = await preferences.getPreferences(ctx, STORE);
+  const store: preferences.Preferences = await getStore(ctx, SETTINGS_STORE);
   await store.put(KEY, v);
   await store.flush();
 }

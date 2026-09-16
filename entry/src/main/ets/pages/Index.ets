@@ -14,6 +14,7 @@ import {
   shouldAutoCheck
 } from '../model/AppUpdate';
 import { Notifier } from '../model/Notifier';
+import { getStore } from '../common/Prefs';
 import { setWindowBackground, setOrientation, HOME_BG_COLOR } from '../model/WindowHolder';
 import { isMasterEnabled } from '../model/CheatState';
 import { PokeballLoader } from '../components/PokeballLoader';
@@ -345,7 +346,7 @@ struct Index {
       return;
     }
     try {
-      const store: preferences.Preferences = await preferences.getPreferences(ctx, 'pokerogue_settings');
+      const store: preferences.Preferences = await getStore(ctx);
       const shown: boolean = await store.get('bgHintShown', false) as boolean;
       if (!shown) {
         promptAction.showToast({ message: hint });
@@ -416,7 +417,7 @@ struct Index {
         this.version = repo.readVersion();
         this.stage = Stage.Ready;
         Notifier.publishComplete();
-        promptAction.showToast({ message: '核心包下载完成' });
+        promptAction.showToast({ message: '游戏资源下载完成' });
       })
       .catch((err: BusinessError) => {
         if (err.message === 'cancelled') {
@@ -516,7 +517,7 @@ struct Index {
         .width(72)
         .height(72)
         .objectFit(ImageFit.Contain)
-      Text('尚未安装游戏核心包').fontSize(18).fontWeight(FontWeight.Medium)
+      Text('尚未安装游戏资源').fontSize(18).fontWeight(FontWeight.Medium)
 
       // 资源包信息卡片
       Column({ space: 10 }) {
@@ -556,7 +557,7 @@ struct Index {
       .width('84%')
       .alignItems(HorizontalAlign.Start)
 
-      Button('下载核心包')
+      Button('下载游戏资源')
         .width('84%')
         .height(52)
         .fontSize(17)
@@ -580,7 +581,7 @@ struct Index {
   downloadingView() {
     Column({ space: 16 }) {
       PokeballLoader({ active: !this.paused })
-      Text(this.paused ? '已暂停' : '正在下载核心包').fontSize(18).fontWeight(FontWeight.Medium)
+      Text(this.paused ? '已暂停' : '正在下载游戏资源').fontSize(18).fontWeight(FontWeight.Medium)
 
       // 进度条：从左往右填充；百分比居中，白色 + 深色描边（红/灰底都可见）
       Stack() {
@@ -640,7 +641,7 @@ struct Index {
   extractingView() {
     Column({ space: 14 }) {
       PokeballLoader({ active: true })
-      Text('正在解压核心包…').fontSize(18).fontWeight(FontWeight.Medium)
+      Text('正在解压游戏资源…').fontSize(18).fontWeight(FontWeight.Medium)
       Text('请勿关闭应用').fontSize(13).fontColor('#888888')
     }
     .width('100%')
@@ -653,7 +654,7 @@ struct Index {
         .width(96)
         .height(96)
         .objectFit(ImageFit.Contain)
-      Text('核心包已就绪').fontSize(20).fontWeight(FontWeight.Medium)
+      Text('游戏资源已就绪').fontSize(20).fontWeight(FontWeight.Medium)
       Text('版本 ' + (this.version.length > 0 ? normalizeVersion(this.version) : '未知'))
         .fontSize(13).fontColor('#888888')
       Button('开始游戏')

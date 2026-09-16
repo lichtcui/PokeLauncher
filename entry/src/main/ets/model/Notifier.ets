@@ -35,11 +35,11 @@ export class Notifier {
   }
 
   static publishComplete(): void {
-    Notifier.publish(ID_COMPLETE, '核心包下载完成', '点击开始游戏');
+    Notifier.publish(ID_COMPLETE, '游戏资源下载完成', '点击开始游戏');
   }
 
   static publishFailed(reason: string): void {
-    Notifier.publish(ID_FAILED, '核心包下载失败', reason.length > 0 ? reason : '点击重试');
+    Notifier.publish(ID_FAILED, '游戏资源下载失败', reason.length > 0 ? reason : '点击重试');
   }
 
   private static publish(id: number, title: string, text: string): void {

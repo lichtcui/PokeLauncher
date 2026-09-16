@@ -1,6 +1,6 @@
 import { router } from '@kit.ArkUI';
 import { CHEATS, Cheat, CheatGroup, CheatGroupInfo, CHEAT_GROUPS, CheatParam } from '../model/Cheats';
-import { isMasterEnabled, isCheatEnabled, toggleCheat, getParamNumber, setParam } from '../model/CheatState';
+import { isMasterEnabled, isCheatEnabled, toggleCheat, getParamNumber, setParam, setParamLive } from '../model/CheatState';
 
 /**
  * 作弊条目页（独立页面）：从首页就绪页的「作弊设置」入口进入。
@@ -56,7 +56,8 @@ struct Cheats {
     toggleCheat(id);
   }
 
-  private onParamChange(index: number, v: number): void {
+  /** 拖动中只更新内存（高频），松手（End/Click）才落盘，避免连续写偏好库 */
+  private onParamChange(index: number, v: number, mode: SliderChangeMode): void {
     const p: CheatParam | undefined = CHEATS[index].param;
     if (p === undefined) {
       return;
@@ -64,7 +65,11 @@ struct Cheats {
     const next: number[] = this.paramValues.slice();
     next[index] = v;
     this.paramValues = next;
-    setParam(p.id, v);
+    if (mode === SliderChangeMode.End || mode === SliderChangeMode.Click) {
+      setParam(p.id, v);
+    } else {
+      setParamLive(p.id, v);
+    }
   }
 
   /** 参数当前值的显示文本：优先用 labels 映射，否则 unit + 数值 */
@@ -196,7 +201,7 @@ struct Cheats {
                         .layoutWeight(1)
                         .selectedColor('#DA3838')
                         .enabled(this.masterOn && this.flags[this.cheatIndex(c.id)])
-                        .onChange((v: number, mode: SliderChangeMode) => this.onParamChange(this.cheatIndex(c.id), v))
+                        .onChange((v: number, mode: SliderChangeMode) => this.onParamChange(this.cheatIndex(c.id), v, mode))
                       Text(this.paramText(this.cheatIndex(c.id)))
                         .fontSize(14)
                         .fontColor('#333333')
