@@ -579,7 +579,7 @@ struct Index {
   @Builder
   downloadingView() {
     Column({ space: 16 }) {
-      PokeballLoader({ mode: 'shake', active: !this.paused })
+      PokeballLoader({ active: !this.paused })
       Text(this.paused ? '已暂停' : '正在下载核心包').fontSize(18).fontWeight(FontWeight.Medium)
 
       // 进度条：从左往右填充；百分比居中，白色 + 深色描边（红/灰底都可见）
@@ -639,7 +639,7 @@ struct Index {
   @Builder
   extractingView() {
     Column({ space: 14 }) {
-      PokeballLoader({ mode: 'shake', active: true })
+      PokeballLoader({ active: true })
       Text('正在解压核心包…').fontSize(18).fontWeight(FontWeight.Medium)
       Text('请勿关闭应用').fontSize(13).fontColor('#888888')
     }

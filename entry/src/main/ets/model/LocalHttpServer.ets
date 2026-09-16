@@ -3,14 +3,17 @@ import { fileIo as fs } from '@kit.CoreFileKit';
 import { util } from '@kit.ArkTS';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { mimeOf } from '../common/Mime';
-import { FORCE_CANVAS, FORCE_WILL_READ_FREQUENTLY } from '../common/Const';
+import { FORCE_WILL_READ_FREQUENTLY } from '../common/Const';
 import { buildBootScript } from './CheatState';
 
 const DOMAIN: number = 0x0000;
 const TAG: string = 'LocalHttp';
 
-/** 端口必须是固定的，否则 origin 变化会导致 localStorage 存档丢失 */
-const CANDIDATE_PORTS: number[] = [18787, 18788, 18789, 18790];
+/**
+ * 端口必须固定：origin 变化会导致 localStorage 存档丢失。
+ * 因此不做多端口回退——18787 被占用时宁可启动失败，也不静默换端口。
+ */
+const PORT: number = 18787;
 
 let servedCount: number = 0;
 let servedBytes: number = 0;
@@ -58,29 +61,16 @@ export class LocalHttpServer {
     this.gameDir = gameDir;
   }
 
+  /** 服务未就绪（端口尚未绑定）时返回空串，调用方据此回退默认地址 */
   get baseUrl(): string {
-    return 'http://127.0.0.1:' + this.port;
+    return this.port > 0 ? 'http://127.0.0.1:' + this.port : '';
   }
 
   async start(): Promise<number> {
     const server: socket.TCPSocketServer = socket.constructTCPSocketServerInstance();
-    let bound: number = 0;
-    let lastErr: Error | null = null;
-    for (let i = 0; i < CANDIDATE_PORTS.length; i++) {
-      try {
-        const addr: socket.NetAddress = { address: '127.0.0.1', port: CANDIDATE_PORTS[i], family: 1 };
-        await server.listen(addr);
-        bound = CANDIDATE_PORTS[i];
-        break;
-      } catch (err) {
-        lastErr = err as Error;
-        hilog.warn(DOMAIN, TAG, 'listen port %{public}d failed: %{public}s',
-          CANDIDATE_PORTS[i], JSON.stringify(err));
-      }
-    }
-    if (bound === 0) {
-      throw lastErr !== null ? lastErr : new Error('cannot bind local http port');
-    }
+    const addr: socket.NetAddress = { address: '127.0.0.1', port: PORT, family: 1 };
+    await server.listen(addr);
+    const bound: number = PORT;
     // 游戏内 API 地址是 http://localhost:8001，这里也监听它，
     // 避免客户端连不上而等待超时（未知路径返回 404，游戏按离线逻辑处理）。
     try {
@@ -238,26 +228,16 @@ export class LocalHttpServer {
     }
   }
 
-  /** 构建注入脚本（按开关拼装），无内容时返回空串 */
+  /** 构建注入脚本（强制 2D canvas willReadFrequently），关闭时返回空串 */
   private buildInjectScript(): string {
-    let js: string = '';
-    if (FORCE_CANVAS) {
-      js += 'var o=HTMLCanvasElement.prototype.getContext;' +
-        'HTMLCanvasElement.prototype.getContext=function(t){' +
-        'if(t==="webgl"||t==="webgl2"||t==="experimental-webgl"){' +
-        'console.log("PATCH blocked "+t);return null;}' +
-        'return o.apply(this,arguments);};';
-    }
-    if (FORCE_WILL_READ_FREQUENTLY) {
-      js += 'var o2=HTMLCanvasElement.prototype.getContext;' +
-        'HTMLCanvasElement.prototype.getContext=function(t,a){' +
-        'if(t==="2d"){var n={};if(a){for(var k in a){n[k]=a[k];}}n.willReadFrequently=true;' +
-        'return o2.call(this,t,n);}' +
-        'return o2.apply(this,arguments);};';
-    }
-    if (js.length === 0) {
+    if (!FORCE_WILL_READ_FREQUENTLY) {
       return '';
     }
+    const js: string = 'var o2=HTMLCanvasElement.prototype.getContext;' +
+      'HTMLCanvasElement.prototype.getContext=function(t,a){' +
+      'if(t==="2d"){var n={};if(a){for(var k in a){n[k]=a[k];}}n.willReadFrequently=true;' +
+      'return o2.call(this,t,n);}' +
+      'return o2.apply(this,arguments);};';
     return '<script>(function(){try{' + js +
       '}catch(e){console.log("PATCH err "+e);}})();<\/script>';
   }

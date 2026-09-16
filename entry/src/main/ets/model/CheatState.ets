@@ -14,8 +14,6 @@ const KEY_PARAMS: string = 'cheatParams';
 let masterEnabled: boolean = false;
 let enabledIds: string[] = [];
 let paramValues: Map<string, string> = new Map();
-let revision: number = 0;
-let loaded: boolean = false;
 let ctxRef: common.UIAbilityContext | null = null;
 
 function idsToString(): string {
@@ -94,13 +92,8 @@ export async function loadCheatState(ctx: common.UIAbilityContext): Promise<void
   } catch (err) {
     hilog.warn(DOMAIN, TAG, 'loadCheatState failed: %{public}s', JSON.stringify(err));
   }
-  loaded = true;
   hilog.info(DOMAIN, TAG, 'cheat state loaded master=%{public}s count=%{public}d',
     masterEnabled.toString(), enabledIds.length);
-}
-
-export function isLoaded(): boolean {
-  return loaded;
 }
 
 export function isMasterEnabled(): boolean {
@@ -117,7 +110,6 @@ export function setMaster(v: boolean): void {
     return;
   }
   masterEnabled = v;
-  revision++;
   persist();
 }
 
@@ -129,7 +121,6 @@ export function toggleCheat(id: string): void {
   } else {
     enabledIds.push(id);
   }
-  revision++;
   persist();
 }
 
@@ -150,13 +141,7 @@ export function setParam(id: string, value: number): void {
     return;
   }
   paramValues.set(id, next);
-  revision++;
   persist();
-}
-
-/** 配置版本号：变化后游戏页需重载以重新注入 */
-export function getRevision(): number {
-  return revision;
 }
 
 /**

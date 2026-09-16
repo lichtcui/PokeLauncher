@@ -104,7 +104,7 @@ PID=$("$HDC" shell pidof com.lichtcui.pokerogue | tr -d '\r' | awk '{print $1}')
 curl -s http://127.0.0.1:9222/json/list
 ```
 
-- 前提：App 里 `setWebDebuggingAccess(true)`（已由 `DEBUG_UI` 控制，见 `EntryAbility`），且当前已加载 Web 页（进游戏后）。
+- 前提：App 里 `setWebDebuggingAccess(true)`（由 `common/Const.ets` 的 `DEBUG_UI` 控制，见 `EntryAbility`）。**发布默认为 `false`**，调试前需临时改成 `true` 并重新编译安装，且当前已加载 Web 页（进游戏后）。
 - **进程 PID 变化后要重新转发**；多个旧转发会互相冲突，先 `hdc fport rm tcp:9222 <旧目标>`。
 - 可用 DevTools 协议 `Runtime.evaluate` 在页面里执行 JS（例如模拟导出 blob 下载）。
 - 参考脚本：`/tmp/opencode/eval.js`、`prof.js`、`prof2.js`（本机临时目录，非仓库文件）。
@@ -115,14 +115,13 @@ curl -s http://127.0.0.1:9222/json/list
 entry/src/main/ets/
 ├─ entryability/EntryAbility.ets   # 启动本地 HTTP 服务、窗口设置、DEBUG_UI 时开 Web 调试
 ├─ common/
-│  ├─ Const.ets                    # 常量（URL/镜像/DEBUG_UI/FORCE_CANVAS 等）
+│  ├─ Const.ets                    # 常量（URL/镜像/DEBUG_UI/FORCE_WILL_READ_FREQUENTLY 等）
 │  └─ Mime.ets                     # 扩展名 → MIME
-├─ components/PokeballLoader.ets   # 精灵球动画（shake=下载/解压摇晃；open=逐帧打开，暂未使用）
+├─ components/PokeballLoader.ets   # 精灵球摇晃动画（下载/解压中）
 ├─ model/
 │  ├─ GameRepository.ets           # 下载(request.agent+镜像) / 解压(zlib) / 删除 / 版本 / 接管
 │  ├─ AppUpdate.ets                # 应用自更新：本地版本读取 + version.json 比对 + 引导下载（见 §11）
-│  ├─ LocalHttpServer.ets          # 本地 HTTP 服务(127.0.0.1:18787) + index.html 注入 + /__cheats__.js
-│  ├─ LocalContentProvider.ets     # 旧的 onInterceptRequest 方案（已不用，保留参考）
+│  ├─ LocalHttpServer.ets          # 本地 HTTP 服务(127.0.0.1:18787 固定端口) + index.html 注入 + /__cheats__.js
 │  ├─ Notifier.ets                 # 通知权限 + 完成/失败通知
 │  ├─ WindowHolder.ets             # 主窗口引用 + setWindowBackgroundColor + setOrientation
 │  ├─ OrientationPref.ets          # 屏幕方向偏好（竖屏/横屏/跟随系统）读写
@@ -166,7 +165,7 @@ entry/src/main/ets/
     # ... 修改并 commit ...
     git update-index --skip-worktree build-profile.json5      # 再恢复
     ```
-- 临时调试开关：`common/Const.ets` 的 `DEBUG_UI`（开发显示镜像源/开 Web 调试）、`FORCE_CANVAS`（实验，默认 false）。
+- 临时调试开关：`common/Const.ets` 的 `DEBUG_UI`（**默认 false**；true 时开 Web 调试并注入性能探针，仅本地调试用）、`FORCE_WILL_READ_FREQUENTLY`（默认 true，强制 2D canvas 走 CPU，消除 `getImageData` GPU 读回开销）。
 - 改 UI 文案/布局主要在 `pages/Index.ets` 与 `pages/Settings.ets` 的 `@Builder`/`build()`。
 - **ArkUI 坑**：`@Builder` 的**值参数**不会触发重渲染，动态文案要直接在 `build()` 里读 `@State`（见 `Settings.ets` 的「检查更新」「删除本地数据」行）。
 - 新增静态资源放 `entry/src/main/resources/base/media/`，引用 `$r('app.media.xxx')`。

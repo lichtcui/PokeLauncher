@@ -7,48 +7,12 @@ import { common } from '@kit.AbilityKit';
 import { sharedServerBaseUrl } from '../model/LocalHttpServer';
 import { setWindowBackground, setOrientation, GAME_BG_COLOR } from '../model/WindowHolder';
 import { readOrientation, toOrientation } from '../model/OrientationPref';
-import { DEBUG_UI } from '../common/Const';
 
 const DOMAIN: number = 0x0000;
 const TAG: string = 'GamePage';
 
-/** 兜底地址（端口与 LocalHttpServer.CANDIDATE_PORTS[0] 一致） */
+/** 兜底地址（端口与 LocalHttpServer.PORT 一致） */
 const FALLBACK_BASE: string = 'http://127.0.0.1:18787';
-
-/** 开发用：放大 resource timing 缓冲区 */
-const JS_PERF_BUFFER: string =
-  'try{performance.setResourceTimingBufferSize(20000);}catch(e){}';
-
-/** 开发用：记录 fetch/XHR 耗时与长任务（定位卡顿） */
-const JS_NET_PROBE: string =
-  '(function(){try{' +
-  'var of=window.fetch;window.fetch=function(u,o){var t=performance.now();var uu=String(u);' +
-  'return of.apply(this,arguments).then(function(r){console.log("NET fetch "+(performance.now()-t).toFixed(0)+"ms "+r.status+" "+uu);return r;})' +
-  '.catch(function(e){console.log("NET fetchERR "+(performance.now()-t).toFixed(0)+"ms "+uu+" "+e);throw e;});};' +
-  'var oo=XMLHttpRequest.prototype.open;XMLHttpRequest.prototype.open=function(m,u){var t=performance.now();var uu=String(u);' +
-  'this.addEventListener("loadend",function(){console.log("NET xhr "+(performance.now()-t).toFixed(0)+"ms "+this.status+" "+uu);});return oo.apply(this,arguments);};' +
-  'try{new PerformanceObserver(function(l){l.getEntries().forEach(function(e){if(e.duration>300){console.log("NET longtask start="+e.startTime.toFixed(0)+" dur="+e.duration.toFixed(0));}});}).observe({entryTypes:["longtask"]});}catch(e){}' +
-  'try{new PerformanceObserver(function(l){l.getEntries().forEach(function(e){' +
-  'if(e.duration>300){console.log("LOAF dur="+e.duration.toFixed(0)+" renderStart="+(e.renderStart||0).toFixed(0));' +
-  'var ss=e.scripts||[];for(var i=0;i<ss.length;i++){var s=ss[i];' +
-  'console.log("LOAF script "+(s.duration||0).toFixed(0)+"ms src="+(s.sourceURL||"").split("/").pop()+" fn="+(s.sourceFunctionName||"")+" inv="+(s.invoker||""));}' +
-  '}});}).observe({type:"long-animation-frame",buffered:true});}catch(e){console.log("LOAF observe err "+e);}' +
-  '}catch(e){console.log("NET probe err "+e);}})();';
-
-/** 开发用：25s 后 dump 资源加载统计（通过 ARKWEB-CONSOLE 输出） */
-const JS_PERF_PROBE: string =
-  'console.log("PERF injected now="+Math.round(performance.now())+"ms");' +
-  'setTimeout(function(){try{' +
-  'var res=performance.getEntriesByType("resource");' +
-  'var total=0;for(var i=0;i<res.length;i++){total+=res[i].duration;}' +
-  'console.log("PERF count="+res.length+" sumDuration="+Math.round(total)+"ms");' +
-  'res.sort(function(a,b){return b.duration-a.duration;});' +
-  'for(var j=0;j<Math.min(8,res.length);j++){' +
-  'var n=res[j].name.split("/").pop();' +
-  'console.log("PERF "+res[j].duration.toFixed(0)+"ms size="+res[j].transferSize+" "+n);}' +
-  'var t=performance.timing;' +
-  'console.log("PERF dcl="+(t.domContentLoadedEventEnd-t.navigationStart)+"ms load="+(t.loadEventEnd-t.navigationStart)+"ms now="+Math.round(performance.now())+"ms");' +
-  '}catch(e){console.log("PERF err "+e);}},25000);';
 
 /**
  * 离线游戏页：本地 HTTP 服务器（App 启动时已在 EntryAbility 拉起）把
@@ -179,15 +143,10 @@ struct GamePage {
           this.loadError = desc;
           hilog.error(DOMAIN, TAG, 'onErrorReceive: %{public}s', desc);
         })
-        .onPageBegin(() => {
-          if (DEBUG_UI) {
-            this.controller.runJavaScript(JS_PERF_BUFFER);
-            this.controller.runJavaScript(JS_NET_PROBE);
-          }
-        })
         .onPageEnd(() => {
-          if (DEBUG_UI) {
-            this.controller.runJavaScript(JS_PERF_PROBE);
+          // 页面加载成功：清掉上一次的错误浮层
+          if (this.loadError.length > 0) {
+            this.loadError = '';
           }
         })
         .width('100%')

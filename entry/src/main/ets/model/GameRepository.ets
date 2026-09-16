@@ -69,10 +69,6 @@ export class GameRepository {
     return this.gameDir + '/currentVersion.txt';
   }
 
-  isPaused(): boolean {
-    return this.paused;
-  }
-
   /** 是否已安装核心包（以 index.html 是否存在为准） */
   hasGameFiles(): boolean {
     try {

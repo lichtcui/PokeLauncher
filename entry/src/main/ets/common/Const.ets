@@ -2,12 +2,6 @@
  * 全局常量
  */
 
-/** 离线伪域名：Web 组件加载该 origin，由 onInterceptRequest 从沙箱提供文件 */
-export const GAME_ORIGIN: string = 'https://pokerogue.local';
-
-/** 离线游戏入口 */
-export const GAME_START_URL: string = GAME_ORIGIN + '/index.html';
-
 /** GitHub Release API（离线资源包来源） */
 export const RELEASE_API: string =
   'https://api.github.com/repos/Admiral-Billy/pokerogue/releases/latest';
@@ -34,18 +28,12 @@ export const API_MIRROR: string = 'https://gh-proxy.com/';
 export const DEFAULT_ASSET: string = 'game.zip';
 
 /**
- * 开发模式 UI：
- * - true：下载页显示资产名与实际使用的下载源（镜像 host / 序号），便于调试；
- * - false（正式发布）：隐藏这些技术细节，只显示进度。
+ * 开发模式：正式发布必须为 false。
+ * - true：开启 ArkWeb 远程调试（`setWebDebuggingAccess`），并在游戏页注入
+ *   fetch/XHR/LOAF 性能探针（有性能开销与日志噪音）；
+ * - false：上述调试能力全部关闭。
  */
-export const DEBUG_UI: boolean = true;
-
-/**
- * 实验开关：强制游戏回退到 Canvas 渲染器（绕过 ArkWeb 慢的 WebGL texImage2D）。
- * 结论：无效——PokeRogue 依赖 WebGL，禁用后会报
- * "Uncaught Error: Cannot create WebGL context, aborting." 并卡死。故默认关闭。
- */
-export const FORCE_CANVAS: boolean = false;
+export const DEBUG_UI: boolean = false;
 
 /**
  * 实验开关：强制所有 2D canvas 使用 willReadFrequently（CPU 后备）。

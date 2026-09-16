@@ -116,12 +116,11 @@ entry/src/main/
 └─ ets/
    ├─ entryability/EntryAbility.ets # 本地服务启动、窗口（状态栏/安全区）、Web 调试
    ├─ common/{Const,Mime}.ets       # 常量 / MIME 映射
-   ├─ components/PokeballLoader.ets # 精灵球动画（下载/解压摇晃；逐帧打开未使用）
+   ├─ components/PokeballLoader.ets # 精灵球摇晃动画（下载/解压中）
    ├─ model/
    │  ├─ GameRepository.ets         # 下载/解压/删除/版本/接管
    │  ├─ AppUpdate.ets              # 应用自更新：本地版本读取 + version.json 比对 + 引导下载
    │  ├─ LocalHttpServer.ets        # 本地 HTTP 服务 + index.html 注入 + /__cheats__.js
-   │  ├─ LocalContentProvider.ets   # 旧 onInterceptRequest 方案（保留参考）
    │  ├─ Notifier.ets               # 通知
    │  ├─ WindowHolder.ets           # 窗口背景色 + 屏幕方向
    │  ├─ OrientationPref.ets        # 屏幕方向偏好读写
