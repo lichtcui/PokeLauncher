@@ -1,9 +1,9 @@
 {
-  "versionCode": 1000001,
-  "versionName": "1.0.1",
+  "versionCode": 1001000,
+  "versionName": "1.1.0",
   "minVersionCode": 1000000,
   "forceUpdate": false,
-  "changelog": "1. 新增应用自更新检测：启动自动检查 + 设置页手动检查，发现新版本弹窗引导下载\n2. 设置页拆分为「应用更新 / 游戏资源更新」",
+  "changelog": "1. 更名为 PokeLauncher，更换应用图标\n2. 新增存档快照：清除缓存后可自动恢复存档，避免无感知丢档\n3. 设置页「关于」新增作者与 GitHub 仓库入口，移除「支持作者」占位",
   "downloadUrl": "https://gitee.com/licht3345/PokeLauncher/releases",
   "pageUrl": "https://gitee.com/licht3345/PokeLauncher/releases"
 }
