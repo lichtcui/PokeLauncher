@@ -1,6 +1,12 @@
 # 架构与关键文件
 
-> 操作手册见 [`../AGENTS.md`](../AGENTS.md)。
+> 操作手册见 [`../AGENTS.md`](../AGENTS.md)；用户使用说明见 [`../README.md`](../README.md)。
+
+## 环境与构建
+
+- 开发：**DevEco Studio 26.0.0**（自带 HarmonyOS SDK，本机为 **API 26**）；真机：HarmonyOS NEXT（实测 Pura 70 Pro+，**API 24**）。
+- 产物：`entry/build/default/outputs/default/entry-default-signed.hap`。
+- 编译 / 真机安装 / 签名 / 发布流程见 [`../AGENTS.md`](../AGENTS.md)（通用部分由 `harmonyos-*` skill 承载）。
 
 ## 目录结构
 
