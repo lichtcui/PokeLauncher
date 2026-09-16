@@ -20,7 +20,7 @@ import { formatBytes, formatSpeed, formatDuration } from '../common/Format';
 import { setWindowBackground, setOrientation, HOME_BG_COLOR } from '../model/WindowHolder';
 import { isMasterEnabled } from '../model/CheatState';
 import { sharedServerReady } from '../model/LocalHttpServer';
-import { PokeballLoader } from '../components/PokeballLoader';
+import { ResourceLoader } from '../components/ResourceLoader';
 
 const DOMAIN: number = 0x0000;
 const TAG: string = 'Home';
@@ -398,7 +398,7 @@ struct Index {
         this.version = repo.readVersion();
         this.stage = Stage.Ready;
         Notifier.publishComplete();
-        promptAction.showToast({ message: '游戏资源下载完成' });
+        promptAction.showToast({ message: '离线资源下载完成' });
       })
       .catch((err: BusinessError) => {
         if (err.message === 'cancelled') {
@@ -504,17 +504,17 @@ struct Index {
   @Builder
   notDownloadedView() {
     Column({ space: 16 }) {
-      Image($r('app.media.pokeball'))
+      Image($r('app.media.resource_icon'))
         .width(72)
         .height(72)
         .objectFit(ImageFit.Contain)
-      Text('尚未安装游戏资源').fontSize(18).fontWeight(FontWeight.Medium)
+      Text('尚未安装离线资源').fontSize(18).fontWeight(FontWeight.Medium)
 
       // 资源包信息卡片
       Column({ space: 10 }) {
         Row() {
           Text('来源').fontSize(14).fontColor('#888888')
-          Text('原版 PokeRogue').fontSize(14).fontColor('#333333')
+          Text('公开源').fontSize(14).fontColor('#333333')
         }
         .width('100%')
         .justifyContent(FlexAlign.SpaceBetween)
@@ -548,7 +548,7 @@ struct Index {
       .width('84%')
       .alignItems(HorizontalAlign.Start)
 
-      Button('下载游戏资源')
+      Button('开始下载')
         .width('84%')
         .height(52)
         .fontSize(17)
@@ -571,8 +571,8 @@ struct Index {
   @Builder
   downloadingView() {
     Column({ space: 16 }) {
-      PokeballLoader({ active: !this.paused })
-      Text(this.paused ? '已暂停' : '正在下载游戏资源').fontSize(18).fontWeight(FontWeight.Medium)
+      ResourceLoader({ active: !this.paused })
+      Text(this.paused ? '已暂停' : '正在下载离线资源').fontSize(18).fontWeight(FontWeight.Medium)
 
       // 进度条：从左往右填充；百分比居中，白色 + 深色描边（红/灰底都可见）
       Stack() {
@@ -631,8 +631,8 @@ struct Index {
   @Builder
   extractingView() {
     Column({ space: 14 }) {
-      PokeballLoader({ active: true })
-      Text('正在解压游戏资源…').fontSize(18).fontWeight(FontWeight.Medium)
+      ResourceLoader({ active: true })
+      Text('正在解压离线资源…').fontSize(18).fontWeight(FontWeight.Medium)
       Text('请勿关闭应用').fontSize(13).fontColor('#888888')
     }
     .width('100%')
@@ -641,14 +641,14 @@ struct Index {
   @Builder
   readyView() {
     Column({ space: 12 }) {
-      Image($r('app.media.pokeball'))
+      Image($r('app.media.resource_icon'))
         .width(96)
         .height(96)
         .objectFit(ImageFit.Contain)
-      Text('游戏资源已就绪').fontSize(20).fontWeight(FontWeight.Medium)
+      Text('离线资源已就绪').fontSize(20).fontWeight(FontWeight.Medium)
       Text('版本 ' + (this.version.length > 0 ? normalizeVersion(this.version) : '未知'))
         .fontSize(13).fontColor('#888888')
-      Button('开始游戏')
+      Button('开始运行')
         .width('70%')
         .height(54)
         .fontSize(18)

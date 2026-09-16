@@ -130,7 +130,7 @@ struct Settings {
     }
     promptAction.showDialog({
       title: '删除本地数据',
-      message: '将删除已下载的游戏资源，游戏存档不受影响。确定删除吗？',
+      message: '将删除已下载的离线资源，游戏存档不受影响。确定删除吗？',
       buttons: [
         { text: '取消', color: '#666666' },
         { text: '删除', color: '#DA3838' }
@@ -329,7 +329,7 @@ struct Settings {
           this.divider()
           // 游戏资源更新：状态文字随 @State 变化，需直接读取状态（@Builder 值参数不触发刷新）
           Row() {
-            Text('游戏资源更新').fontSize(16).fontColor('#333333')
+            Text('离线资源更新').fontSize(16).fontColor('#333333')
             Blank()
             Text(this.checkingGame ? '检查中…' : (this.gameUpdateAvailable ? '发现新版本' : '已是最新'))
               .fontSize(14)
@@ -355,11 +355,11 @@ struct Settings {
           this.groupTitle('关于')
           this.navRow('应用版本', this.appVersion, '#999999', false, () => {})
           this.divider()
-          this.navRow('游戏资源版本',
+          this.navRow('资源版本',
             this.gameVersion.length > 0 ? normalizeVersion(this.gameVersion) : '未安装',
             '#999999', false, () => {})
           this.divider()
-          this.navRow('资源来源', '原版 PokeRogue', '#999999', false, () => {})
+          this.navRow('资源来源', '公开源', '#999999', false, () => {})
           this.divider()
           this.navRow('作者', 'lichtcui', '#999999', false, () => {})
           this.divider()

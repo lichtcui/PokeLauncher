@@ -62,7 +62,7 @@ scripts/build-release-app.sh
 | `common/Const.ets` | `APP_UPDATE_MANIFEST_URL` / `APP_UPDATE_PAGE_URL` / `APP_UPDATE_CHECK_INTERVAL_MS`（24h） |
 | `model/AppUpdate.ets` | `readLocalVersion()`（`bundleManager.getBundleInfoForSelfSync`）、`fetchManifest()`、`checkAppUpdate()`、`shouldAutoCheck()/markChecked()`（preferences 节流）、`openDownloadPage()`（`Want` viewData+browsable 打开浏览器） |
 | `pages/Index.ets` | 启动 `maybeAutoCheckAppUpdate()`（节流；失败静默）；有更新弹 `AlertDialog`（`forceUpdate` 时单按钮 + `autoCancel:false`） |
-| `pages/Settings.ets` | 「数据管理 → 应用更新」手动检查 + 更新日志 + 去更新；原「检查更新」改名「游戏资源更新」 |
+| `pages/Settings.ets` | 「数据管理 → 应用更新」手动检查 + 更新日志 + 去更新；原「检查更新」改名「离线资源更新」 |
 
 ## version.json 格式
 

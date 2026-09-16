@@ -7,7 +7,7 @@
 | 现象 | 处理 |
 | --- | --- |
 | 启动白屏 / 极慢 | 检查 `index.html` 注入是否生效（`willReadFrequently`，见 [`architecture.md`](./architecture.md)） |
-| 点「开始游戏」提示「本地服务未就绪」 | 本地 HTTP 服务端口被占用（`18787`）。重启 App；仍失败则抓 `LocalHttp` tag 看 `startSharedServer failed` |
+| 点「开始运行」提示「本地服务未就绪」 | 本地 HTTP 服务端口被占用（`18787`）。重启 App；仍失败则抓 `LocalHttp` tag 看 `startSharedServer failed` |
 | 游戏内「返回」按钮挡住信息 | 按钮 3 秒后自动淡出，点击可唤回，再点才返回（`GamePage.resetBackTimer`） |
 
 ## 资源下载 / 更新
@@ -59,5 +59,5 @@
 | --- | --- |
 | `hdc shell` 无法写沙箱（`touch`/`mkdir` 被拒） | 正常：设备沙箱对 `shell` 只读。只能**读**（`ls`/`cat`/`hdc file recv`），无法人工制造中断状态 |
 | `uitest uiInput click` 点不动首页右上角齿轮 | 齿轮落在系统手势区，注入点击被吞。改用真机手点，或 `bm clean -d -n <bundle>` 造「未下载」态后从首页按钮触发下载 |
-| 想验证「未下载 → 下载 → 解压」全流程 | `hdc shell bm clean -d -n com.lichtcui.pokelauncher` 清数据（**会丢存档与参数调整配置**），重启 App 后点「下载游戏资源」 |
+| 想验证「未下载 → 下载 → 解压」全流程 | `hdc shell bm clean -d -n com.lichtcui.pokelauncher` 清数据（**会丢存档与参数调整配置**），重启 App 后点「开始下载」 |
 | 想验证「下载中被杀 → 接管」 | 下载开始约 30s 后 `aa force-stop`（后台任务会继续，看 `cache/game.zip` 仍在增长），再启动 App，应显示进度并接管 |

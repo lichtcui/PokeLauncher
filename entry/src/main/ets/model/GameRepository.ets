@@ -536,7 +536,7 @@ export class GameRepository {
     const config: request.agent.Config = {
       action: request.agent.Action.DOWNLOAD,
       url: url,
-      title: '正在下载游戏资源',
+      title: '正在下载离线资源',
       description: 'PokeLauncher',
       mode: request.agent.Mode.BACKGROUND,
       overwrite: true,

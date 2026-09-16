@@ -1,9 +1,9 @@
 /**
- * 精灵球加载动画组件：左右摇晃（下载/解压中）。
+ * 资源加载动画组件：左右摇晃（下载/解压中）。
  * active=false 时停止动画并复位。
  */
 @Component
-export struct PokeballLoader {
+export struct ResourceLoader {
   @Prop @Watch('onStateChanged') active: boolean = true;
   @State angle: number = 0;
 
@@ -43,7 +43,7 @@ export struct PokeballLoader {
   }
 
   build() {
-    Image($r('app.media.pokeball'))
+    Image($r('app.media.resource_icon'))
       .width(72)
       .height(72)
       .objectFit(ImageFit.Contain)
