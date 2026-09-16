@@ -12,7 +12,8 @@ entry/src/main/ets/
 │  ├─ Mime.ets                     # 扩展名 → MIME
 │  ├─ Prefs.ets                    # 共享 preferences 库名 + 实例缓存（getStore）
 │  ├─ Http.ets                     # 共享 GET 文本请求 requestText()
-│  └─ WebCache.ets                 # clearWebCache()：清 Web HTTP/JS 缓存
+│  ├─ WebCache.ets                 # clearWebCache()：清 Web HTTP/JS 缓存
+│  └─ Format.ets                   # 纯展示格式化（字节/速度/时长，有单测）
 ├─ components/PokeballLoader.ets   # 精灵球摇晃动画（下载/解压中）
 ├─ model/
 │  ├─ GameRepository.ets           # 下载(request.agent+镜像) / 原子解压(zlib) / 恢复 / 删除 / 版本 / 接管

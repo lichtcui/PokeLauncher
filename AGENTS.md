@@ -50,7 +50,7 @@
 
 ### 测试（ohosTest，跑在真机）
 
-测试源码在 `entry/src/ohosTest/ets/test/`（hypium，项目根 `oh-package.json5` 的 `devDependencies`）。**新增套件要在 `List.test.ets` 里注册**。只放纯函数/无副作用逻辑（当前覆盖 `normalizeVersion` / `mimeOf`）。
+测试源码在 `entry/src/ohosTest/ets/test/`（hypium，项目根 `oh-package.json5` 的 `devDependencies`）。**新增套件要在 `List.test.ets` 里注册**。只放纯函数/无副作用逻辑（当前覆盖 `normalizeVersion` / `mimeOf` / `common/Format.ets` 的三个格式化函数）。
 
 ```bash
 export DEVECO_SDK_HOME=/Applications/DevEco-Studio.app/Contents/sdk
