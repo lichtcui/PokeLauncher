@@ -107,8 +107,8 @@ struct Index {
     this.ctx = ctx;
     this.repo = new GameRepository(ctx);
     this.cheatMasterOn = isMasterEnabled();
-    // 清理上次遗留的通知（下载进度/完成等）
-    Notifier.cancelAll();
+    // 清理上次遗留的完成/失败通知（不动下载任务的进度通知）
+    Notifier.cancelOwn();
     this.init();
     this.maybeAutoCheckAppUpdate();
   }

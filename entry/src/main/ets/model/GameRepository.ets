@@ -298,20 +298,46 @@ export class GameRepository {
         return false;
       }
 
-      // 找到第一个仍然有效的任务（search 可能返回已失效的 id）
-      let task: request.agent.Task | null = null;
-      let taskId: string = '';
-      for (let i = 0; i < all.length; i++) {
+      // 只接管仍「活跃」的任务（进行中/重试/等待/已暂停）。
+      // 已完成/失败/已移除的任务不可接管：事件不会再触发、轮询也等不到 zip，
+      // 界面会永久卡在下载中（例如解压中被杀，任务已 COMPLETED 但 zip 已被消费）。
+      const adoptable: string[] = [];
+      const states: request.agent.State[] = [
+        request.agent.State.RUNNING,
+        request.agent.State.RETRYING,
+        request.agent.State.WAITING,
+        request.agent.State.PAUSED
+      ];
+      for (let s = 0; s < states.length; s++) {
         try {
-          task = await request.agent.getTask(this.ctx, all[i]);
-          taskId = all[i];
-          break;
+          const ids: string[] = await request.agent.search({
+            action: request.agent.Action.DOWNLOAD,
+            mode: request.agent.Mode.BACKGROUND,
+            state: states[s]
+          });
+          for (let i = 0; i < ids.length; i++) {
+            adoptable.push(ids[i]);
+          }
         } catch (err) {
-          hilog.warn(DOMAIN, TAG, 'skip invalid task %{public}s', all[i]);
+          hilog.warn(DOMAIN, TAG, 'search state %{public}d failed: %{public}s',
+            states[s], JSON.stringify(err));
         }
       }
 
-      // 没有有效任务：若 zip 已完整，直接解压（兜底）
+      // 找到第一个仍然有效的任务（search 可能返回已失效的 id）
+      let task: request.agent.Task | null = null;
+      let taskId: string = '';
+      for (let i = 0; i < adoptable.length; i++) {
+        try {
+          task = await request.agent.getTask(this.ctx, adoptable[i]);
+          taskId = adoptable[i];
+          break;
+        } catch (err) {
+          hilog.warn(DOMAIN, TAG, 'skip invalid task %{public}s', adoptable[i]);
+        }
+      }
+
+      // 没有可接管任务：若 zip 已完整，直接解压（兜底）
       if (task === null) {
         if (this.hasZip() && (expectedSize <= 0 || this.zipSize() >= expectedSize)) {
           hilog.info(DOMAIN, TAG, '%{public}s', 'no valid task but zip complete, extracting');

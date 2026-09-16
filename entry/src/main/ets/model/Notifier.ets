@@ -27,10 +27,19 @@ export class Notifier {
       });
   }
 
-  /** 清空本应用的所有通知（含历史残留的下载通知） */
-  static cancelAll(): void {
-    notificationManager.cancelAll().catch((err: BusinessError) => {
-      hilog.warn(DOMAIN, TAG, 'cancelAll failed: %{public}s', JSON.stringify(err));
+  /**
+   * 清理本应用自己的完成/失败通知。
+   * 不使用 cancelAll：后台下载任务的进度通知由 request.agent 管理，
+   * 误清会让「接管下载」时刚重新 show 的通知又被取消。
+   */
+  static cancelOwn(): void {
+    Notifier.cancel(ID_COMPLETE);
+    Notifier.cancel(ID_FAILED);
+  }
+
+  private static cancel(id: number): void {
+    notificationManager.cancel(id).catch((err: BusinessError) => {
+      hilog.warn(DOMAIN, TAG, 'cancel %{public}d failed: %{public}s', id, JSON.stringify(err));
     });
   }
 
