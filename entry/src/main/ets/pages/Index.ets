@@ -311,10 +311,15 @@ struct Index {
     this.etaText = '';
   }
 
-  /** 下载核心包所需的存储空间（zip + 解压后余量） */
+  /**
+   * 下载核心包所需的存储空间。
+   * 首次安装：zip + 解压后包 ≈ 2×；
+   * 更新：解压到 staging 期间需同时保留旧包，zip + 旧包 + 新包 ≈ 3.2×。
+   */
   private requiredStorage(): number {
     const size: number = this.expectedSize > 0 ? this.expectedSize : 531 * 1024 * 1024;
-    return size * 2.4;
+    const updating: boolean = this.repo !== null && this.repo.hasGameFiles();
+    return size * (updating ? 3.2 : 2.4);
   }
 
   private requiredStorageText(): string {

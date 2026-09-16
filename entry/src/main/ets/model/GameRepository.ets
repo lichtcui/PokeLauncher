@@ -76,6 +76,21 @@ export class GameRepository {
     return this.gameDir + '/currentVersion.txt';
   }
 
+  /** 解压暂存目录：解压完成后再原子切换到 gameDir */
+  get stagingDir(): string {
+    return this.ctx.filesDir + '/' + GAME_DIR_NAME + '.new';
+  }
+
+  /** 切换时的旧包备份目录，切换成功后异步删除 */
+  get backupDir(): string {
+    return this.ctx.filesDir + '/' + GAME_DIR_NAME + '.old';
+  }
+
+  /** 解压完成标记：只有带此标记的 staging 才是完整包，可用于恢复 */
+  get stagingMarker(): string {
+    return this.stagingDir + '/.extract-complete';
+  }
+
   /** 是否已安装核心包（以 index.html 是否存在为准） */
   hasGameFiles(): boolean {
     try {
@@ -148,7 +163,9 @@ export class GameRepository {
     const sorted: string[] = [];
     for (let i = 0; i < idx.length; i++) {
       sorted.push(urls[idx[i]]);
-      hilog.info(DOMAIN, TAG, 'source[%{public}d] speed=%{public}f', idx[i], speeds[idx[i]]);
+      // 注意：hilog 不支持 %f，必须用 %s + 格式化后的字符串
+      hilog.info(DOMAIN, TAG, 'source[%{public}d] speed=%{public}s KB/ms',
+        idx[i], (speeds[idx[i]] / 1024).toFixed(2));
     }
     return sorted;
   }
@@ -563,44 +580,142 @@ export class GameRepository {
     }
   }
 
-  /** 解压 zip 到 gameDir（zip 内已含 currentVersion.txt） */
+  /**
+   * 启动时恢复被中断的资源切换（App 在解压/切换过程中被杀）。
+   *
+   * 切换顺序：解压到 staging → game 改名为 backup → staging 改名为 game。
+   * - game 缺失且 staging 存在：staging 必然是完整包（改名只发生在解压完成后）→ 顶上
+   * - game 缺失且 staging 不存在：从 backup 还原上一份可用包
+   * - game 存在：清理残留的 staging / backup
+   *
+   * 改名是同步且瞬时（同一文件系统），删除残留走异步，避免主线程删大量文件。
+   */
+  recover(): void {
+    try {
+      const hasGame: boolean = fs.accessSync(this.gameDir);
+      const hasStaging: boolean = fs.accessSync(this.stagingDir);
+      // 只有解压完整（带标记）的 staging 才能顶上；否则是半成品，直接丢弃
+      const stagingComplete: boolean = hasStaging && fs.accessSync(this.stagingMarker);
+      const hasBackup: boolean = fs.accessSync(this.backupDir);
+      if (!hasGame) {
+        if (stagingComplete) {
+          fs.renameSync(this.stagingDir, this.gameDir);
+          hilog.info(DOMAIN, TAG, '%{public}s', 'recover: promoted staging to game');
+        } else {
+          if (hasStaging) {
+            hilog.warn(DOMAIN, TAG, '%{public}s', 'recover: discard incomplete staging');
+            this.removeDirAsync(this.stagingDir);
+          }
+          if (hasBackup) {
+            fs.renameSync(this.backupDir, this.gameDir);
+            hilog.warn(DOMAIN, TAG, '%{public}s', 'recover: restored backup');
+          }
+        }
+      }
+    } catch (err) {
+      hilog.error(DOMAIN, TAG, 'recover rename failed: %{public}s', JSON.stringify(err));
+    }
+    // game 已就位：清掉残留目录（异步删除）
+    this.removeDirAsync(this.stagingDir);
+    this.removeDirAsync(this.backupDir);
+  }
+
+  /** 写解压完成标记（fileIo 无 writeFileSync，需 open+write+close） */
+  private writeMarker(path: string): void {
+    const fd: fs.File = fs.openSync(path,
+      fs.OpenMode.CREATE | fs.OpenMode.READ_WRITE | fs.OpenMode.TRUNC);
+    try {
+      fs.writeSync(fd.fd, '1');
+    } finally {
+      fs.closeSync(fd);
+    }
+  }
+
+  /** 异步删除目录（存在才删）；不阻塞主线程 */
+  private removeDirAsync(dir: string): void {
+    try {
+      if (fs.accessSync(dir)) {
+        fs.rmdir(dir).catch((err: Error) => {
+          hilog.warn(DOMAIN, TAG, 'remove dir %{public}s failed: %{public}s', dir, JSON.stringify(err));
+        });
+      }
+    } catch (err) {
+      // 目录不存在时忽略
+    }
+  }
+
+  /**
+   * 解压 zip 到 staging，成功后再原子切换到 gameDir（zip 内已含 currentVersion.txt）。
+   * 这样解压中途失败/被杀也不会破坏现有安装，只会残留 staging/backup，由 recover() 处理。
+   */
   private async extract(): Promise<void> {
     try {
-      // 重新解压前清空旧目录：同步删除 3 万+ 文件会阻塞主线程导致闪退，必须异步
-      if (fs.accessSync(this.gameDir)) {
-        await fs.rmdir(this.gameDir);
+      if (fs.accessSync(this.stagingDir)) {
+        await fs.rmdir(this.stagingDir);
       }
-      fs.mkdirSync(this.gameDir, true);
+      fs.mkdirSync(this.stagingDir, true);
     } catch (err) {
-      hilog.error(DOMAIN, TAG, 'prepare dir error: %{public}s', JSON.stringify(err));
+      hilog.error(DOMAIN, TAG, 'prepare staging error: %{public}s', JSON.stringify(err));
       throw err as Error;
     }
 
     try {
-      await zlib.decompressFile(this.zipPath, this.gameDir, {
+      await zlib.decompressFile(this.zipPath, this.stagingDir, {
         parallel: zlib.ParallelStrategy.PARALLEL_STRATEGY_PARALLEL_DECOMPRESSION
       });
+      // 解压完成才写标记：recover() 据此区分完整包与半成品
+      this.writeMarker(this.stagingMarker);
       try {
         fs.unlinkSync(this.zipPath);
       } catch (err) {
         hilog.warn(DOMAIN, TAG, 'clean zip warn: %{public}s', JSON.stringify(err));
       }
-      hilog.info(DOMAIN, TAG, '%{public}s', 'extract complete');
+      hilog.info(DOMAIN, TAG, '%{public}s', 'extract to staging complete');
     } catch (err) {
       hilog.error(DOMAIN, TAG, 'decompressFile error: %{public}s', JSON.stringify(err));
+      // 清掉半成品，保留现有安装
+      this.removeDirAsync(this.stagingDir);
       throw err as Error;
     }
+
+    // 原子切换：game → backup，staging → game
+    try {
+      if (fs.accessSync(this.gameDir)) {
+        if (fs.accessSync(this.backupDir)) {
+          await fs.rmdir(this.backupDir);
+        }
+        fs.renameSync(this.gameDir, this.backupDir);
+      }
+      fs.renameSync(this.stagingDir, this.gameDir);
+    } catch (err) {
+      // 切换失败：把 backup 还原回 game，避免游戏不可用
+      try {
+        if (!fs.accessSync(this.gameDir) && fs.accessSync(this.backupDir)) {
+          fs.renameSync(this.backupDir, this.gameDir);
+        }
+      } catch (rollbackErr) {
+        hilog.error(DOMAIN, TAG, 'rollback failed: %{public}s', JSON.stringify(rollbackErr));
+      }
+      hilog.error(DOMAIN, TAG, 'swap failed: %{public}s', JSON.stringify(err));
+      throw err as Error;
+    }
+    // 旧包异步删除
+    this.removeDirAsync(this.backupDir);
+    hilog.info(DOMAIN, TAG, '%{public}s', 'extract complete');
   }
 
   /** 删除本地核心包（异步，避免同步删除 3 万+ 文件阻塞主线程导致闪退） */
   async clear(): Promise<void> {
     this.stopPolling();
-    try {
-      if (fs.accessSync(this.gameDir)) {
-        await fs.rmdir(this.gameDir);
+    const dirs: string[] = [this.gameDir, this.stagingDir, this.backupDir];
+    for (let i = 0; i < dirs.length; i++) {
+      try {
+        if (fs.accessSync(dirs[i])) {
+          await fs.rmdir(dirs[i]);
+        }
+      } catch (err) {
+        hilog.warn(DOMAIN, TAG, 'clear dir %{public}s error: %{public}s', dirs[i], JSON.stringify(err));
       }
-    } catch (err) {
-      hilog.warn(DOMAIN, TAG, 'clear gameDir error: %{public}s', JSON.stringify(err));
     }
     try {
       if (fs.accessSync(this.zipPath)) {

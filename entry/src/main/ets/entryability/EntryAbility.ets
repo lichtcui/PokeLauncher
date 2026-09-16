@@ -3,6 +3,7 @@ import { hilog } from '@kit.PerformanceAnalysisKit';
 import { window } from '@kit.ArkUI';
 import { webview } from '@kit.ArkWeb';
 import { startSharedServer } from '../model/LocalHttpServer';
+import { GameRepository } from '../model/GameRepository';
 import { loadCheatState } from '../model/CheatState';
 import { setMainWindow } from '../model/WindowHolder';
 import { GAME_DIR_NAME, DEBUG_UI } from '../common/Const';
@@ -29,6 +30,9 @@ export default class EntryAbility extends UIAbility {
 
   onWindowStageCreate(windowStage: window.WindowStage): void {
     hilog.info(DOMAIN, TAG, '%{public}s', 'Ability onWindowStageCreate');
+
+    // 恢复上次被中断的资源切换（必须在服务/首页读取游戏目录之前完成）
+    new GameRepository(this.context).recover();
 
     // 提前启动本地 HTTP 服务（游戏页直接加载固定地址，避免端口未就绪）
     startSharedServer(this.context.filesDir + '/' + GAME_DIR_NAME);

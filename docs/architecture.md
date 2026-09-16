@@ -46,4 +46,5 @@ entry/src/main/ets/
 - **返回按钮**：游戏页右上角「返回」全显 3 秒后自动淡出（`GamePage.resetBackTimer`），避免遮挡游戏信息；点击淡出的按钮可唤回、再点才返回；系统返回手势（`onBackPress`）作为兜底。
 - **设置页与更新**：首页就绪页右上角齿轮 → `pages/Settings.ets`。设置页「更新」置 `AppStorage.setOrCreate('pendingUpdate', true)` 后 `router.back()`，由 `Index.onPageShow` 消费并调 `startDownload()`（复用首页下载/解压 UI）；删除数据后返回首页，`onPageShow` 重新判定并回落未下载态。
 - **资源更新与缓存**：本地服务对静态资源返回 `Cache-Control: max-age=31536000` 且 URL 固定，资源包更新后必须清 Web 缓存，否则会继续加载旧文件。下载/解压完成后由 `Index` 自动调用 `clearWebCache()`（`common/WebCache.ets`），无需用户手动刷新。
+- **安装/更新是原子的**：解压到 `game.new`，解压完成后写入完成标记 `.extract-complete`，再 `game`→`game.old`、`game.new`→`game`（两次瞬时 rename）。解压中途失败/被杀只会残留 `.new`/`.old`，不会破坏现有安装；`GameRepository.recover()`（`EntryAbility` 启动时调用）按标记区分「完整 staging / 半成品 / 旧包备份」并复原或清理。更新期间需同时容纳旧包+新包+zip，故存储预检按 3.2× 估算。
 - **作弊**：设置页开「作弊模式」（需确认账号风险 + 兼容性风险）→ 首页就绪页出现「作弊设置」入口 → 进 `pages/Cheats` 选条目 → 进入游戏页时 `/__cheats__.js` 按启用清单注入，**注入后在游戏内实时生效**（无需像旧方案那样存档 + 读档）。**更改配置后需重新进入游戏页**（返回首页再进，或重启 App）才会重新注入。新增条目见 [`cheats.md`](./cheats.md)。
