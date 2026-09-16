@@ -26,6 +26,34 @@
 - 要让别人能装，必须改用 **release 签名**（华为开发者账号 + 发布证书 / Profile），见 `harmonyos-release-signing` skill。
 - 在此之前 Release 页只放源码 + 自行构建说明（README「安装」一节）。
 
+### 更硬的一条：release 签名的 HAP 根本不能侧载
+
+实测把 release 签名的 HAP 用 `hdc install -r` 装到真机，会被设备直接拒绝：
+
+```
+error: signature verification failed due to not trusted app source. (9568322)
+
+设备侧 HapVerify 日志：
+  untrusted source app with release profile distributionType: 1   # 1 = app_gallery
+  APP source is not trusted
+  MSG_ERR_INSTALL_FAILED_APP_SOURCE_NOT_TRUESTED
+```
+
+即 **HarmonyOS NEXT 只允许 `app_gallery` 类型的应用从华为应用市场安装**。所以「Release 页发 HAP 让用户侧载」这条路对终端用户走不通，release 签名的唯一用途是**上架 AppGallery**。
+
+## 发布构建（App Pack，上架用）
+
+hvigor 的 `SignHap` / `SignApp` 只接受 DevEco 加密后的密码密文（`DecipherUtil.decryptPwd` 强制长度 ≥ 32 并做 AES-128-GCM 解密，明文报 `00303116`），那份密文依赖 DevEco 在本机生成的 `~/.ohos/config/material/`，无法在 CI 复现。因此用脚本绕开：
+
+```bash
+scripts/build-release-app.sh
+# -> build/outputs/default/harmony-pokerouge-default-release-signed.app
+```
+
+脚本四步：hvigor 出**未签名** HAP + App Pack → `hap-sign-tool` 签 HAP → 把签名后的 HAP 换回 App Pack → 签 App Pack 并校验（**同时校验内层 HAP** 的 profile 类型与 `device-ids`）。
+
+签名材料从 `SIGN_DIR`（默认 `~/.ohos/release`）读取，密码放 `$SIGN_DIR/pwd`，全部在仓库外、不入库。App Pack 的 `pack.info` 只含元数据（无 HAP 摘要），所以替换内层 HAP 是安全的。
+
 ## 实现
 
 | 文件 | 职责 |
