@@ -13,12 +13,15 @@ export const USER_AGENT: string = 'PokeLauncher-Harmony';
  * 下载镜像前缀（按顺序尝试），拼接在原始 GitHub URL 之前：
  * <mirror><https://github.com/.../game.zip>
  * 全部失败后自动回退到 GitHub 直连。
+ *
+ * 顺序按实测速度排（2026-09 本机 256KB Range 探测）：
+ * gh-proxy.com 125~146 KB/s > ghfast.top 54~76 KB/s > ghproxy.net 7~9 KB/s。
+ * gh.llkk.cc 已删：域名被 DNS 劫持（解析到 69.63.x.x），是死源。
  */
 export const DOWNLOAD_MIRRORS: string[] = [
-  'https://ghproxy.net/',
   'https://gh-proxy.com/',
   'https://ghfast.top/',
-  'https://gh.llkk.cc/'
+  'https://ghproxy.net/'
 ];
 
 /** API 镜像（部分镜像不支持 api.github.com，实测 gh-proxy.com 可用） */
