@@ -19,6 +19,9 @@ const PORT: number = 18787;
 /** 请求头缓冲区上限：防止畸形/异常请求无限占用内存（正常 GET 头仅数百字节） */
 const MAX_REQUEST_HEADER: number = 16 * 1024;
 
+/** 发送文件的分块大小：避免大文件一次性读进内存导致峰值内存过高 */
+const SEND_CHUNK: number = 256 * 1024;
+
 let servedCount: number = 0;
 let servedBytes: number = 0;
 let lastStatAt: number = 0;
@@ -234,37 +237,58 @@ export class LocalHttpServer {
     });
   }
 
-  /** 异步读取文件后发送 */
+  /** 分块读取文件后发送：大文件不再一次性读进内存 */
   private sendFile(conn: socket.TCPSocketConnection, filePath: string, size: number,
     header: string, keepAlive: boolean): void {
     fs.open(filePath, fs.OpenMode.READ_ONLY).then((fd: fs.File) => {
-      const body: ArrayBuffer = new ArrayBuffer(size);
-      fs.read(fd.fd, body).then((bytesRead: number) => {
+      const buf: ArrayBuffer = new ArrayBuffer(SEND_CHUNK);
+      let sent: number = 0;
+      const closeFd = (): void => {
         try {
           fs.closeSync(fd);
         } catch (err) {
           hilog.warn(DOMAIN, TAG, 'close fd failed: %{public}s', JSON.stringify(err));
         }
-        const payload: ArrayBuffer = bytesRead === size ? body : body.slice(0, bytesRead);
-        conn.send({ data: header }).then(() => {
+      };
+      const finish = (): void => {
+        closeFd();
+        if (!keepAlive) {
+          conn.close();
+        }
+      };
+      const fail = (msg: string, err: Error): void => {
+        hilog.warn(DOMAIN, TAG, '%{public}s: %{public}s', msg, JSON.stringify(err));
+        closeFd();
+        this.sendText(conn, 500, 'Internal Error', keepAlive);
+      };
+      const pump = (): void => {
+        const want: number = Math.min(SEND_CHUNK, size - sent);
+        fs.read(fd.fd, buf, { length: want }).then((bytesRead: number) => {
+          if (bytesRead <= 0) {
+            // 文件被截断等异常：按已发送量收尾，避免客户端一直等
+            finish();
+            return;
+          }
+          sent += bytesRead;
+          const payload: ArrayBuffer = bytesRead === SEND_CHUNK ? buf : buf.slice(0, bytesRead);
           conn.send({ data: payload }).then(() => {
-            if (!keepAlive) {
-              conn.close();
+            if (sent >= size) {
+              finish();
+            } else {
+              pump();
             }
           }).catch((err: Error) => {
             hilog.warn(DOMAIN, TAG, 'send body failed: %{public}s', JSON.stringify(err));
+            closeFd();
           });
         }).catch((err: Error) => {
-          hilog.warn(DOMAIN, TAG, 'send header failed: %{public}s', JSON.stringify(err));
+          fail('read file failed', err);
         });
+      };
+      conn.send({ data: header }).then(() => {
+        pump();
       }).catch((err: Error) => {
-        try {
-          fs.closeSync(fd);
-        } catch (e) {
-          // ignore
-        }
-        hilog.warn(DOMAIN, TAG, 'read file failed: %{public}s', JSON.stringify(err));
-        this.sendText(conn, 500, 'Internal Error', keepAlive);
+        fail('send header failed', err);
       });
     }).catch((err: Error) => {
       hilog.warn(DOMAIN, TAG, 'open file failed: %{public}s', JSON.stringify(err));
