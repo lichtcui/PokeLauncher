@@ -7,8 +7,35 @@
 # -enable-toplevel-obfuscation: obfuscate the names in the global scope
 # -compact: remove unnecessary blank spaces and all line feeds
 # -remove-log: remove all console.* statements
+# -print-namecache: print the name cache that contains the mapping from the old names to new names
+# -apply-namecache: reuse the given cache file
+
+# Keep options:
+# -keep-property-name: specifies property names that you want to keep
+# -keep-global-name: specifies names that you want to keep in the global scope
 
 -enable-property-obfuscation
 -enable-toplevel-obfuscation
--enable-filename-obfuscation
 -enable-export-obfuscation
+
+# 不开 -enable-filename-obfuscation：本工程用 module.json5 的 pages/main_pages.json 静态路由，
+# 该入口不在 ArkGuard 自动白名单内（它只识别 routerMap），文件改名会让
+# router.pushUrl('pages/xxx') 失效。
+
+# 不通过点语法访问的属性名必须保留（JSON 解析的键、javaScriptProxy 的 methodList）
+-keep-property-name
+versionCode
+versionName
+minVersionCode
+forceUpdate
+changelog
+downloadUrl
+pageUrl
+tag_name
+assets
+browser_download_url
+size
+name
+load
+save
+notifyRestored

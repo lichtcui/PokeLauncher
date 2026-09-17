@@ -38,13 +38,20 @@
     ```
 - 用 DevEco Studio 打开本目录**首次 Sync** 会生成 `hvigorw`、`hvigor/hvigor-wrapper.js`、`local.properties`（未入库）。
 - 本地签名缺失时：DevEco `File > Project Structure > Signing Configs` 勾选自动签名重新生成。
-- 提交前先编译通过，再真机验证。
+- **提交前先编译通过**，再真机验证。命令行校验（debug 包，最快）：
+  ```bash
+  export DEVECO_SDK_HOME=/Applications/DevEco-Studio.app/Contents/sdk
+  export PATH="/Applications/DevEco-Studio.app/Contents/tools/node/bin:/Applications/DevEco-Studio.app/Contents/tools/ohpm/bin:$PATH"
+  /Applications/DevEco-Studio.app/Contents/tools/hvigor/bin/hvigorw assembleHap --mode module -p product=default -p buildMode=debug --no-daemon
+  ```
+  改动涉及 release 混淆时另跑 `-p buildMode=release` 并真机回归（见下）。
 
 ### 代码
 
 - ArkTS 严格模式：不要用 `any`；`fileIo` 没有 `writeFileSync`（用 `openSync`+`writeSync`+`closeSync`）；`getHostContext()` 返回 `Context | undefined` 需判空。
-- 改 UI 文案/布局主要在 `pages/Index.ets` 与 `pages/Settings.ets` 的 `@Builder`/`build()`。
-- **ArkUI 坑**：`@Builder` 的**值参数**不会触发重渲染，动态文案要直接在 `build()` 里读 `@State`（见 `Settings.ets` 的「检查更新」「删除本地数据」行）。
+- 改 UI 文案/布局：首页各状态视图在 `components/LauncherViews.ets`（`NotDownloadedView` / `DownloadFlowView` / `ReadyView`），动画在 `components/PulseProgress.ets`，设置页在 `pages/Settings.ets` 的 `build()`。
+- **ArkUI 坑**：`@Builder` 的**值参数**不会触发重渲染，动态文案要直接在 `build()` 里读 `@State`（见 `Settings.ets` 的「检查更新」「删除本地数据」行）；需要随状态刷新时用 `@Component` + `@Prop`。
+- **release 已开混淆**（`entry/build-profile.json5` + `entry/obfuscation-rules.txt`）。新增 JSON 解析字段或 `javaScriptProxy` 的 `methodList` 方法名时，必须把对应属性名加进 `-keep-property-name`，否则 release 包会静默读不到值。未开 `-enable-filename-obfuscation`（会破坏 `main_pages.json` 静态路由）。
 - 新增静态资源放 `entry/src/main/resources/base/media/`，引用 `$r('app.media.xxx')`。
 - **新增作弊条目只改 `model/Cheats.ets`**（见 [`docs/cheats.md`](./docs/cheats.md)），UI/状态/注入会自动生效。
   - ⚠️ 命名：该功能在 **UI 上叫「参数调整」**（`作弊` 字样会触发应用商店审核风险），代码/文档沿用 `cheat` 命名。**新增任何用户可见文案都用「参数调整」**。
