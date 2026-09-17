@@ -31,7 +31,7 @@ entry/src/main/ets/
 │  ├─ Cheats.ets                   # 作弊注册表（条目内容，新增作弊改这里）
 │  └─ CheatState.ets               # 作弊状态单例 + 持久化 + 生成注入脚本 buildBootScript()
 └─ pages/
-   ├─ Index.ets                  # 首页启动器（状态机 + 下载 UI；未下载页：开始下载 + 网盘地址/上传资源；就绪页：资源图标 + 开始运行 + 参数调整 + 齿轮）
+   ├─ Index.ets                  # 首页启动器（状态机 + 下载 UI；未下载页：开始下载 + 上传资源[+ 网盘地址，ENABLE_NETDISK 时]；就绪页：资源图标 + 开始运行 + 参数调整 + 齿轮）
    ├─ Settings.ets               # 设置页（屏幕方向 / 参数调整开关 / 更新·删除 / 关于 / 法律声明）
    ├─ Cheats.ets                 # 作弊条目页（UI 上叫「参数调整」，从首页进入）
    ├─ Legal.ets                  # 法律与免责声明页
@@ -62,7 +62,7 @@ fetchRelease(GitHub API，失败回退 API 镜像)
 - **接管**：App 重启后 `adoptDownload()` 通过 `request.agent.search` 找回任务，但**只接管活跃任务**（`RUNNING/RETRYING/WAITING/PAUSED`）。已完成/失败的任务不可接管（事件不会再触发、轮询也等不到 zip，会把界面卡在下载中）；其余残留任务一律清掉。
 - **进度兜底**：接管任务的 `progress` 事件不可靠，故用 1s 轮询 `game.zip` 大小兜底，达到预期大小即判定完成。
 - **解压失败不换源**：换源只针对下载失败；解压失败直接抛出（换源会白下整个资源包）。
-- **手动导入**（`installFromZip`）：下载太慢时的备选路径。首页未下载态「上传资源」用 `DocumentViewPicker` 选网盘下好的 zip（`DocumentSelectOptions.fileSuffixFilters=['.zip']`），重建缓存 zip 后走与自动下载相同的 `extract()`，网盘地址常量见 `Const.NETDISK_URL`（占位待替换）。
+- **手动导入**（`installFromZip`）：下载太慢时的备选路径。首页未下载态「上传资源」用 `DocumentViewPicker` 选自行获取的 zip（`DocumentSelectOptions.fileSuffixFilters=['.zip']`），重建缓存 zip 后走与自动下载相同的 `extract()`。网盘地址常量 `Const.NETDISK_URL` 仅在 `Const.ENABLE_NETDISK` 为 true 时于首页展示（上架版默认 false）。
 
 ## 本地 HTTP 服务（`LocalHttpServer`）
 

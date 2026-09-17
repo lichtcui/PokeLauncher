@@ -32,6 +32,16 @@ const LEGAL_SECTIONS: LegalSection[] = [
     ]
   },
   {
+    id: 'network',
+    title: '网络与数据访问说明',
+    body: [
+      '本启动器除下载游戏资源与检查自身更新外，不访问其他网络服务，也不收集、上传任何个人信息。',
+      '游戏资源：在你主动点击「开始下载」后，应用会访问 PokeRogue 公开仓库的发布接口（api.github.com / github.com）获取资源包信息并下载资源包；为此可能使用第三方加速镜像（gh-proxy.com、ghfast.top、ghproxy.net），并在镜像不可用时回退到 GitHub 直连。',
+      '应用更新：应用启动时会定期访问 Gitee（gitee.com）上的版本清单，以检查启动器自身是否有新版本，不会上传任何设备或使用数据。',
+      '下载的资源与你的存档均保存在设备本地应用沙箱内，卸载应用即随之删除；本应用不设服务器，不向任何第三方共享你的数据。'
+    ]
+  },
+  {
     id: 'responsibility',
     title: '用户责任',
     body: [
@@ -170,7 +180,7 @@ struct Legal {
             .width('100%')
           }, (s: LegalSection) => s.id)
 
-          Text('最近更新：2026-09-16')
+          Text('最近更新：2026-09-18')
             .fontSize(12)
             .fontColor('#BBBBBB')
             .margin({ top: 24, bottom: 40 })

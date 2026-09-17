@@ -33,9 +33,16 @@ export const DEFAULT_ASSET: string = 'game.zip';
 /**
  * 网盘资源包地址：自动下载太慢时，用户可自行在网盘下载同名 zip，
  * 再在首页「上传资源」里选中该 zip 完成安装（跳过下载与测速）。
- * TODO: 替换为真实分享链接（当前为占位地址）。
+ * 仅当 `ENABLE_NETDISK` 为 true 时才在首页展示。
  */
 export const NETDISK_URL: string = 'https://pan.example.com/s/pokelauncher-res';
+
+/**
+ * 上架开关：是否在首页展示网盘资源包地址。
+ * 应用市场审核禁止引导用户到市场外获取资源，正式发布必须为 false；
+ * true 仅用于本地调试 / 侧载分发。
+ */
+export const ENABLE_NETDISK: boolean = false;
 
 /**
  * 开发模式：正式发布必须为 false。

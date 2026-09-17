@@ -14,7 +14,7 @@ import {
   shouldAutoCheck
 } from '../model/AppUpdate';
 import { Notifier } from '../model/Notifier';
-import { NETDISK_URL } from '../common/Const';
+import { ENABLE_NETDISK, NETDISK_URL } from '../common/Const';
 import { getStore } from '../common/Prefs';
 import { clearWebCache } from '../common/WebCache';
 import { formatBytes, formatSpeed, formatDuration } from '../common/Format';
@@ -688,17 +688,19 @@ struct Index {
 
       // 下载太慢时的备选：网盘手动下载 zip 后用「上传资源」导入（跳过下载与测速）
       Column({ space: 10 }) {
-        Text('下载太慢？从网盘下载资源包，再用「上传资源」导入').fontSize(12).fontColor('#888888')
-        Row({ space: 6 }) {
-          Text('网盘地址').fontSize(12).fontColor('#888888')
-          // 网盘链接一般要在网盘 App 里打开，点击即复制（会 toast 提示）
-          Text(NETDISK_URL)
-            .fontSize(12)
-            .fontColor('#3A6FD8')
-            .layoutWeight(1)
-            .onClick(() => this.copyNetdiskUrl())
+        if (ENABLE_NETDISK) {
+          Text('下载太慢？从网盘下载资源包，再用「上传资源」导入').fontSize(12).fontColor('#888888')
+          Row({ space: 6 }) {
+            Text('网盘地址').fontSize(12).fontColor('#888888')
+            // 网盘链接一般要在网盘 App 里打开，点击即复制（会 toast 提示）
+            Text(NETDISK_URL)
+              .fontSize(12)
+              .fontColor('#3A6FD8')
+              .layoutWeight(1)
+              .onClick(() => this.copyNetdiskUrl())
+          }
+          .width('100%')
         }
-        .width('100%')
 
         Button('上传资源')
           .width('100%')
