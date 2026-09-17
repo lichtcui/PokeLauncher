@@ -49,7 +49,7 @@
 ### 代码
 
 - ArkTS 严格模式：不要用 `any`；`fileIo` 没有 `writeFileSync`（用 `openSync`+`writeSync`+`closeSync`）；`getHostContext()` 返回 `Context | undefined` 需判空。
-- 改 UI 文案/布局：首页各状态视图在 `components/LauncherViews.ets`（`NotDownloadedView` / `DownloadFlowView` / `ReadyView`），动画在 `components/PulseProgress.ets`，设置页在 `pages/Settings.ets` 的 `build()`。
+- 改 UI 文案/布局：首页各状态视图在 `components/LauncherViews.ets`（`NotDownloadedView` / `DownloadFlowView` / `ReadyView`），下载/解压业务在 `model/LauncherSession.ets`（页面只做渲染 + 状态回写），动画在 `components/PulseProgress.ets`，设置页在 `pages/Settings.ets` 的 `build()`。
 - **ArkUI 坑**：`@Builder` 的**值参数**不会触发重渲染，动态文案要直接在 `build()` 里读 `@State`（见 `Settings.ets` 的「检查更新」「删除本地数据」行）；需要随状态刷新时用 `@Component` + `@Prop`。
 - **release 已开混淆**（`entry/build-profile.json5` + `entry/obfuscation-rules.txt`）。新增 JSON 解析字段或 `javaScriptProxy` 的 `methodList` 方法名时，必须把对应属性名加进 `-keep-property-name`，否则 release 包会静默读不到值。未开 `-enable-filename-obfuscation`（会破坏 `main_pages.json` 静态路由）。
 - 新增静态资源放 `entry/src/main/resources/base/media/`，引用 `$r('app.media.xxx')`。

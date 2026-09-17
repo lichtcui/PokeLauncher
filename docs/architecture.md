@@ -20,9 +20,12 @@ entry/src/main/ets/
 │  ├─ Http.ets                     # 共享 GET 文本请求 requestText()
 │  ├─ WebCache.ets                 # clearWebCache()：清 Web HTTP/JS 缓存
 │  └─ Format.ets                   # 纯展示格式化（字节/速度/时长，有单测）
-├─ components/PulseProgress.ets    # 资源准备动画：呼吸↔波浪↔收缩↔爆发（6 阶段，下载/解压共用）
+├─ components/
+│  ├─ PulseProgress.ets            # 资源准备动画：呼吸↔波浪↔收缩↔爆发（6 阶段，下载/解压共用）
+│  └─ LauncherViews.ets            # 首页各状态视图（NotDownloadedView / DownloadFlowView / ReadyView）
 ├─ model/
 │  ├─ GameRepository.ets           # 下载(request.agent+镜像) / 原子解压(zlib) / 恢复 / 删除 / 版本 / 接管
+│  ├─ LauncherSession.ets          # 首页下载器：下载/解压/接管/暂停/取消/导入/存储预检（页面只做渲染）
 │  ├─ AppUpdate.ets                # 应用自更新：本地版本读取 + version.json 比对 + 引导下载（见 app-update.md）
 │  ├─ LocalHttpServer.ets          # 本地 HTTP 服务(127.0.0.1:18787 固定端口) + index.html 注入 + /__cheats__.js
 │  ├─ Notifier.ets                 # 通知权限 + 完成/失败通知
@@ -31,7 +34,7 @@ entry/src/main/ets/
 │  ├─ Cheats.ets                   # 作弊注册表（条目内容，新增作弊改这里）
 │  └─ CheatState.ets               # 作弊状态单例 + 持久化 + 生成注入脚本 buildBootScript()
 └─ pages/
-   ├─ Index.ets                  # 首页启动器（状态机 + 下载 UI；未下载页：开始下载 + 上传资源[+ 资源包直链]；就绪页：资源图标 + 开始运行 + 参数调整 + 齿轮）
+   ├─ Index.ets                  # 首页启动器：只做声明式渲染 + 状态回写；下载业务在 model/LauncherSession.ets
    ├─ Settings.ets               # 设置页（屏幕方向 / 参数调整开关 / 更新·删除 / 关于 / 法律声明）
    ├─ Cheats.ets                 # 作弊条目页（UI 上叫「参数调整」，从首页进入）
    ├─ Legal.ets                  # 法律与免责声明页
