@@ -17,9 +17,11 @@ export struct NotDownloadedView {
   @Prop freeSizeText: string = '';
   /** 运行时解析出的资源包直链（随游戏版本变化，非固定常量） */
   @Prop assetUrl: string = '';
+  /** 直链套加速镜像后的地址（国内可达；为空时只显示原始直链） */
+  @Prop mirrorUrl: string = '';
   onStartDownload: () => void = () => {};
   onImport: () => void = () => {};
-  onCopyUrl: () => void = () => {};
+  onCopyUrl: (url: string) => void = () => {};
 
   build() {
     Column({ space: 16 }) {
@@ -86,16 +88,30 @@ export struct NotDownloadedView {
       Column({ space: 10 }) {
         if (this.assetUrl.length > 0) {
           Text('下载太慢？复制下方直链自行下载资源包，再用「上传资源」导入').fontSize(12).fontColor('#888888')
+          if (this.mirrorUrl.length > 0) {
+            Row({ space: 6 }) {
+              Text('镜像').fontSize(12).fontColor('#888888')
+              // 优先给国内可达的镜像地址，点击即复制（会 toast 提示）
+              Text(this.mirrorUrl)
+                .fontSize(12)
+                .fontColor('#3A6FD8')
+                .maxLines(3)
+                .textOverflow({ overflow: TextOverflow.Ellipsis })
+                .layoutWeight(1)
+                .onClick(() => this.onCopyUrl(this.mirrorUrl))
+            }
+            .width('100%')
+            .alignItems(VerticalAlign.Top)
+          }
           Row({ space: 6 }) {
-            Text('直链').fontSize(12).fontColor('#888888')
-            // 直链交给浏览器/下载工具使用：点击即复制（会 toast 提示）
+            Text('GitHub').fontSize(12).fontColor('#888888')
             Text(this.assetUrl)
               .fontSize(12)
               .fontColor('#3A6FD8')
               .maxLines(3)
               .textOverflow({ overflow: TextOverflow.Ellipsis })
               .layoutWeight(1)
-              .onClick(() => this.onCopyUrl())
+              .onClick(() => this.onCopyUrl(this.assetUrl))
           }
           .width('100%')
           .alignItems(VerticalAlign.Top)

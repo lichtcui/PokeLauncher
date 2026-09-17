@@ -65,7 +65,7 @@ fetchRelease(GitHub API，失败回退 API 镜像)
 - **接管**：App 重启后 `adoptDownload()` 通过 `request.agent.search` 找回任务，但**只接管活跃任务**（`RUNNING/RETRYING/WAITING/PAUSED`）。已完成/失败的任务不可接管（事件不会再触发、轮询也等不到 zip，会把界面卡在下载中）；其余残留任务一律清掉。
 - **进度兜底**：接管任务的 `progress` 事件不可靠，故用 1s 轮询 `game.zip` 大小兜底，达到预期大小即判定完成。
 - **解压失败不换源**：换源只针对下载失败；解压失败直接抛出（换源会白下整个资源包）。
-- **手动导入**（`installFromZip`）：下载太慢时的备选路径。首页未下载态「上传资源」用 `DocumentViewPicker` 选自行获取的 zip（`DocumentSelectOptions.fileSuffixFilters=['.zip']`），重建缓存 zip 后走与自动下载相同的 `extract()`。首页展示的「直链」来自 `Index.assetUrl`（`resolveRelease()` 解析出的当次 `game.zip` 资产地址，随游戏版本自动变化），点击复制到剪贴板。
+- **手动导入**（`installFromZip`）：下载太慢时的备选路径。首页未下载态「上传资源」用 `DocumentViewPicker` 选自行获取的 zip（`DocumentSelectOptions.fileSuffixFilters=['.zip']`），重建缓存 zip 后走与自动下载相同的 `extract()`。首页展示的直链来自 `Index.assetUrl`（`resolveRelease()` 解析出的当次 `game.zip` 资产地址，随游戏版本自动变化）与 `Index.mirrorUrl`（该地址套首个加速镜像，国内优先展示），点击复制到剪贴板。
 
 ## 本地 HTTP 服务（`LocalHttpServer`）
 

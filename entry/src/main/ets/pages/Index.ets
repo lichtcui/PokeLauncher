@@ -13,8 +13,9 @@ import {
   shouldAutoCheck
 } from '../model/AppUpdate';
 import { Notifier } from '../model/Notifier';
+import { DOWNLOAD_MIRRORS } from '../common/Const';
 import { LauncherSession, LauncherStage, ProgressView } from '../model/LauncherSession';
-import { setWindowBackground, setOrientation, HOME_BG_COLOR } from '../model/WindowHolder';
+import { setWindowBackground, setOrientation, isTablet, HOME_BG_COLOR } from '../model/WindowHolder';
 import { isMasterEnabled } from '../model/CheatState';
 import { sharedServerReady } from '../model/LocalHttpServer';
 import { PrepPhase } from '../components/PulseProgress';
@@ -22,6 +23,14 @@ import { NotDownloadedView, DownloadFlowView, ReadyView } from '../components/La
 
 const DOMAIN: number = 0x0000;
 const TAG: string = 'Home';
+
+/** 给 GitHub 原始直链套上首个加速镜像；非 GitHub 地址或镜像为空时返回空串 */
+function mirrorOf(url: string): string {
+  if (DOWNLOAD_MIRRORS.length === 0 || !url.startsWith('https://github.com/')) {
+    return '';
+  }
+  return DOWNLOAD_MIRRORS[0] + url;
+}
 
 /**
  * 首页启动器：未下载 / 下载中 / 解压中 / 已就绪。
@@ -45,6 +54,8 @@ struct Index {
   @State cheatMasterOn: boolean = false;
   /** 运行时解析出的资源包直链（GitHub Release 的 game.zip），随版本自动变化 */
   @State assetUrl: string = '';
+  /** 上述直链套上加速镜像后的地址（国内可达，优先展示） */
+  @State mirrorUrl: string = '';
 
   private ctx: common.UIAbilityContext | null = null;
   private session: LauncherSession | null = null;
@@ -74,7 +85,10 @@ struct Index {
         this.storageInsufficient = insufficient;
         this.freeSizeText = freeText;
       },
-      setAssetUrl: (url: string) => { this.assetUrl = url; }
+      setAssetUrl: (url: string) => {
+        this.assetUrl = url;
+        this.mirrorUrl = mirrorOf(url);
+      }
     });
     this.session.start();
     this.maybeAutoCheckAppUpdate();
@@ -90,8 +104,8 @@ struct Index {
   onPageShow(): void {
     // 首页底部安全区留白用白色
     setWindowBackground(HOME_BG_COLOR);
-    // 首页始终保持竖屏（游戏页可能已切换为横屏/跟随系统）
-    setOrientation(window.Orientation.PORTRAIT);
+    // 手机：首页恒竖屏（游戏页可能已切换为横屏/跟随系统）；平板：跟随系统
+    setOrientation(isTablet() ? window.Orientation.UNSPECIFIED : window.Orientation.PORTRAIT);
     // 刷新参数调整入口可见性（可能在设置页开启了总开关）
     this.cheatMasterOn = isMasterEnabled();
     const session: LauncherSession | null = this.session;
@@ -208,9 +222,8 @@ struct Index {
     });
   }
 
-  /** 复制资源包直链（GitHub 直链一般交给浏览器/下载工具使用，复制比跳转更实用） */
-  private copyAssetUrl(): void {
-    const url: string = this.assetUrl;
+  /** 复制资源包直链（直链一般交给浏览器/下载工具使用，复制比跳转更实用） */
+  private copyUrl(url: string): void {
     if (url.length === 0) {
       promptAction.showToast({ message: '暂未获取到直链，请先联网重试' });
       return;
@@ -317,6 +330,7 @@ struct Index {
               storageInsufficient: this.storageInsufficient,
               freeSizeText: this.freeSizeText,
               assetUrl: this.assetUrl,
+              mirrorUrl: this.mirrorUrl,
               onStartDownload: () => {
                 const session: LauncherSession | null = this.session;
                 if (session !== null) {
@@ -324,7 +338,7 @@ struct Index {
                 }
               },
               onImport: () => this.importResource(),
-              onCopyUrl: () => this.copyAssetUrl()
+              onCopyUrl: (url: string) => this.copyUrl(url)
             })
           } else if (this.stage === LauncherStage.Downloading
             || this.stage === LauncherStage.Extracting) {
@@ -354,6 +368,8 @@ struct Index {
         }
         .layoutWeight(1)
         .width('100%')
+        // 大屏（平板/PC）上限宽居中，避免内容被拉伸得过宽
+        .constraintSize({ maxWidth: 560 })
         .justifyContent(FlexAlign.Center)
       }
       .width('100%')

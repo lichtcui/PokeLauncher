@@ -94,3 +94,23 @@ scripts/build-release-app.sh
 - 临时把远程 `versionCode` 调大 → 重启 App 应弹窗；设置页「应用更新」应显示「发现新版本」。
 - 手动检查失败会显示「检查失败」；启动自动检查失败仅打日志（`Settings`/`Home`/`AppUpdate` tag）。
 - 自动检查节流键：偏好 `pokelauncher_settings` 的 `appUpdateLastCheck`。
+
+## 侧载分发（HAP Store）复检记录
+
+> 复检于 2026-09-18。放弃 AppGallery，改走第三方 HAP 资源站 + 自动签名安装工具。
+
+- **机制**：HAP Store（如 sydxky.cn）提供资源站；用户用「小白调试助手 / HoKit / HapKit」下载后**自动申请调试证书并重签名安装**。因此发布物用 **debug 签名的 HAP**（`entry-default-signed.hap`），**不要传 app_gallery 的 release 包**（实测 release 包 `distribution: app_gallery`，设备拒绝侧载，见上「更硬的一条」）。
+- **已验证**：当前 HAP 为 debug profile（`device-ids` 仅作者单机）、纯 ArkTS 无 `libs/`/HSP，第三方工具重签无阻碍。
+- **已降到 API 12（2026-09-18）**：`compatibleSdkVersion="5.0.0(12)"`、`targetSdkVersion` 保留 `6.1.1(24)`，产物 `minAPIVersion=50000012`，声称覆盖 HarmonyOS NEXT 5.0+。4 处 API > 12 全部用 `deviceInfo.sdkApiVersion` 运行时兜底：
+  - `pages/GamePage.ets` `AudioSessionType.AMBIENT`（@20）：≥20 设置；低版本不设置 → BGM 会被系统降音（**功能降级**，无等价替代）
+  - `model/GameRepository.ets` `zlib.ParallelStrategy`（@18）：≥18 并行解压；低版本串行（仅慢一些）
+  - `pages/GamePage.ets` `fileUri.FileUri`（@15）：≥15 用；低版本回退 `@ohos.uri` 的 `URI.path`
+  - `model/GameRepository.ets` `request.agent.Notification`（@15）/ `visibility`（@21）/ `wantAgent`（@22）：<22 整体不设置通知，回退 `gauge`（仍显进度），**通知点击不再拉起应用**
+  - 已在 API 24 真机冒烟（首页 + 游戏页正常）；**API 12~23 真机仍未验证**。注意编译器和 hvigor **不校验 API 版本**（降级也能编过），可能仍有未扫出的 >12 调用，需真机/模拟器确认。
+- **设备类型（部分已做，2026-09-18）**：`deviceTypes=['phone','tablet']`；新增 `WindowHolder.isTablet()`，平板首页/设置页不再强制竖屏，大屏内容 `constraintSize({maxWidth:560})` 居中。**平板侧未验证**（本机无镜像/真机）；PC（`2in1`）尚未加入。
+- **待办（当前环境无法完成，需真机/资源）**：
+  1. 在**未注册**的 HarmonyOS 6.1+ 设备上跑通「下载 → 签名 → 安装」端到端（本机设备在 debug profile 白名单里，证明不了）。
+  2. 覆盖升级的**签名一致性**（工具是否复用同一调试证书）与存档保留验证。
+  3. 平板验证：本机无平板模拟器镜像（DevEco 镜像需 SDK Manager 下载），也无 MatePad 真机。
+  4. HarmonyOS 5 真机验证（若决定下调 API）。
+- **更新地址**：上架后可改 Gitee `version.json` 的 `pageUrl` / `downloadUrl`（App 优先用远程 `pageUrl`），**无需重新打包**；`Const.APP_UPDATE_PAGE_URL` 只是远程为空时的兜底，改它才需重发版本。

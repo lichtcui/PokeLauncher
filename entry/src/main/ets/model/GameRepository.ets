@@ -1,7 +1,7 @@
-import { request, zlib, BusinessError } from '@kit.BasicServicesKit';
+import { request, zlib, BusinessError, deviceInfo } from '@kit.BasicServicesKit';
 import { http } from '@kit.NetworkKit';
 import { fileIo as fs } from '@kit.CoreFileKit';
-import { common, wantAgent, WantAgent } from '@kit.AbilityKit';
+import { common, wantAgent } from '@kit.AbilityKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import {
   RELEASE_API, USER_AGENT, DEFAULT_ASSET, GAME_DIR_NAME, DOWNLOAD_MIRRORS, API_MIRROR,
@@ -570,23 +570,6 @@ export class GameRepository {
   }
 
   private async createTask(url: string): Promise<request.agent.Task> {
-    const wantAgentInfo: wantAgent.WantAgentInfo = {
-      wants: [
-        {
-          deviceId: '',
-          bundleName: this.ctx.abilityInfo.bundleName,
-          abilityName: this.ctx.abilityInfo.name,
-          action: '',
-          entities: [],
-          uri: '',
-          parameters: {}
-        }
-      ],
-      actionType: wantAgent.OperationType.START_ABILITY,
-      requestCode: 0,
-      wantAgentFlags: [wantAgent.WantAgentFlags.CONSTANT_FLAG]
-    };
-    const agentObj: WantAgent = await wantAgent.getWantAgent(wantAgentInfo);
     const config: request.agent.Config = {
       action: request.agent.Action.DOWNLOAD,
       url: url,
@@ -600,12 +583,32 @@ export class GameRepository {
       metered: true,
       roaming: true,
       retry: false,
-      gauge: true,
-      notification: {
-        visibility: request.agent.VISIBILITY_PROGRESS,
-        wantAgent: agentObj
-      }
+      gauge: true
     };
+    // notification 字段 @since 15、visibility @since 21、wantAgent @since 22：
+    // 低版本整体不设置，回退到 gauge 决定通知样式（仍显示进度），只是点击不再拉起应用。
+    if (deviceInfo.sdkApiVersion >= 22) {
+      const wantAgentInfo: wantAgent.WantAgentInfo = {
+        wants: [
+          {
+            deviceId: '',
+            bundleName: this.ctx.abilityInfo.bundleName,
+            abilityName: this.ctx.abilityInfo.name,
+            action: '',
+            entities: [],
+            uri: '',
+            parameters: {}
+          }
+        ],
+        actionType: wantAgent.OperationType.START_ABILITY,
+        requestCode: 0,
+        wantAgentFlags: [wantAgent.WantAgentFlags.CONSTANT_FLAG]
+      };
+      config.notification = {
+        visibility: request.agent.VISIBILITY_PROGRESS,
+        wantAgent: await wantAgent.getWantAgent(wantAgentInfo)
+      };
+    }
     return await request.agent.create(this.ctx, config);
   }
 
@@ -740,9 +743,14 @@ export class GameRepository {
     }
 
     try {
-      await zlib.decompressFile(this.zipPath, this.stagingDir, {
-        parallel: zlib.ParallelStrategy.PARALLEL_STRATEGY_PARALLEL_DECOMPRESSION
-      });
+      // parallel 选项 @since 18：低版本回退为串行解压（仅慢一些）
+      if (deviceInfo.sdkApiVersion >= 18) {
+        await zlib.decompressFile(this.zipPath, this.stagingDir, {
+          parallel: zlib.ParallelStrategy.PARALLEL_STRATEGY_PARALLEL_DECOMPRESSION
+        });
+      } else {
+        await zlib.decompressFile(this.zipPath, this.stagingDir);
+      }
       // 校验解压结果，避免把损坏/结构不符的包切换上去（否则会显示「已就绪」却打不开游戏）
       if (!fs.accessSync(this.stagingDir + '/index.html')) {
         throw new Error('解压结果缺少 index.html');

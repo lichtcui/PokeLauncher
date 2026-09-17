@@ -6,7 +6,7 @@ import { startSharedServer } from '../model/LocalHttpServer';
 import { GameRepository } from '../model/GameRepository';
 import { loadCheatState } from '../model/CheatState';
 import { initSaveGuard } from '../model/SaveGuard';
-import { setMainWindow } from '../model/WindowHolder';
+import { setMainWindow, isTablet } from '../model/WindowHolder';
 import { GAME_DIR_NAME, DEBUG_UI } from '../common/Const';
 
 const DOMAIN: number = 0x0000;
@@ -49,7 +49,10 @@ export default class EntryAbility extends UIAbility {
     // 启动默认竖屏（首页/设置页恒竖屏；游戏页按用户选择在 onPageShow 应用方向）
     try {
       const win: window.Window = windowStage.getMainWindowSync();
-      win.setPreferredOrientation(window.Orientation.PORTRAIT);
+      // 手机：首页/设置页恒竖屏；平板：不强制，跟随系统
+      if (!isTablet()) {
+        win.setPreferredOrientation(window.Orientation.PORTRAIT);
+      }
       // 不使用全屏布局：内容避让系统安全区（游戏底部按键不会被手势栏压住）。
       // 底部留白用 setWindowBackgroundColor 染成游戏背景色来盖住。
       win.setWindowLayoutFullScreen(false).catch((err: Error) => {

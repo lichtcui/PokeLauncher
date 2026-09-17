@@ -1,4 +1,5 @@
 import { window } from '@kit.ArkUI';
+import { deviceInfo } from '@kit.BasicServicesKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 
 const DOMAIN: number = 0x0000;
@@ -15,7 +16,13 @@ export function setMainWindow(w: window.Window): void {
   mainWindow = w;
 }
 
-/** 设置窗口方向（仅游戏页使用；首页/设置页始终保持竖屏） */
+/** 是否为平板 / PC 等大屏设备：决定首页/设置页是否强制竖屏 */
+export function isTablet(): boolean {
+  const t: string = deviceInfo.deviceType;
+  return t === 'tablet' || t === '2in1';
+}
+
+/** 设置窗口方向（仅游戏页使用；首页/设置页在手机上保持竖屏，平板上跟随系统） */
 export function setOrientation(o: window.Orientation): void {
   const w: window.Window | null = mainWindow;
   if (w === null) {

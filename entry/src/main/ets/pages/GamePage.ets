@@ -2,8 +2,9 @@ import { webview } from '@kit.ArkWeb';
 import { router, promptAction } from '@kit.ArkUI';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { picker, fileUri, fileIo as fs } from '@kit.CoreFileKit';
-import { BusinessError } from '@kit.BasicServicesKit';
+import { BusinessError, deviceInfo } from '@kit.BasicServicesKit';
 import { common } from '@kit.AbilityKit';
+import { uri } from '@kit.ArkTS';
 import { sharedServerBaseUrl, sharedServerReady, sharedServerErrorText } from '../model/LocalHttpServer';
 import { setWindowBackground, setOrientation, GAME_BG_COLOR } from '../model/WindowHolder';
 import { readOrientation, toOrientation } from '../model/OrientationPref';
@@ -14,6 +15,17 @@ const TAG: string = 'GamePage';
 
 /** 兜底地址（端口与 LocalHttpServer.PORT 一致） */
 const FALLBACK_BASE: string = 'http://127.0.0.1:18787';
+
+/**
+ * 取文件 URI 的路径部分。`fileUri.FileUri` 是 @since 15，低版本回退到
+ * 通用 `@ohos.uri` 的 `URI`（@since 8），二者对 file:// URI 的 path 语义一致。
+ */
+function pathOfUri(u: string): string {
+  if (deviceInfo.sdkApiVersion >= 15) {
+    return new fileUri.FileUri(u).path;
+  }
+  return new uri.URI(u).path;
+}
 
 /**
  * 离线游戏页：本地 HTTP 服务器（App 启动时已在 EntryAbility 拉起）把
@@ -31,12 +43,12 @@ struct GamePage {
    * Web 音频策略：Web 音频默认映射为 STREAM_USAGE_MUSIC，与后台音乐/视频属同类流，
    * 会互相抢占焦点导致后台音量被降音（duck）甚至忽大忽小。
    * AMBIENT 改映射为 STREAM_USAGE_GAME，官方语义是「Web 游戏声音与系统音乐可同时播放」，
-   * 即与后台音频并发混音、互不降音。注意：必须在首次播放前设置才生效。
+   * 即与后台音频并发混音、互不降音。`audioSessionType` 是 @since 20：低版本不设置，
+   * 回退为音频被系统降音（duck）。注意：必须在首次播放前设置才生效。
    */
   private mediaOptions: WebMediaOptions = {
     audioExclusive: false,
-    resumeInterval: 0,
-    audioSessionType: AudioSessionType.AMBIENT
+    resumeInterval: 0
   };
   private attached: boolean = false;
   private lastSavePath: string = '';
@@ -46,6 +58,10 @@ struct GamePage {
   @State backVisible: boolean = true;
 
   aboutToAppear(): void {
+    // audioSessionType（@since 20）：与后台音乐并发混音；低版本不支持则回退（会降音）
+    if (deviceInfo.sdkApiVersion >= 20) {
+      this.mediaOptions.audioSessionType = AudioSessionType.AMBIENT;
+    }
     const base: string = sharedServerBaseUrl();
     this.gameUrl = (base.length > 0 ? base : FALLBACK_BASE) + '/index.html';
     hilog.info(DOMAIN, TAG, 'game url = %{public}s', this.gameUrl);
@@ -120,9 +136,8 @@ struct GamePage {
       const docPicker: picker.DocumentViewPicker = new picker.DocumentViewPicker(hostCtx);
       docPicker.save(opts).then((result: Array<string>) => {
         if (result !== undefined && result.length > 0) {
-          const uri: fileUri.FileUri = new fileUri.FileUri(result[0]);
           // DOWNLOAD 模式返回的是目录 URI，需要拼上文件名
-          const target: string = uri.path + '/' + fileName;
+          const target: string = pathOfUri(result[0]) + '/' + fileName;
           this.lastSavePath = target;
           item.start(target);
           hilog.info(DOMAIN, TAG, 'saving export to %{public}s', target);
