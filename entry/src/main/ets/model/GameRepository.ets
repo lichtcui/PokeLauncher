@@ -299,6 +299,28 @@ export class GameRepository {
   }
 
   /**
+   * 手动导入资源包：把用户从网盘下载好的 zip（文件选择器返回的 URI）复制成缓存 zip，
+   * 之后走与自动下载完全相同的解压 / 原子切换流程（跳过测速与下载）。
+   */
+  async installFromZip(srcUri: string): Promise<void> {
+    this.cancelled = false;
+    this.paused = false;
+    this.stopPolling();
+    this.removePartialZip();
+    const src: fs.File = fs.openSync(srcUri, fs.OpenMode.READ_ONLY);
+    const dest: fs.File = fs.openSync(this.zipPath,
+      fs.OpenMode.CREATE | fs.OpenMode.READ_WRITE | fs.OpenMode.TRUNC);
+    try {
+      await fs.copyFile(src.fd, dest.fd);
+    } finally {
+      fs.closeSync(src);
+      fs.closeSync(dest);
+    }
+    hilog.info(DOMAIN, TAG, 'imported zip size=%{public}d', this.zipSize());
+    await this.extract();
+  }
+
+  /**
    * App 重启后接管未完成的下载任务（request.agent 后台任务在 App 被杀后仍会继续）。
    * @returns 是否接管了任务（接管后通过回调通知进度/完成）
    */

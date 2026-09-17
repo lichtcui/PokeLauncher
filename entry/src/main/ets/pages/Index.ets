@@ -1,8 +1,8 @@
 import { common } from '@kit.AbilityKit';
 import { router, promptAction, window } from '@kit.ArkUI';
-import { BusinessError } from '@kit.BasicServicesKit';
+import { BusinessError, pasteboard } from '@kit.BasicServicesKit';
 import { preferences } from '@kit.ArkData';
-import { statfs } from '@kit.CoreFileKit';
+import { picker, statfs } from '@kit.CoreFileKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { GameRepository, ReleaseInfo, normalizeVersion } from '../model/GameRepository';
 import {
@@ -14,6 +14,7 @@ import {
   shouldAutoCheck
 } from '../model/AppUpdate';
 import { Notifier } from '../model/Notifier';
+import { NETDISK_URL } from '../common/Const';
 import { getStore } from '../common/Prefs';
 import { clearWebCache } from '../common/WebCache';
 import { formatBytes, formatSpeed, formatDuration } from '../common/Format';
@@ -480,6 +481,68 @@ struct Index {
       });
   }
 
+  /** 选中网盘下载好的资源包 zip（文件选择器只能读，需拷进沙箱再解压） */
+  private importResource(): void {
+    const ctx: common.UIAbilityContext | null = this.ctx;
+    const repo: GameRepository | null = this.repo;
+    if (ctx === null || repo === null) {
+      return;
+    }
+    const opts: picker.DocumentSelectOptions = new picker.DocumentSelectOptions();
+    opts.maxSelectNumber = 1;
+    opts.fileSuffixFilters = ['.zip'];
+    const docPicker: picker.DocumentViewPicker = new picker.DocumentViewPicker(ctx);
+    docPicker.select(opts).then((uris: string[]) => {
+      if (uris === undefined || uris.length === 0) {
+        return;
+      }
+      this.startImport(repo, uris[0]);
+    }).catch((err: BusinessError) => {
+      hilog.warn(DOMAIN, TAG, 'select resource zip failed: %{public}s', JSON.stringify(err));
+    });
+  }
+
+  /** 导入本地资源包：复用解压/原子切换流程，进度界面与自动下载一致 */
+  private startImport(repo: GameRepository, uri: string): void {
+    this.clearPhaseTimer();
+    this.error = '';
+    this.stage = Stage.Extracting;
+    this.prepPhase = PrepPhase.EXTRACTING;
+    promptAction.showToast({ message: '正在导入资源包…' });
+    repo.installFromZip(uri).then(() => {
+      this.enterReady(repo);
+      promptAction.showToast({ message: '资源包导入完成' });
+    }).catch((err: BusinessError) => {
+      hilog.error(DOMAIN, TAG, 'import resource failed: %{public}s', JSON.stringify(err));
+      const detail: string = (err.message !== undefined && err.message.length > 0)
+        ? err.message
+        : (err.code !== undefined ? '错误码 ' + err.code : '未知错误');
+      this.error = '导入失败：' + detail;
+      this.clearPhaseTimer();
+      this.prepPhase = PrepPhase.IDLE;
+      if (repo.hasGameFiles()) {
+        this.stage = Stage.Ready;
+      } else {
+        this.enterNotDownloaded();
+      }
+    });
+  }
+
+  /** 复制网盘地址（网盘分享链接一般要在网盘 App 里打开，复制比跳浏览器更实用） */
+  private copyNetdiskUrl(): void {
+    try {
+      const data: pasteboard.PasteData =
+        pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, NETDISK_URL);
+      pasteboard.getSystemPasteboard().setData(data).then(() => {
+        promptAction.showToast({ message: '网盘地址已复制' });
+      }).catch((err: BusinessError) => {
+        hilog.warn(DOMAIN, TAG, 'copy netdisk url failed: %{public}s', JSON.stringify(err));
+      });
+    } catch (err) {
+      hilog.warn(DOMAIN, TAG, 'create paste data failed: %{public}s', JSON.stringify(err));
+    }
+  }
+
   private togglePause(): void {
     const repo: GameRepository | null = this.repo;
     if (repo === null) {
@@ -622,6 +685,31 @@ struct Index {
           .textAlign(TextAlign.Center)
           .padding({ left: 24, right: 24 })
       }
+
+      // 下载太慢时的备选：网盘手动下载 zip 后用「上传资源」导入（跳过下载与测速）
+      Column({ space: 10 }) {
+        Text('下载太慢？从网盘下载资源包，再用「上传资源」导入').fontSize(12).fontColor('#888888')
+        Row({ space: 6 }) {
+          Text('网盘地址').fontSize(12).fontColor('#888888')
+          // 网盘链接一般要在网盘 App 里打开，点击即复制（会 toast 提示）
+          Text(NETDISK_URL)
+            .fontSize(12)
+            .fontColor('#3A6FD8')
+            .layoutWeight(1)
+            .onClick(() => this.copyNetdiskUrl())
+        }
+        .width('100%')
+
+        Button('上传资源')
+          .width('100%')
+          .height(46)
+          .fontSize(16)
+          .backgroundColor('#F2F2F2')
+          .fontColor('#DA3838')
+          .onClick(() => this.importResource())
+      }
+      .width('84%')
+      .margin({ top: 4 })
     }
     .width('100%')
   }

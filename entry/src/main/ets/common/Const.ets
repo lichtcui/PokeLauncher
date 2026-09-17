@@ -31,6 +31,13 @@ export const API_MIRROR: string = 'https://gh-proxy.com/';
 export const DEFAULT_ASSET: string = 'game.zip';
 
 /**
+ * 网盘资源包地址：自动下载太慢时，用户可自行在网盘下载同名 zip，
+ * 再在首页「上传资源」里选中该 zip 完成安装（跳过下载与测速）。
+ * TODO: 替换为真实分享链接（当前为占位地址）。
+ */
+export const NETDISK_URL: string = 'https://pan.example.com/s/pokelauncher-res';
+
+/**
  * 开发模式：正式发布必须为 false。
  * - true：开启 ArkWeb 远程调试（`setWebDebuggingAccess`，见 `docs/debugging.md`）；
  * - false：关闭，避免调试端口暴露。
