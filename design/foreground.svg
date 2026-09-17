@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
-  <!-- 单张合成图标（startIcon / 预览用）：白底 + 品牌红圆环 = 前景层叠在背景层上 -->
-  <rect width="1024" height="1024" fill="#FFFFFF"/>
+  <!-- 分层图标 · 前景层：品牌红圆环，透明底。
+       外径 484 = 画布 47%，避开系统按下视差放大时的中心裁切（安全区 <67%）。 -->
   <circle cx="512" cy="512" r="215" fill="none" stroke="#DA3838" stroke-width="54"/>
 </svg>
