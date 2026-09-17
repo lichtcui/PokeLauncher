@@ -27,6 +27,17 @@ struct GamePage {
   /** 存档快照桥：注入脚本通过 window.PokeSaveGuard 读写 filesDir 下的快照 */
   private saveBridge: SaveGuardBridge = new SaveGuardBridge();
   private gameUrl: string = FALLBACK_BASE + '/index.html';
+  /**
+   * Web 音频策略：Web 音频默认映射为 STREAM_USAGE_MUSIC，与后台音乐/视频属同类流，
+   * 会互相抢占焦点导致后台音量被降音（duck）甚至忽大忽小。
+   * AMBIENT 改映射为 STREAM_USAGE_GAME，官方语义是「Web 游戏声音与系统音乐可同时播放」，
+   * 即与后台音频并发混音、互不降音。注意：必须在首次播放前设置才生效。
+   */
+  private mediaOptions: WebMediaOptions = {
+    audioExclusive: false,
+    resumeInterval: 0,
+    audioSessionType: AudioSessionType.AMBIENT
+  };
   private attached: boolean = false;
   private lastSavePath: string = '';
   private backTimer: number = -1;
@@ -137,6 +148,8 @@ struct GamePage {
         .javaScriptAccess(true)
         .imageAccess(true)
         .onlineImageAccess(true)
+        // 与后台音乐并发混音，不对其降音（必须在首次播放前设置才生效）
+        .mediaOptions(this.mediaOptions)
         // 存档快照桥：必须在页面加载前注册，注入脚本才能拿到 PokeSaveGuard
         .javaScriptProxy({
           object: this.saveBridge,
