@@ -17,6 +17,8 @@
 -enable-property-obfuscation
 -enable-toplevel-obfuscation
 -enable-export-obfuscation
+# 压缩空白/换行（release 栈信息将不含行号定位）
+-compact
 
 # 不开 -enable-filename-obfuscation：本工程用 module.json5 的 pages/main_pages.json 静态路由，
 # 该入口不在 ArkGuard 自动白名单内（它只识别 routerMap），文件改名会让

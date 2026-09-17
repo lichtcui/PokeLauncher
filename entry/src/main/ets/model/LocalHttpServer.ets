@@ -19,8 +19,8 @@ const PORT: number = 18787;
 /** 请求头缓冲区上限：防止畸形/异常请求无限占用内存（正常 GET 头仅数百字节） */
 const MAX_REQUEST_HEADER: number = 16 * 1024;
 
-/** 发送文件的分块大小：避免大文件一次性读进内存导致峰值内存过高 */
-const SEND_CHUNK: number = 256 * 1024;
+/** 发送文件的分块大小：避免大文件一次性读进内存，同时减少 send 次数 */
+const SEND_CHUNK: number = 1024 * 1024;
 
 let servedCount: number = 0;
 let servedBytes: number = 0;

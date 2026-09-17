@@ -66,7 +66,7 @@ export function readLocalVersion(): AppVersion {
 }
 
 /** 拉取并解析远程 version.json */
-export async function fetchManifest(): Promise<AppUpdateInfo> {
+async function fetchManifest(): Promise<AppUpdateInfo> {
   const text: string = await requestText(APP_UPDATE_MANIFEST_URL);
   const raw: ManifestJson = JSON.parse(text) as ManifestJson;
   const info: AppUpdateInfo = new AppUpdateInfo();
