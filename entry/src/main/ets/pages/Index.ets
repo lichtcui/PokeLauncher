@@ -14,14 +14,14 @@ import {
   shouldAutoCheck
 } from '../model/AppUpdate';
 import { Notifier } from '../model/Notifier';
-import { ENABLE_NETDISK, NETDISK_URL } from '../common/Const';
 import { getStore } from '../common/Prefs';
 import { clearWebCache } from '../common/WebCache';
 import { formatBytes, formatSpeed, formatDuration } from '../common/Format';
 import { setWindowBackground, setOrientation, HOME_BG_COLOR } from '../model/WindowHolder';
 import { isMasterEnabled } from '../model/CheatState';
 import { sharedServerReady } from '../model/LocalHttpServer';
-import { PulseProgress, PrepPhase, SHRINK_MS, BURST_MS } from '../components/PulseProgress';
+import { PrepPhase, SHRINK_MS, BURST_MS } from '../components/PulseProgress';
+import { NotDownloadedView, DownloadFlowView, ReadyView } from '../components/LauncherViews';
 
 const DOMAIN: number = 0x0000;
 const TAG: string = 'Home';
@@ -55,6 +55,8 @@ struct Index {
   @State storageInsufficient: boolean = false;
   @State freeSizeText: string = '';
   @State cheatMasterOn: boolean = false;
+  /** 运行时解析出的资源包直链（GitHub Release 的 game.zip），随版本自动变化 */
+  @State assetUrl: string = '';
 
   private repo: GameRepository | null = null;
   private ctx: common.UIAbilityContext | null = null;
@@ -154,6 +156,7 @@ struct Index {
     // 先取资源包大小（用于进度与完成判定），再尝试接管上次未完成的任务
     repo.resolveRelease().then((info: ReleaseInfo) => {
       this.expectedSize = info.assetSize;
+      this.assetUrl = info.assetUrl;
       // 大小未知（调试包 / API 缺字段）时留空，界面回退到「约 531 MB」
       if (info.assetSize > 0) {
         this.totalText = formatBytes(info.assetSize);
@@ -424,6 +427,7 @@ struct Index {
     this.maybeShowBgHint();
     repo.resolveRelease()
       .then((info: ReleaseInfo) => {
+        this.assetUrl = info.assetUrl;
         this.receivedText = '0 MB';
         this.totalText = formatBytes(info.assetSize);
         return repo.startDownload(
@@ -481,7 +485,7 @@ struct Index {
       });
   }
 
-  /** 选中网盘下载好的资源包 zip（文件选择器只能读，需拷进沙箱再解压） */
+  /** 选中自行下载好的资源包 zip（文件选择器只能读，需拷进沙箱再解压） */
   private importResource(): void {
     const ctx: common.UIAbilityContext | null = this.ctx;
     const repo: GameRepository | null = this.repo;
@@ -528,15 +532,20 @@ struct Index {
     });
   }
 
-  /** 复制网盘地址（网盘分享链接一般要在网盘 App 里打开，复制比跳浏览器更实用） */
-  private copyNetdiskUrl(): void {
+  /** 复制资源包直链（GitHub 直链一般交给浏览器/下载工具使用，复制比跳转更实用） */
+  private copyAssetUrl(): void {
+    const url: string = this.assetUrl;
+    if (url.length === 0) {
+      promptAction.showToast({ message: '暂未获取到直链，请先联网重试' });
+      return;
+    }
     try {
       const data: pasteboard.PasteData =
-        pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, NETDISK_URL);
+        pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, url);
       pasteboard.getSystemPasteboard().setData(data).then(() => {
-        promptAction.showToast({ message: '网盘地址已复制' });
+        promptAction.showToast({ message: '直链已复制' });
       }).catch((err: BusinessError) => {
-        hilog.warn(DOMAIN, TAG, 'copy netdisk url failed: %{public}s', JSON.stringify(err));
+        hilog.warn(DOMAIN, TAG, 'copy asset url failed: %{public}s', JSON.stringify(err));
       });
     } catch (err) {
       hilog.warn(DOMAIN, TAG, 'create paste data failed: %{public}s', JSON.stringify(err));
@@ -624,198 +633,6 @@ struct Index {
     });
   }
 
-  @Builder
-  notDownloadedView() {
-    Column({ space: 16 }) {
-      // 静止小圆环 = 动画的起点（呼吸峰值半径），点「开始下载」后原地开始呼吸，无跳变
-      PulseProgress({ phase: PrepPhase.IDLE })
-      Text('尚未安装离线资源').fontSize(18).fontWeight(FontWeight.Medium)
-
-      // 资源包信息卡片
-      Column({ space: 10 }) {
-        Row() {
-          Text('来源').fontSize(14).fontColor('#888888')
-          Text('公开源').fontSize(14).fontColor('#333333')
-        }
-        .width('100%')
-        .justifyContent(FlexAlign.SpaceBetween)
-
-        Row() {
-          Text('体积').fontSize(14).fontColor('#888888')
-          Text(this.totalText.length > 0 ? this.totalText : '约 531 MB')
-            .fontSize(14).fontColor('#333333')
-        }
-        .width('100%')
-        .justifyContent(FlexAlign.SpaceBetween)
-
-        Row() {
-          Text('需要存储').fontSize(14).fontColor('#888888')
-          Text(this.requiredStorageText()).fontSize(14).fontColor('#333333')
-        }
-        .width('100%')
-        .justifyContent(FlexAlign.SpaceBetween)
-      }
-      .width('84%')
-      .padding(16)
-      .borderRadius(12)
-      .backgroundColor('#F7F7F7')
-
-      // 下载须知
-      Column({ space: 6 }) {
-        Text('· 下载中可切后台，完成后通知').fontSize(13).fontColor('#999999')
-        Text('· 支持断点续传，中断可继续').fontSize(13).fontColor('#999999')
-        Text('· 需要开启通知权限').fontSize(13).fontColor('#999999')
-      }
-      .width('84%')
-      .alignItems(HorizontalAlign.Start)
-
-      Button('开始下载')
-        .width('84%')
-        .height(52)
-        .fontSize(17)
-        .backgroundColor('#DA3838')
-        .fontColor('#FFFFFF')
-        .enabled(!this.storageInsufficient)
-        .onClick(() => this.startDownload())
-
-      if (this.storageInsufficient) {
-        Text('存储空间不足：需要约 ' + this.requiredStorageText() + '，可用 ' + this.freeSizeText)
-          .fontSize(13)
-          .fontColor('#DA3838')
-          .textAlign(TextAlign.Center)
-          .padding({ left: 24, right: 24 })
-      }
-
-      // 下载太慢时的备选：网盘手动下载 zip 后用「上传资源」导入（跳过下载与测速）
-      Column({ space: 10 }) {
-        if (ENABLE_NETDISK) {
-          Text('下载太慢？从网盘下载资源包，再用「上传资源」导入').fontSize(12).fontColor('#888888')
-          Row({ space: 6 }) {
-            Text('网盘地址').fontSize(12).fontColor('#888888')
-            // 网盘链接一般要在网盘 App 里打开，点击即复制（会 toast 提示）
-            Text(NETDISK_URL)
-              .fontSize(12)
-              .fontColor('#3A6FD8')
-              .layoutWeight(1)
-              .onClick(() => this.copyNetdiskUrl())
-          }
-          .width('100%')
-        }
-
-        Button('上传资源')
-          .width('100%')
-          .height(46)
-          .fontSize(16)
-          .backgroundColor('#F2F2F2')
-          .fontColor('#DA3838')
-          .onClick(() => this.importResource())
-      }
-      .width('84%')
-      .margin({ top: 4 })
-    }
-    .width('100%')
-  }
-
-  /**
-   * 下载 + 解压共用一个动画组件：只有阶段不变时组件才不被重建，
-   * 波浪 → 收缩 → 呼吸 → 爆发 才能连贯播放。
-   */
-  @Builder
-  downloadFlowView() {
-    Column({ space: 16 }) {
-      PulseProgress({ phase: this.prepPhase, paused: this.paused })
-      Text(this.flowTitle()).fontSize(18).fontWeight(FontWeight.Medium)
-
-      if (this.prepPhase === PrepPhase.DOWNLOADED
-        || this.prepPhase === PrepPhase.EXTRACTING
-        || this.prepPhase === PrepPhase.READY) {
-        Text('请勿关闭应用').fontSize(13).fontColor('#888888')
-      } else {
-        // 进度条：从左往右填充；百分比居中，白色 + 深色描边（红/灰底都可见）
-        Stack() {
-          Stack({ alignContent: Alignment.Start }) {
-            Row()
-              .width('100%')
-              .height(22)
-              .borderRadius(11)
-              .backgroundColor('#EEEEEE')
-            Row()
-              .width(Math.max(0, Math.min(100, this.progress)) + '%')
-              .height(22)
-              .borderRadius(11)
-              .backgroundColor('#DA3838')
-          }
-          .width('100%')
-          .height(22)
-
-          Text(this.progress.toString() + '%')
-            .fontSize(13)
-            .fontWeight(FontWeight.Bold)
-            .fontColor('#FFFFFF')
-            .textShadow({ radius: 2, color: '#99000000', offsetX: 0, offsetY: 1 })
-        }
-        .width('80%')
-
-        // 速度 · 剩余时间
-        if (this.speedText.length > 0 || this.etaText.length > 0) {
-          Text(this.speedText + (this.speedText.length > 0 && this.etaText.length > 0 ? ' · ' : '') + this.etaText)
-            .fontSize(13)
-            .fontColor('#DA3838')
-        }
-
-        // 一排两键：暂停/继续为主（实心，适中宽度），取消下载仅文字
-        Row({ space: 16 }) {
-          Button(this.paused ? '继续' : '暂停')
-            .width(140)
-            .height(44)
-            .fontSize(16)
-            .backgroundColor('#DA3838')
-            .fontColor('#FFFFFF')
-            .onClick(() => this.togglePause())
-          Button('取消下载')
-            .fontSize(14)
-            .fontColor('#999999')
-            .backgroundColor('#00000000')
-            .onClick(() => this.confirmCancel())
-        }
-        .width('80%')
-        .justifyContent(FlexAlign.Center)
-        .margin({ top: 6 })
-      }
-    }
-    .width('100%')
-  }
-
-  @Builder
-  readyView() {
-    Column({ space: 12 }) {
-      Image($r('app.media.resource_icon'))
-        .width(96)
-        .height(96)
-        .objectFit(ImageFit.Contain)
-      Text('离线资源已就绪').fontSize(20).fontWeight(FontWeight.Medium)
-      Text('版本 ' + (this.version.length > 0 ? normalizeVersion(this.version) : '未知'))
-        .fontSize(13).fontColor('#888888')
-      Button('开始运行')
-        .width('70%')
-        .height(54)
-        .fontSize(18)
-        .backgroundColor('#DA3838')
-        .fontColor('#FFFFFF')
-        .margin({ top: 16 })
-        .onClick(() => this.startGame())
-      // 参数调整入口：仅在设置里开启后显示；更改在开始游戏时生效
-      if (this.cheatMasterOn) {
-        Text('参数调整')
-          .fontSize(14)
-          .fontColor('#999999')
-          .margin({ top: 4 })
-          .onClick(() => this.startCheats())
-      }
-    }
-    .width('100%')
-  }
-
   build() {
     Stack() {
       Column() {
@@ -843,11 +660,34 @@ struct Index {
           if (this.stage === Stage.Checking) {
             LoadingProgress().width(40).height(40)
           } else if (this.stage === Stage.NotDownloaded) {
-            this.notDownloadedView()
+            NotDownloadedView({
+              totalText: this.totalText,
+              requiredStorageText: this.requiredStorageText(),
+              storageInsufficient: this.storageInsufficient,
+              freeSizeText: this.freeSizeText,
+              assetUrl: this.assetUrl,
+              onStartDownload: () => this.startDownload(),
+              onImport: () => this.importResource(),
+              onCopyUrl: () => this.copyAssetUrl()
+            })
           } else if (this.stage === Stage.Downloading || this.stage === Stage.Extracting) {
-            this.downloadFlowView()
+            DownloadFlowView({
+              phase: this.prepPhase,
+              paused: this.paused,
+              progress: this.progress,
+              speedText: this.speedText,
+              etaText: this.etaText,
+              flowTitle: this.flowTitle(),
+              onTogglePause: () => this.togglePause(),
+              onCancel: () => this.confirmCancel()
+            })
           } else {
-            this.readyView()
+            ReadyView({
+              versionText: this.version.length > 0 ? normalizeVersion(this.version) : '未知',
+              cheatMasterOn: this.cheatMasterOn,
+              onStartGame: () => this.startGame(),
+              onOpenCheats: () => this.startCheats()
+            })
           }
 
           if (this.error.length > 0) {

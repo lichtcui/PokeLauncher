@@ -62,6 +62,9 @@ export class GameRepository {
   private cancelled: boolean = false;
   private paused: boolean = false;
   private pollTimer: number = -1;
+  /** resolveRelease 结果缓存：首页 init 与 startDownload 会各调一次，避免重复请求 GitHub API */
+  private releaseCache: ReleaseInfo | null = null;
+  private releaseCacheAsset: string = '';
 
   constructor(ctx: common.UIAbilityContext) {
     this.ctx = ctx;
@@ -125,7 +128,13 @@ export class GameRepository {
       info.assetSize = 0;
       return info;
     }
-    return this.fetchRelease(assetName);
+    if (this.releaseCache !== null && this.releaseCacheAsset === assetName) {
+      return this.releaseCache;
+    }
+    const info: ReleaseInfo = await this.fetchRelease(assetName);
+    this.releaseCache = info;
+    this.releaseCacheAsset = assetName;
+    return info;
   }
 
   /** 查询 Release 中指定资产的信息（先直连 GitHub API，失败回退 API 镜像） */
@@ -299,7 +308,7 @@ export class GameRepository {
   }
 
   /**
-   * 手动导入资源包：把用户从网盘下载好的 zip（文件选择器返回的 URI）复制成缓存 zip，
+   * 手动导入资源包：把用户自行下载好的 zip（文件选择器返回的 URI）复制成缓存 zip，
    * 之后走与自动下载完全相同的解压 / 原子切换流程（跳过测速与下载）。
    */
   async installFromZip(srcUri: string): Promise<void> {
