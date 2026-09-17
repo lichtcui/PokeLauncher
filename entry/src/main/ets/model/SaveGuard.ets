@@ -42,15 +42,6 @@ function bakPathOf(): string {
   return dirOf() + '/' + SNAPSHOT_BAK;
 }
 
-function writeText(path: string, data: string): void {
-  const fd: fs.File = fs.openSync(path, fs.OpenMode.CREATE | fs.OpenMode.READ_WRITE | fs.OpenMode.TRUNC);
-  try {
-    fs.writeSync(fd.fd, data);
-  } finally {
-    fs.closeSync(fd);
-  }
-}
-
 function readText(path: string): string {
   try {
     if (!fs.accessSync(path)) {
@@ -63,40 +54,95 @@ function readText(path: string): string {
   }
 }
 
-/**
- * 写入快照。先把上一份滚到 .bak，再写主文件：
- * 写主文件途中被杀也能从 .bak 恢复，避免快照本身变成唯一的坏副本。
- * @returns 是否真的写了（空内容不写，保留上一份）
- */
-export function writeSnapshot(data: string): boolean {
-  if (filesDir.length === 0) {
-    hilog.warn(DOMAIN, TAG, '%{public}s', 'not initialized, skip');
-    return false;
-  }
-  if (data.length <= 2) {
-    // "{}" 或空内容：没有可备份的键，保留上一份快照不动
-    return false;
-  }
+/** 异步写入：避免主线程同步写 ~500KB 快照造成卡顿 */
+function writeTextAsync(path: string, data: string): Promise<void> {
+  return fs.open(path, fs.OpenMode.CREATE | fs.OpenMode.READ_WRITE | fs.OpenMode.TRUNC)
+    .then((fd: fs.File) => {
+      return fs.write(fd.fd, data).then(() => {
+        fs.closeSync(fd);
+      }).catch((err: Error) => {
+        try {
+          fs.closeSync(fd);
+        } catch (e) {
+          // ignore
+        }
+        throw err;
+      });
+    });
+}
+
+function readTextAsync(path: string): Promise<string> {
+  return fs.access(path).then((exists: boolean) => {
+    if (!exists) {
+      return '';
+    }
+    return fs.readText(path).catch((err: Error) => {
+      hilog.warn(DOMAIN, TAG, 'readTextAsync %{public}s failed: %{public}s', path, JSON.stringify(err));
+      return '';
+    });
+  }).catch(() => {
+    return '';
+  });
+}
+
+/** 已成功落盘的内容（用于去重，以及滚动 .bak 时免去一次同步读） */
+let diskContent: string = '';
+/** 已排队/正在写的内容（写入期间再次提交时用于去重与合并） */
+let queuedContent: string = '';
+/** 串行化写入，避免并发写同一文件互相覆盖 */
+let writeChain: Promise<void> = Promise.resolve();
+
+async function doWrite(data: string): Promise<void> {
   try {
     const dir: string = dirOf();
     if (!fs.accessSync(dir)) {
       fs.mkdirSync(dir, true);
     }
     const main: string = pathOf();
-    const previous: string = readText(main);
-    if (previous.length > 2) {
-      writeText(bakPathOf(), previous);
+    // 先把上一份滚到 .bak，再写主文件：写主文件途中被杀也能从 .bak 恢复
+    let previous: string = diskContent;
+    if (previous.length <= 2) {
+      previous = await readTextAsync(main);
     }
-    writeText(main, data);
-    return true;
+    if (previous.length > 2) {
+      await writeTextAsync(bakPathOf(), previous);
+    }
+    await writeTextAsync(main, data);
+    diskContent = data;
+    hilog.info(DOMAIN, TAG, 'snapshot saved: %{public}d bytes', data.length);
   } catch (err) {
     hilog.error(DOMAIN, TAG, 'writeSnapshot failed: %{public}s', JSON.stringify(err));
-    return false;
+    // 写失败：允许后续 flush 重试
+    if (queuedContent === data) {
+      queuedContent = '';
+    }
   }
 }
 
+/**
+ * 提交快照（异步、去重、串行）。
+ * 内容与已落盘/在写内容相同则直接跳过——游戏内每 60s 会无条件触发一次 flush，
+ * 没有变化时不应产生任何 IO。
+ */
+function writeSnapshot(data: string): void {
+  if (filesDir.length === 0 || data.length <= 2) {
+    return;
+  }
+  if (data === diskContent || data === queuedContent) {
+    return;
+  }
+  queuedContent = data;
+  const payload: string = data;
+  writeChain = writeChain.then(() => {
+    if (queuedContent === payload) {
+      queuedContent = '';
+    }
+    return doWrite(payload);
+  });
+}
+
 /** 读取快照；主文件不可用时退回 .bak */
-export function readSnapshot(): string {
+function readSnapshot(): string {
   const main: string = readText(pathOf());
   if (main.length > 2) {
     return main;
@@ -118,11 +164,12 @@ export function buildSaveGuardScript(): string {
     'var G=window.PokeSaveGuard;' +
     'if(!G){if(++tries<40){setTimeout(boot,50);}else{console.log("SAVEGUARD bridge missing");}return;}' +
     'if(window.__sgInstalled){return;}window.__sgInstalled=true;' +
-    'var LS=window.localStorage,PR=Object.getPrototypeOf(LS),t=null,busy=false;' +
+    'var LS=window.localStorage,PR=Object.getPrototypeOf(LS),t=null,busy=false,dirty=false;' +
     'function collect(){var o={},i,k;for(i=0;i<LS.length;i++){k=LS.key(i);if(k){o[k]=LS.getItem(k);}}return o;}' +
-    'function flush(){if(busy){return;}busy=true;t=null;' +
-    'try{var s=JSON.stringify(collect());if(s.length>2){G.save(s);}}catch(e){}busy=false;}' +
-    'function schedule(){if(busy){return;}if(t){clearTimeout(t);}t=setTimeout(flush,2000);}' +
+    // force=true 用于 pagehide 等兜底时机（可能漏掉 hook 安装前的写入）；常规 flush 仅在脏时执行
+    'function flush(force){if(busy){return;}if(!force&&!dirty){return;}busy=true;dirty=false;t=null;' +
+    'try{var s=JSON.stringify(collect());if(s.length>2){G.save(s);}}catch(e){dirty=true;}busy=false;}' +
+    'function schedule(){dirty=true;if(busy){return;}if(t){clearTimeout(t);}t=setTimeout(function(){flush(false);},2000);}' +
     'var _s=PR.setItem,_r=PR.removeItem,_c=PR.clear;' +
     'PR.setItem=function(k,v){var x=_s.call(this,k,v);schedule();return x;};' +
     'PR.removeItem=function(k){var x=_r.call(this,k);schedule();return x;};' +
@@ -133,10 +180,10 @@ export function buildSaveGuardScript(): string {
     'for(k in o){if(Object.prototype.hasOwnProperty.call(o,k)){_s.call(LS,k,o[k]);n++;}}' +
     'if(n>0){G.notifyRestored(n);console.log("SAVEGUARD restored "+n+" keys");}}}' +
     'catch(e){console.log("SAVEGUARD restore err "+e);}}' +
-    'window.addEventListener("pagehide",flush);' +
-    'window.addEventListener("beforeunload",flush);' +
-    'document.addEventListener("visibilitychange",function(){if(document.hidden){flush();}});' +
-    'setInterval(function(){if(!document.hidden){flush();}},60000);' +
+    'window.addEventListener("pagehide",function(){flush(true);});' +
+    'window.addEventListener("beforeunload",function(){flush(true);});' +
+    'document.addEventListener("visibilitychange",function(){if(document.hidden){flush(true);}});' +
+    'setInterval(function(){if(!document.hidden){flush(false);}},60000);' +
     '}' +
     'boot();';
 
@@ -158,11 +205,9 @@ export class SaveGuardBridge {
     return data;
   }
 
-  /** JS 侧提交快照 */
+  /** JS 侧提交快照（异步、去重，无变化时零 IO） */
   save(data: string): void {
-    if (writeSnapshot(data)) {
-      hilog.info(DOMAIN, TAG, 'snapshot saved: %{public}d bytes', data.length);
-    }
+    writeSnapshot(data);
   }
 
   /** JS 侧回填成功后回报，供页面提示用户 */
