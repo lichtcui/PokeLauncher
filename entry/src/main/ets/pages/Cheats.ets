@@ -109,7 +109,7 @@ struct Cheats {
           .fontSize(12)
           .fontColor('#DA3838')
           .width('100%')
-        Text('兼容性风险：参数调整依赖游戏内部实现，游戏更新后可能失效或表现异常。')
+        Text('兼容性风险：参数调整依赖应用内部实现，资源更新后可能失效或表现异常。')
           .fontSize(12)
           .fontColor('#C77700')
           .width('100%')
@@ -121,7 +121,7 @@ struct Cheats {
       .backgroundColor('#FFF3F3')
 
       if (!this.masterOn) {
-        Text('参数调整未开启，请先到「设置 → 游戏 → 参数调整」开启。')
+        Text('参数调整未开启，请先到「设置 → 运行设置 → 参数调整」开启。')
           .fontSize(13)
           .fontColor('#999999')
           .width('100%')

@@ -44,7 +44,7 @@ export class Notifier {
   }
 
   static publishComplete(): void {
-    Notifier.publish(ID_COMPLETE, '离线资源下载完成', '点击开始游戏');
+    Notifier.publish(ID_COMPLETE, '离线资源下载完成', '点击开始运行');
   }
 
   static publishFailed(reason: string): void {

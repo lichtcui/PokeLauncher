@@ -130,7 +130,7 @@ struct Settings {
     }
     promptAction.showDialog({
       title: '删除本地数据',
-      message: '将删除已下载的离线资源，游戏存档不受影响。确定删除吗？',
+      message: '将删除已下载的离线资源，本地存档不受影响。确定删除吗？',
       buttons: [
         { text: '取消', color: '#666666' },
         { text: '删除', color: '#DA3838' }
@@ -184,7 +184,7 @@ struct Settings {
     }
     promptAction.showDialog({
       title: '开启参数调整',
-      message: '账号风险：PokéRogue 官方对修改游戏数据有检测机制，通过 Hook 改写运行时数值可能使账号被标记（Flagged）甚至封禁。开启后本机存档已不纯净，不建议再导入或上传到在线版。请仅在离线或确认安全的环境下使用。\n\n兼容性风险：参数调整依赖游戏内部实现，游戏更新后可能失效或表现异常。',
+      message: '账号风险：上游官方对修改游戏数据有检测机制，通过 Hook 改写运行时数值可能使账号被标记（Flagged）甚至封禁。开启后本机存档已不纯净，不建议再导入或上传到在线版。请仅在离线或确认安全的环境下使用。\n\n兼容性风险：参数调整依赖应用内部实现，资源更新后可能失效或表现异常。',
       buttons: [
         { text: '取消', color: '#666666' },
         { text: '仍然开启', color: '#DA3838' }
@@ -274,7 +274,7 @@ struct Settings {
 
       Scroll() {
         Column() {
-          this.groupTitle('游戏')
+          this.groupTitle('运行设置')
           // 屏幕方向：分段控件，选中态随 @State 变化，需直接读取状态
           Column() {
             Text('屏幕方向').fontSize(16).fontColor('#333333').width('100%')
