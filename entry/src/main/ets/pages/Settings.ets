@@ -20,6 +20,13 @@ import { PROJECT_GITHUB_URL } from '../common/Const';
 const DOMAIN: number = 0x0000;
 const TAG: string = 'Settings';
 
+/** 自动检查（进入页面时）的内存节流：TTL 内复用上次结果，手动点击则强制刷新 */
+const CHECK_TTL_MS: number = 5 * 60 * 1000;
+let gameCheckAt: number = 0;
+let gameRemoteTag: string = '';
+let appCheckAt: number = 0;
+let appCheckedResult: AppUpdateResult | null = null;
+
 /**
  * 设置页：从首页右上角齿轮进入。
  * 承载游戏选项（屏幕方向 / 参数调整）、数据管理（更新/删除）与关于信息。
@@ -65,15 +72,21 @@ struct Settings {
     setWindowBackground(HOME_BG_COLOR);
   }
 
-  /** 查询远端最新游戏资源包，与本地比较 */
-  private checkGameUpdate(): void {
+  /** 查询远端最新游戏资源包，与本地比较（force=false 时走 5 分钟内存节流） */
+  private checkGameUpdate(force: boolean = false): void {
     const repo: GameRepository | null = this.repo;
     if (repo === null || this.checkingGame) {
+      return;
+    }
+    if (!force && gameRemoteTag.length > 0 && Date.now() - gameCheckAt < CHECK_TTL_MS) {
+      this.gameUpdateAvailable = normalizeVersion(gameRemoteTag) !== normalizeVersion(this.gameVersion);
       return;
     }
     this.checkingGame = true;
     repo.fetchRelease()
       .then((info: ReleaseInfo) => {
+        gameRemoteTag = info.tag;
+        gameCheckAt = Date.now();
         this.gameUpdateAvailable = normalizeVersion(info.tag) !== normalizeVersion(this.gameVersion);
         this.checkingGame = false;
       })
@@ -83,9 +96,25 @@ struct Settings {
       });
   }
 
-  /** 查询远端应用版本，与本地 app 版本比较 */
-  private checkAppUpdate(): void {
+  /** 把检查结果写回页面状态 */
+  private applyAppResult(res: AppUpdateResult): void {
+    this.appRemote = res.remote;
+    this.appUpdateAvailable = res.hasUpdate;
+    this.appUpdateForce = res.forceUpdate;
+    const remote: AppUpdateInfo | null = res.remote;
+    this.appRemoteName = remote !== null && remote.versionName.length > 0
+      ? remote.versionName
+      : (remote !== null ? String(remote.versionCode) : '');
+    this.appChangelog = remote !== null ? remote.changelog : '';
+  }
+
+  /** 查询远端应用版本，与本地 app 版本比较（force=false 时走 5 分钟内存节流） */
+  private checkAppUpdate(force: boolean = false): void {
     if (this.checkingApp) {
+      return;
+    }
+    if (!force && appCheckedResult !== null && Date.now() - appCheckAt < CHECK_TTL_MS) {
+      this.applyAppResult(appCheckedResult);
       return;
     }
     this.checkingApp = true;
@@ -93,14 +122,9 @@ struct Settings {
     checkAppUpdate()
       .then((res: AppUpdateResult) => {
         this.checkingApp = false;
-        this.appRemote = res.remote;
-        this.appUpdateAvailable = res.hasUpdate;
-        this.appUpdateForce = res.forceUpdate;
-        const remote: AppUpdateInfo | null = res.remote;
-        this.appRemoteName = remote !== null && remote.versionName.length > 0
-          ? remote.versionName
-          : (remote !== null ? String(remote.versionCode) : '');
-        this.appChangelog = remote !== null ? remote.changelog : '';
+        appCheckedResult = res;
+        appCheckAt = Date.now();
+        this.applyAppResult(res);
       })
       .catch((err: BusinessError) => {
         this.checkingApp = false;
@@ -313,7 +337,7 @@ struct Settings {
           }
           .width('100%')
           .padding({ left: 16, right: 16, top: 15, bottom: 15 })
-          .onClick(() => this.checkAppUpdate())
+          .onClick(() => this.checkAppUpdate(true))
           if (this.appUpdateAvailable) {
             this.divider()
             this.navRow('去更新' + (this.appRemoteName.length > 0 ? '（' + this.appRemoteName + '）' : ''),
@@ -337,7 +361,7 @@ struct Settings {
           }
           .width('100%')
           .padding({ left: 16, right: 16, top: 15, bottom: 15 })
-          .onClick(() => this.checkGameUpdate())
+          .onClick(() => this.checkGameUpdate(true))
           if (this.gameUpdateAvailable) {
             this.divider()
             this.navRow('更新到新版本', '', '#999999', true, () => this.triggerUpdate())
