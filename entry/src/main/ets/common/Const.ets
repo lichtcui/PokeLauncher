@@ -38,6 +38,13 @@ export const DEFAULT_ASSET: string = 'game.zip';
 export const DEBUG_UI: boolean = false;
 
 /**
+ * 调试开关：非空时，离线资源包改用这个 URL 下载（跳过 GitHub Release 查询与镜像），
+ * 用于本地放一个小测试包、几秒内跑完「测速 → 下载 → 解压 → 爆发 → 就绪」全链路。
+ * 只用于本地联调，正式发布必须为空串。
+ */
+export const DEBUG_ASSET_URL: string = '';
+
+/**
  * 实验开关：强制所有 2D canvas 使用 willReadFrequently（CPU 后备）。
  * 背景：Phaser 的 CanvasTexture 对每个 Text 都调用 getImageData 拷贝像素，
  * 而 ArkWeb 的 getImageData 有约 0.3ms 的 GPU 读回固定开销；

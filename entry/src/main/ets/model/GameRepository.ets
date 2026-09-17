@@ -3,7 +3,10 @@ import { http } from '@kit.NetworkKit';
 import { fileIo as fs } from '@kit.CoreFileKit';
 import { common, wantAgent, WantAgent } from '@kit.AbilityKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
-import { RELEASE_API, USER_AGENT, DEFAULT_ASSET, GAME_DIR_NAME, DOWNLOAD_MIRRORS, API_MIRROR } from '../common/Const';
+import {
+  RELEASE_API, USER_AGENT, DEFAULT_ASSET, GAME_DIR_NAME, DOWNLOAD_MIRRORS, API_MIRROR,
+  DEBUG_ASSET_URL
+} from '../common/Const';
 import { requestText } from '../common/Http';
 
 const DOMAIN: number = 0x0000;
@@ -109,6 +112,22 @@ export class GameRepository {
     }
   }
 
+  /**
+   * 取资源包信息。DEBUG_ASSET_URL 非空时直接用它（本地小测试包），否则查 GitHub Release。
+   */
+  async resolveRelease(assetName: string = DEFAULT_ASSET): Promise<ReleaseInfo> {
+    if (DEBUG_ASSET_URL.length > 0) {
+      hilog.warn(DOMAIN, TAG, 'DEBUG_ASSET_URL in use: %{public}s', DEBUG_ASSET_URL);
+      const info: ReleaseInfo = new ReleaseInfo();
+      info.tag = 'debug';
+      info.assetName = 'debug-pack.zip';
+      info.assetUrl = DEBUG_ASSET_URL;
+      info.assetSize = 0;
+      return info;
+    }
+    return this.fetchRelease(assetName);
+  }
+
   /** 查询 Release 中指定资产的信息（先直连 GitHub API，失败回退 API 镜像） */
   async fetchRelease(assetName: string = DEFAULT_ASSET): Promise<ReleaseInfo> {
     const candidates: string[] = [RELEASE_API, API_MIRROR + RELEASE_API];
@@ -140,6 +159,10 @@ export class GameRepository {
 
   /** 构造下载候选地址：镜像优先，最后回退 GitHub 直连 */
   private buildDownloadUrls(assetUrl: string): string[] {
+    // 本地调试包不走镜像（地址本身就是可达的）
+    if (DEBUG_ASSET_URL.length > 0 && assetUrl === DEBUG_ASSET_URL) {
+      return [assetUrl];
+    }
     const urls: string[] = [];
     for (let i = 0; i < DOWNLOAD_MIRRORS.length; i++) {
       urls.push(DOWNLOAD_MIRRORS[i] + assetUrl);

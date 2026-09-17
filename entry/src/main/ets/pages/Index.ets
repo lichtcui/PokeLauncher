@@ -151,9 +151,12 @@ struct Index {
       return;
     }
     // 先取资源包大小（用于进度与完成判定），再尝试接管上次未完成的任务
-    repo.fetchRelease().then((info: ReleaseInfo) => {
+    repo.resolveRelease().then((info: ReleaseInfo) => {
       this.expectedSize = info.assetSize;
-      this.totalText = formatBytes(info.assetSize);
+      // 大小未知（调试包 / API 缺字段）时留空，界面回退到「约 531 MB」
+      if (info.assetSize > 0) {
+        this.totalText = formatBytes(info.assetSize);
+      }
       this.tryAdopt();
     }).catch((err: BusinessError) => {
       hilog.warn(DOMAIN, TAG, 'init fetchRelease failed: %{public}s', JSON.stringify(err));
@@ -418,7 +421,7 @@ struct Index {
     this.probing = true;
     this.etaText = '正在测速，选择最快的下载源…';
     this.maybeShowBgHint();
-    repo.fetchRelease()
+    repo.resolveRelease()
       .then((info: ReleaseInfo) => {
         this.receivedText = '0 MB';
         this.totalText = formatBytes(info.assetSize);
