@@ -20,7 +20,7 @@ entry/src/main/ets/
 │  ├─ Http.ets                     # 共享 GET 文本请求 requestText()
 │  ├─ WebCache.ets                 # clearWebCache()：清 Web HTTP/JS 缓存
 │  └─ Format.ets                   # 纯展示格式化（字节/速度/时长，有单测）
-├─ components/ResourceLoader.ets   # 资源图标摇晃动画（下载/解压中）
+├─ components/PulseProgress.ets    # 资源准备动画：呼吸↔波浪↔收缩↔爆发（6 阶段，下载/解压共用）
 ├─ model/
 │  ├─ GameRepository.ets           # 下载(request.agent+镜像) / 原子解压(zlib) / 恢复 / 删除 / 版本 / 接管
 │  ├─ AppUpdate.ets                # 应用自更新：本地版本读取 + version.json 比对 + 引导下载（见 app-update.md）

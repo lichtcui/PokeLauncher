@@ -20,7 +20,7 @@ import { formatBytes, formatSpeed, formatDuration } from '../common/Format';
 import { setWindowBackground, setOrientation, HOME_BG_COLOR } from '../model/WindowHolder';
 import { isMasterEnabled } from '../model/CheatState';
 import { sharedServerReady } from '../model/LocalHttpServer';
-import { ResourceLoader } from '../components/ResourceLoader';
+import { PulseProgress, PrepPhase, SHRINK_MS, BURST_MS } from '../components/PulseProgress';
 
 const DOMAIN: number = 0x0000;
 const TAG: string = 'Home';
@@ -41,6 +41,7 @@ enum Stage {
 @Component
 struct Index {
   @State stage: Stage = Stage.Checking;
+  @State prepPhase: PrepPhase = PrepPhase.IDLE;
   @State progress: number = 0;
   @State receivedText: string = '';
   @State totalText: string = '';
@@ -62,6 +63,7 @@ struct Index {
   private lastReceived: number = 0;
   private lastTime: number = 0;
   private lastUiAt: number = 0;
+  private phaseTimer: number = -1;
 
   aboutToAppear(): void {
     const ctx = this.getUIContext().getHostContext() as common.UIAbilityContext;
@@ -72,6 +74,53 @@ struct Index {
     Notifier.cancelOwn();
     this.init();
     this.maybeAutoCheckAppUpdate();
+  }
+
+  aboutToDisappear(): void {
+    this.clearPhaseTimer();
+  }
+
+  /** 取消/退出流程时清掉过渡计时器，避免延迟切到错误阶段 */
+  private clearPhaseTimer(): void {
+    if (this.phaseTimer >= 0) {
+      clearTimeout(this.phaseTimer);
+      this.phaseTimer = -1;
+    }
+  }
+
+  /** 下载完成：先播「波浪收缩」，过渡播完再切「解压中」 */
+  private enterExtracting(): void {
+    this.prepPhase = PrepPhase.DOWNLOADED;
+    this.stage = Stage.Extracting;
+    this.clearPhaseTimer();
+    this.phaseTimer = setTimeout(() => {
+      this.phaseTimer = -1;
+      this.prepPhase = PrepPhase.EXTRACTING;
+    }, SHRINK_MS);
+  }
+
+  /** 解压完成：先播「脉冲爆发」，播完再进就绪页 */
+  private enterReady(repo: GameRepository): void {
+    this.prepPhase = PrepPhase.READY;
+    // 资源刚解压完成：清掉 Web 缓存，避免继续加载旧文件
+    clearWebCache();
+    this.version = repo.readVersion();
+    Notifier.publishComplete();
+    this.clearPhaseTimer();
+    this.phaseTimer = setTimeout(() => {
+      this.phaseTimer = -1;
+      this.stage = Stage.Ready;
+    }, BURST_MS);
+  }
+
+  /** 下载流程的标题（随动画阶段变化） */
+  private flowTitle(): string {
+    switch (this.prepPhase) {
+      case PrepPhase.DOWNLOADED:  return '下载完成';
+      case PrepPhase.EXTRACTING:  return '正在解压离线资源…';
+      case PrepPhase.READY:       return '资源准备就绪';
+      default:                    return this.paused ? '已暂停' : '正在下载离线资源';
+    }
   }
 
   onPageShow(): void {
@@ -191,18 +240,16 @@ struct Index {
         this.applyProgress(received, total, this.expectedSize);
       },
       () => {
-        this.stage = Stage.Extracting;
+        this.enterExtracting();
       },
       () => {
         this.adoptDone = true;
-        // 资源刚解压完成：清掉 Web 缓存，避免继续加载旧文件
-        clearWebCache();
-        this.version = repo.readVersion();
-        this.stage = Stage.Ready;
-        Notifier.publishComplete();
+        this.enterReady(repo);
       },
       (msg: string) => {
         this.adoptDone = true;
+        this.clearPhaseTimer();
+        this.prepPhase = PrepPhase.IDLE;
         this.error = msg;
         if (repo.hasGameFiles()) {
           this.stage = Stage.Ready;
@@ -212,8 +259,10 @@ struct Index {
       },
       this.expectedSize
     ).then((adopted: boolean) => {
-      if (adopted && !this.adoptDone) {
+      // 只在还没被事件推进过阶段时接管，避免与 onExtractStart/onDone 抢状态
+      if (adopted && !this.adoptDone && this.stage === Stage.Checking) {
         this.stage = Stage.Downloading;
+        this.prepPhase = PrepPhase.DOWNLOADING;
         this.resetSpeed();
       } else if (!adopted) {
         this.enterNotDownloaded();
@@ -312,6 +361,8 @@ struct Index {
 
   /** 统一入口：切到未下载态并完成准备 */
   private enterNotDownloaded(): void {
+    this.clearPhaseTimer();
+    this.prepPhase = PrepPhase.IDLE;
     this.stage = Stage.NotDownloaded;
     this.prepareNotDownloaded();
   }
@@ -356,7 +407,9 @@ struct Index {
     if (repo === null) {
       return;
     }
+    this.clearPhaseTimer();
     this.stage = Stage.Downloading;
+    this.prepPhase = PrepPhase.PROBING;
     this.progress = 0;
     this.error = '';
     this.paused = false;
@@ -375,9 +428,13 @@ struct Index {
             this.applyProgress(received, total, info.assetSize);
           },
           () => {
-            this.stage = Stage.Extracting;
+            this.enterExtracting();
           },
           (url: string, sourceIndex: number, sourceCount: number) => {
+            // 选源完成、真正开始下载：测速呼吸圆展开成波浪
+            if (this.prepPhase === PrepPhase.PROBING) {
+              this.prepPhase = PrepPhase.DOWNLOADING;
+            }
             // 下载源只写日志，不在界面上展示（测速提示保留到速度出现为止）
             let host: string = url;
             const schemeAt: number = url.indexOf('://');
@@ -393,11 +450,7 @@ struct Index {
         );
       })
       .then(() => {
-        // 资源刚解压完成：清掉 Web 缓存，避免继续加载旧文件
-        clearWebCache();
-        this.version = repo.readVersion();
-        this.stage = Stage.Ready;
-        Notifier.publishComplete();
+        this.enterReady(repo);
         promptAction.showToast({ message: '离线资源下载完成' });
       })
       .catch((err: BusinessError) => {
@@ -407,6 +460,8 @@ struct Index {
           }
           return;
         }
+        this.clearPhaseTimer();
+        this.prepPhase = PrepPhase.IDLE;
         hilog.error(DOMAIN, TAG, 'download flow failed: %{public}s', JSON.stringify(err));
         // BusinessError 的 message 可能为空，此时回退到错误码，避免出现「下载失败：」
         const detail: string = (err.message !== undefined && err.message.length > 0)
@@ -467,6 +522,8 @@ struct Index {
       return;
     }
     repo.cancelDownload();
+    this.clearPhaseTimer();
+    this.prepPhase = PrepPhase.IDLE;
     this.progress = 0;
     this.receivedText = '';
     this.paused = false;
@@ -504,10 +561,8 @@ struct Index {
   @Builder
   notDownloadedView() {
     Column({ space: 16 }) {
-      Image($r('app.media.resource_icon'))
-        .width(72)
-        .height(72)
-        .objectFit(ImageFit.Contain)
+      // 静止小圆环 = 动画的起点（呼吸峰值半径），点「开始下载」后原地开始呼吸，无跳变
+      PulseProgress({ phase: PrepPhase.IDLE })
       Text('尚未安装离线资源').fontSize(18).fontWeight(FontWeight.Medium)
 
       // 资源包信息卡片
@@ -568,72 +623,72 @@ struct Index {
     .width('100%')
   }
 
+  /**
+   * 下载 + 解压共用一个动画组件：只有阶段不变时组件才不被重建，
+   * 波浪 → 收缩 → 呼吸 → 爆发 才能连贯播放。
+   */
   @Builder
-  downloadingView() {
+  downloadFlowView() {
     Column({ space: 16 }) {
-      ResourceLoader({ active: !this.paused })
-      Text(this.paused ? '已暂停' : '正在下载离线资源').fontSize(18).fontWeight(FontWeight.Medium)
+      PulseProgress({ phase: this.prepPhase, paused: this.paused })
+      Text(this.flowTitle()).fontSize(18).fontWeight(FontWeight.Medium)
 
-      // 进度条：从左往右填充；百分比居中，白色 + 深色描边（红/灰底都可见）
-      Stack() {
-        Stack({ alignContent: Alignment.Start }) {
-          Row()
-            .width('100%')
-            .height(22)
-            .borderRadius(11)
-            .backgroundColor('#EEEEEE')
-          Row()
-            .width(Math.max(0, Math.min(100, this.progress)) + '%')
-            .height(22)
-            .borderRadius(11)
-            .backgroundColor('#DA3838')
+      if (this.prepPhase === PrepPhase.DOWNLOADED
+        || this.prepPhase === PrepPhase.EXTRACTING
+        || this.prepPhase === PrepPhase.READY) {
+        Text('请勿关闭应用').fontSize(13).fontColor('#888888')
+      } else {
+        // 进度条：从左往右填充；百分比居中，白色 + 深色描边（红/灰底都可见）
+        Stack() {
+          Stack({ alignContent: Alignment.Start }) {
+            Row()
+              .width('100%')
+              .height(22)
+              .borderRadius(11)
+              .backgroundColor('#EEEEEE')
+            Row()
+              .width(Math.max(0, Math.min(100, this.progress)) + '%')
+              .height(22)
+              .borderRadius(11)
+              .backgroundColor('#DA3838')
+          }
+          .width('100%')
+          .height(22)
+
+          Text(this.progress.toString() + '%')
+            .fontSize(13)
+            .fontWeight(FontWeight.Bold)
+            .fontColor('#FFFFFF')
+            .textShadow({ radius: 2, color: '#99000000', offsetX: 0, offsetY: 1 })
         }
-        .width('100%')
-        .height(22)
+        .width('80%')
 
-        Text(this.progress.toString() + '%')
-          .fontSize(13)
-          .fontWeight(FontWeight.Bold)
-          .fontColor('#FFFFFF')
-          .textShadow({ radius: 2, color: '#99000000', offsetX: 0, offsetY: 1 })
+        // 速度 · 剩余时间
+        if (this.speedText.length > 0 || this.etaText.length > 0) {
+          Text(this.speedText + (this.speedText.length > 0 && this.etaText.length > 0 ? ' · ' : '') + this.etaText)
+            .fontSize(13)
+            .fontColor('#DA3838')
+        }
+
+        // 一排两键：暂停/继续为主（实心，适中宽度），取消下载仅文字
+        Row({ space: 16 }) {
+          Button(this.paused ? '继续' : '暂停')
+            .width(140)
+            .height(44)
+            .fontSize(16)
+            .backgroundColor('#DA3838')
+            .fontColor('#FFFFFF')
+            .onClick(() => this.togglePause())
+          Button('取消下载')
+            .fontSize(14)
+            .fontColor('#999999')
+            .backgroundColor('#00000000')
+            .onClick(() => this.confirmCancel())
+        }
+        .width('80%')
+        .justifyContent(FlexAlign.Center)
+        .margin({ top: 6 })
       }
-      .width('80%')
-
-      // 速度 · 剩余时间
-      if (this.speedText.length > 0 || this.etaText.length > 0) {
-        Text(this.speedText + (this.speedText.length > 0 && this.etaText.length > 0 ? ' · ' : '') + this.etaText)
-          .fontSize(13)
-          .fontColor('#DA3838')
-      }
-
-      // 一排两键：暂停/继续为主（实心，适中宽度），取消下载仅文字
-      Row({ space: 16 }) {
-        Button(this.paused ? '继续' : '暂停')
-          .width(140)
-          .height(44)
-          .fontSize(16)
-          .backgroundColor('#DA3838')
-          .fontColor('#FFFFFF')
-          .onClick(() => this.togglePause())
-        Button('取消下载')
-          .fontSize(14)
-          .fontColor('#999999')
-          .backgroundColor('#00000000')
-          .onClick(() => this.confirmCancel())
-      }
-      .width('80%')
-      .justifyContent(FlexAlign.Center)
-      .margin({ top: 6 })
-    }
-    .width('100%')
-  }
-
-  @Builder
-  extractingView() {
-    Column({ space: 14 }) {
-      ResourceLoader({ active: true })
-      Text('正在解压离线资源…').fontSize(18).fontWeight(FontWeight.Medium)
-      Text('请勿关闭应用').fontSize(13).fontColor('#888888')
     }
     .width('100%')
   }
@@ -696,10 +751,8 @@ struct Index {
             LoadingProgress().width(40).height(40)
           } else if (this.stage === Stage.NotDownloaded) {
             this.notDownloadedView()
-          } else if (this.stage === Stage.Downloading) {
-            this.downloadingView()
-          } else if (this.stage === Stage.Extracting) {
-            this.extractingView()
+          } else if (this.stage === Stage.Downloading || this.stage === Stage.Extracting) {
+            this.downloadFlowView()
           } else {
             this.readyView()
           }
