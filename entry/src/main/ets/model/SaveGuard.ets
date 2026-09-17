@@ -104,11 +104,6 @@ export function readSnapshot(): string {
   return readText(bakPathOf());
 }
 
-/** 快照是否存在 */
-export function hasSnapshot(): boolean {
-  return readSnapshot().length > 2;
-}
-
 /**
  * 注入到游戏页的存档守卫脚本。
  *

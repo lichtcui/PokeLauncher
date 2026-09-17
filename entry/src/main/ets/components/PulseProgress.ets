@@ -32,19 +32,6 @@ export enum PrepPhase {
   READY = 5,
 }
 
-/** 各阶段默认文案 */
-export function phaseLabel(p: PrepPhase): string {
-  switch (p) {
-    case PrepPhase.IDLE:        return '准备就绪';
-    case PrepPhase.PROBING:     return '正在选择下载源';
-    case PrepPhase.DOWNLOADING: return '下载中';
-    case PrepPhase.DOWNLOADED:  return '下载完成';
-    case PrepPhase.EXTRACTING:  return '解压中';
-    case PrepPhase.READY:       return '资源准备就绪';
-    default:                    return '';
-  }
-}
-
 // ─────────────────────────── 几何常量 ───────────────────────────
 
 const N: number = 80;
