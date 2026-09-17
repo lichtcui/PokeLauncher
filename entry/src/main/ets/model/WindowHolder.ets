@@ -16,10 +16,9 @@ export function setMainWindow(w: window.Window): void {
   mainWindow = w;
 }
 
-/** 是否为平板 / PC 等大屏设备：决定首页/设置页是否强制竖屏 */
+/** 是否为平板等大屏设备：决定首页/设置页是否强制竖屏（module.json5 的 deviceTypes 目前只有 phone/tablet） */
 export function isTablet(): boolean {
-  const t: string = deviceInfo.deviceType;
-  return t === 'tablet' || t === '2in1';
+  return deviceInfo.deviceType === 'tablet';
 }
 
 /** 设置窗口方向（仅游戏页使用；首页/设置页在手机上保持竖屏，平板上跟随系统） */

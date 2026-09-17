@@ -8,7 +8,7 @@ import { GameRepository, ReleaseInfo } from './GameRepository';
 import { Notifier } from './Notifier';
 import { getStore } from '../common/Prefs';
 import { clearWebCache } from '../common/WebCache';
-import { formatBytes, formatSpeed, formatDuration } from '../common/Format';
+import { formatBytes, formatSpeed, formatDuration, formatErrorDetail } from '../common/Format';
 import { PrepPhase, SHRINK_MS, BURST_MS } from '../components/PulseProgress';
 
 const DOMAIN: number = 0x0000;
@@ -190,11 +190,7 @@ export class LauncherSession {
         this.clearPhaseTimer();
         this.setPrepPhase(PrepPhase.IDLE);
         hilog.error(DOMAIN, TAG, 'download flow failed: %{public}s', JSON.stringify(err));
-        // BusinessError 的 message 可能为空，此时回退到错误码，避免出现「下载失败：」
-        const detail: string = (err.message !== undefined && err.message.length > 0)
-          ? err.message
-          : (err.code !== undefined ? '错误码 ' + err.code : '未知错误');
-        const msg: string = '下载失败：' + detail;
+        const msg: string = '下载失败：' + formatErrorDetail(err.message, err.code);
         this.cb.setError(msg);
         Notifier.publishFailed(msg);
         if (this.repo.hasGameFiles()) {
@@ -353,10 +349,7 @@ export class LauncherSession {
       promptAction.showToast({ message: '资源包导入完成' });
     }).catch((err: BusinessError) => {
       hilog.error(DOMAIN, TAG, 'import resource failed: %{public}s', JSON.stringify(err));
-      const detail: string = (err.message !== undefined && err.message.length > 0)
-        ? err.message
-        : (err.code !== undefined ? '错误码 ' + err.code : '未知错误');
-      this.cb.setError('导入失败：' + detail);
+      this.cb.setError('导入失败：' + formatErrorDetail(err.message, err.code));
       this.clearPhaseTimer();
       this.setPrepPhase(PrepPhase.IDLE);
       if (this.repo.hasGameFiles()) {

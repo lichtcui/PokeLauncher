@@ -140,6 +140,7 @@ export struct NotDownloadedView {
 export struct DownloadFlowView {
   @Prop phase: PrepPhase = PrepPhase.IDLE;
   @Prop paused: boolean = false;
+  @Prop appHidden: boolean = false;
   @Prop progress: number = 0;
   @Prop speedText: string = '';
   @Prop etaText: string = '';
@@ -149,7 +150,7 @@ export struct DownloadFlowView {
 
   build() {
     Column({ space: 16 }) {
-      PulseProgress({ phase: this.phase, paused: this.paused })
+      PulseProgress({ phase: this.phase, paused: this.paused, appHidden: this.appHidden })
       Text(this.flowTitle).fontSize(18).fontWeight(FontWeight.Medium)
 
       if (this.phase === PrepPhase.DOWNLOADED

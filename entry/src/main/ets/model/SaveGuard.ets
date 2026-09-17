@@ -27,7 +27,10 @@ let filesDir: string = '';
 
 export function initSaveGuard(ctx: common.UIAbilityContext): void {
   filesDir = ctx.filesDir;
-  hilog.info(DOMAIN, TAG, 'init, snapshot dir = %{public}s', dirOf());
+  // 预载已落盘内容：否则启动后第一次 flush 即使内容没变也会重写一遍
+  diskContent = readSnapshot();
+  hilog.info(DOMAIN, TAG, 'init, snapshot dir = %{public}s cached=%{public}d',
+    dirOf(), diskContent.length);
 }
 
 function dirOf(): string {

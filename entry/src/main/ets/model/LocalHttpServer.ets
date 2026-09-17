@@ -22,6 +22,13 @@ const MAX_REQUEST_HEADER: number = 16 * 1024;
 /** 发送文件的分块大小：避免大文件一次性读进内存，同时减少 send 次数 */
 const SEND_CHUNK: number = 1024 * 1024;
 
+/**
+ * 小文件阈值：整块读入并把 header 与 body 合并成一次 send。
+ * 游戏冷启动会请求数百个 JS/JSON 小文件，合并后每个文件少一次异步 send 调用；
+ * 大文件仍走分块，避免为合并 header 而多拷贝一份 MB 级数据。
+ */
+const SMALL_FILE_MERGE: number = 64 * 1024;
+
 /** 空闲连接超时：keep-alive 连接长时间无请求时主动关闭，避免异常客户端长期占用 */
 const IDLE_TIMEOUT_MS: number = 60 * 1000;
 
@@ -121,6 +128,9 @@ export class LocalHttpServer {
   private handleConnection(conn: socket.TCPSocketConnection): void {
     let buf: Uint8Array = new Uint8Array(0);
     let idleTimer: number = -1;
+    // 串行化同一连接上的响应：HTTP 流水线下响应必须按请求顺序发出，
+    // 否则并发 stat/read 会让响应交错。busy 期间到达的数据留在 buf，当前响应发完再处理。
+    let busy: boolean = false;
     const clearIdle = (): void => {
       if (idleTimer >= 0) {
         clearTimeout(idleTimer);
@@ -139,6 +149,44 @@ export class LocalHttpServer {
         }
       }, IDLE_TIMEOUT_MS);
     };
+
+    const drain = async (): Promise<void> => {
+      if (busy) {
+        return;
+      }
+      busy = true;
+      try {
+        while (true) {
+          const headerEnd: number = indexOfCrlfCrlf(buf);
+          if (headerEnd < 0) {
+            break;
+          }
+          const headerText: string = utf8Decoder.decodeToString(buf.subarray(0, headerEnd));
+          const lines: string[] = headerText.split('\r\n');
+          const reqLine: string[] = lines[0].split(' ');
+          const method: string = reqLine.length > 0 ? reqLine[0] : '';
+          const rawPath: string = reqLine.length > 1 ? reqLine[1] : '/';
+          let keepAlive: boolean = true;
+          for (let i = 1; i < lines.length; i++) {
+            const lower: string = lines[i].toLowerCase();
+            if (lower.startsWith('connection:') && lower.indexOf('close') >= 0) {
+              keepAlive = false;
+            }
+          }
+          buf = buf.subarray(headerEnd + 4);
+          if (method !== 'GET' && method !== 'HEAD') {
+            await this.sendText(conn, 405, 'Method Not Allowed', keepAlive);
+            continue;
+          }
+          await this.servePath(conn, rawPath, method === 'HEAD', keepAlive);
+        }
+      } catch (err) {
+        hilog.error(DOMAIN, TAG, 'drain error: %{public}s', JSON.stringify(err));
+      } finally {
+        busy = false;
+      }
+    };
+
     conn.on('close', () => {
       clearIdle();
     });
@@ -153,7 +201,9 @@ export class LocalHttpServer {
           conn.close();
           return;
         }
-        buf = this.processBuffer(conn, buf);
+        drain().catch((err: Error) => {
+          hilog.error(DOMAIN, TAG, 'drain failed: %{public}s', JSON.stringify(err));
+        });
       } catch (err) {
         hilog.error(DOMAIN, TAG, 'handle message error: %{public}s', JSON.stringify(err));
       }
@@ -165,37 +215,8 @@ export class LocalHttpServer {
     armIdle();
   }
 
-  private processBuffer(conn: socket.TCPSocketConnection, buf: Uint8Array): Uint8Array {
-    let data: Uint8Array = buf;
-    while (true) {
-      const headerEnd: number = indexOfCrlfCrlf(data);
-      if (headerEnd < 0) {
-        break;
-      }
-      const headerText: string = utf8Decoder.decodeToString(data.subarray(0, headerEnd));
-      const lines: string[] = headerText.split('\r\n');
-      const reqLine: string[] = lines[0].split(' ');
-      const method: string = reqLine.length > 0 ? reqLine[0] : '';
-      const rawPath: string = reqLine.length > 1 ? reqLine[1] : '/';
-      let keepAlive: boolean = true;
-      for (let i = 1; i < lines.length; i++) {
-        const lower: string = lines[i].toLowerCase();
-        if (lower.startsWith('connection:') && lower.indexOf('close') >= 0) {
-          keepAlive = false;
-        }
-      }
-      data = data.subarray(headerEnd + 4);
-      if (method !== 'GET' && method !== 'HEAD') {
-        this.sendText(conn, 405, 'Method Not Allowed', keepAlive);
-        continue;
-      }
-      this.servePath(conn, rawPath, method === 'HEAD', keepAlive);
-    }
-    return data;
-  }
-
-  private servePath(conn: socket.TCPSocketConnection, rawPath: string, headOnly: boolean,
-    keepAlive: boolean): void {
+  private async servePath(conn: socket.TCPSocketConnection, rawPath: string, headOnly: boolean,
+    keepAlive: boolean): Promise<void> {
     let path: string = rawPath;
     const q: number = path.indexOf('?');
     if (q >= 0) {
@@ -214,24 +235,24 @@ export class LocalHttpServer {
       path = '/index.html';
     }
     if (path.indexOf('..') >= 0) {
-      this.sendText(conn, 403, 'Forbidden', keepAlive);
+      await this.sendText(conn, 403, 'Forbidden', keepAlive);
       return;
     }
 
     // 作弊注入：按当前启用的作弊清单动态下发（游戏脚本运行前执行）
     if (path === '/__cheats__.js') {
-      this.serveCheatScript(conn, keepAlive);
+      await this.serveCheatScript(conn, keepAlive);
       return;
     }
 
     // 始终走补丁流程：注入作弊脚本标签 + 实验性补丁（强制 Canvas / willReadFrequently）
     if (path === '/index.html') {
-      this.servePatchedIndex(conn, this.gameDir + path, headOnly, keepAlive);
+      await this.servePatchedIndex(conn, this.gameDir + path, headOnly, keepAlive);
       return;
     }
 
     const filePath: string = this.gameDir + path;
-    this.serveFile(conn, filePath, path, headOnly, keepAlive);
+    await this.serveFile(conn, filePath, path, headOnly, keepAlive);
   }
 
   /**
@@ -239,8 +260,8 @@ export class LocalHttpServer {
    * 会阻塞 UI，这里全部改为异步，读取完成后再发送。
    */
   private serveFile(conn: socket.TCPSocketConnection, filePath: string, path: string,
-    headOnly: boolean, keepAlive: boolean): void {
-    fs.stat(filePath).then((stat: fs.Stat) => {
+    headOnly: boolean, keepAlive: boolean): Promise<void> {
+    return fs.stat(filePath).then((stat: fs.Stat) => {
       noteServed(stat.size);
       // 资源请求可达数百次/次加载：仅在调试时逐条打印，正式包只保留 noteServed 的聚合日志
       if (DEBUG_UI) {
@@ -254,29 +275,119 @@ export class LocalHttpServer {
         'Connection: ' + (keepAlive ? 'keep-alive' : 'close') + '\r\n' +
         '\r\n';
       if (headOnly || stat.size === 0) {
-        conn.send({ data: header }).then(() => {
-          if (!keepAlive) {
-            conn.close();
-          }
-        }).catch((err: Error) => {
-          hilog.warn(DOMAIN, TAG, 'send header failed: %{public}s', JSON.stringify(err));
-        });
-        return;
+        return this.sendHeaderOnly(conn, header, keepAlive);
       }
-      this.sendFile(conn, filePath, stat.size, header, keepAlive);
+      return this.sendFile(conn, filePath, stat.size, header, keepAlive);
     }).catch((err: Error) => {
-      this.sendText(conn, 404, 'Not Found', keepAlive);
+      return this.sendText(conn, 404, 'Not Found', keepAlive);
     });
   }
 
-  /** 分块读取文件后发送：大文件不再一次性读进内存 */
+  /** 只发响应头（HEAD 请求 / 空文件） */
+  private sendHeaderOnly(conn: socket.TCPSocketConnection, header: string,
+    keepAlive: boolean): Promise<void> {
+    return conn.send({ data: header }).then(() => {
+      if (!keepAlive) {
+        conn.close();
+      }
+    }).catch((err: Error) => {
+      hilog.warn(DOMAIN, TAG, 'send header failed: %{public}s', JSON.stringify(err));
+    });
+  }
+
+  /** header 与 body 合并成一次 send（小响应，减少异步调用） */
+  private sendMerged(conn: socket.TCPSocketConnection, header: string, body: Uint8Array,
+    keepAlive: boolean): Promise<void> {
+    const head: Uint8Array = utf8Encoder.encodeInto(header);
+    const out: ArrayBuffer = new ArrayBuffer(head.byteLength + body.byteLength);
+    const view: Uint8Array = new Uint8Array(out);
+    view.set(head, 0);
+    view.set(body, head.byteLength);
+    return conn.send({ data: out }).then(() => {
+      if (!keepAlive) {
+        conn.close();
+      }
+    }).catch((err: Error) => {
+      hilog.warn(DOMAIN, TAG, 'sendMerged failed: %{public}s', JSON.stringify(err));
+    });
+  }
+
   private sendFile(conn: socket.TCPSocketConnection, filePath: string, size: number,
-    header: string, keepAlive: boolean): void {
-    fs.open(filePath, fs.OpenMode.READ_ONLY).then((fd: fs.File) => {
-      // 按文件大小分配：小文件（游戏里数百个 JS/音频）不再各占 1MB，降低 GC 压力
+    header: string, keepAlive: boolean): Promise<void> {
+    return fs.open(filePath, fs.OpenMode.READ_ONLY).then((fd: fs.File) => {
+      if (size <= SMALL_FILE_MERGE) {
+        return this.sendSmallFile(conn, fd, size, header, keepAlive);
+      }
+      return this.sendLargeFile(conn, fd, size, header, keepAlive);
+    }).catch((err: Error) => {
+      hilog.warn(DOMAIN, TAG, 'open file failed: %{public}s', JSON.stringify(err));
+      return this.sendText(conn, 404, 'Not Found', keepAlive);
+    });
+  }
+
+  /** 小文件：整块读入，header 与 body 拼成一次 send（少一次异步调用） */
+  private sendSmallFile(conn: socket.TCPSocketConnection, fd: fs.File, size: number,
+    header: string, keepAlive: boolean): Promise<void> {
+    return new Promise<void>((resolve: () => void) => {
+      let closed: boolean = false;
+      const closeFd = (): void => {
+        if (closed) {
+          return;
+        }
+        closed = true;
+        try {
+          fs.closeSync(fd);
+        } catch (err) {
+          hilog.warn(DOMAIN, TAG, 'close fd failed: %{public}s', JSON.stringify(err));
+        }
+      };
+      const done = (): void => {
+        if (!keepAlive) {
+          conn.close();
+        }
+        resolve();
+      };
+      const body: ArrayBuffer = new ArrayBuffer(size);
+      fs.read(fd.fd, body).then((bytesRead: number) => {
+        closeFd();
+        if (bytesRead <= 0) {
+          done();
+          return;
+        }
+        const head: Uint8Array = utf8Encoder.encodeInto(header);
+        const out: ArrayBuffer = new ArrayBuffer(head.byteLength + bytesRead);
+        const view: Uint8Array = new Uint8Array(out);
+        view.set(head, 0);
+        view.set(new Uint8Array(body).subarray(0, bytesRead), head.byteLength);
+        conn.send({ data: out }).then(() => {
+          done();
+        }).catch((err: Error) => {
+          hilog.warn(DOMAIN, TAG, 'send small file failed: %{public}s', JSON.stringify(err));
+          done();
+        });
+      }).catch((err: Error) => {
+        hilog.warn(DOMAIN, TAG, 'read file failed: %{public}s', JSON.stringify(err));
+        closeFd();
+        this.sendText(conn, 500, 'Internal Error', keepAlive).then(() => {
+          done();
+        });
+      });
+    });
+  }
+
+  /** 大文件：分块读取后发送，不一次性读进内存 */
+  private sendLargeFile(conn: socket.TCPSocketConnection, fd: fs.File, size: number,
+    header: string, keepAlive: boolean): Promise<void> {
+    return new Promise<void>((resolve: () => void) => {
+      // 按文件大小分配：小文件不再各占 1MB，降低 GC 压力
       const buf: ArrayBuffer = new ArrayBuffer(Math.min(SEND_CHUNK, size));
       let sent: number = 0;
+      let closed: boolean = false;
       const closeFd = (): void => {
+        if (closed) {
+          return;
+        }
+        closed = true;
         try {
           fs.closeSync(fd);
         } catch (err) {
@@ -288,11 +399,14 @@ export class LocalHttpServer {
         if (!keepAlive) {
           conn.close();
         }
+        resolve();
       };
       const fail = (msg: string, err: Error): void => {
         hilog.warn(DOMAIN, TAG, '%{public}s: %{public}s', msg, JSON.stringify(err));
         closeFd();
-        this.sendText(conn, 500, 'Internal Error', keepAlive);
+        this.sendText(conn, 500, 'Internal Error', keepAlive).then(() => {
+          resolve();
+        });
       };
       const pump = (): void => {
         const want: number = Math.min(SEND_CHUNK, size - sent);
@@ -303,7 +417,7 @@ export class LocalHttpServer {
             return;
           }
           sent += bytesRead;
-          const payload: ArrayBuffer = bytesRead === SEND_CHUNK ? buf : buf.slice(0, bytesRead);
+          const payload: ArrayBuffer = bytesRead === buf.byteLength ? buf : buf.slice(0, bytesRead);
           conn.send({ data: payload }).then(() => {
             if (sent >= size) {
               finish();
@@ -313,6 +427,10 @@ export class LocalHttpServer {
           }).catch((err: Error) => {
             hilog.warn(DOMAIN, TAG, 'send body failed: %{public}s', JSON.stringify(err));
             closeFd();
+            if (!keepAlive) {
+              conn.close();
+            }
+            resolve();
           });
         }).catch((err: Error) => {
           fail('read file failed', err);
@@ -323,9 +441,6 @@ export class LocalHttpServer {
       }).catch((err: Error) => {
         fail('send header failed', err);
       });
-    }).catch((err: Error) => {
-      hilog.warn(DOMAIN, TAG, 'open file failed: %{public}s', JSON.stringify(err));
-      this.sendText(conn, 404, 'Not Found', keepAlive);
     });
   }
 
@@ -344,15 +459,13 @@ export class LocalHttpServer {
   }
 
   /** 动态下发作弊注入脚本：按当前启用清单生成，游戏启动前执行 */
-  private serveCheatScript(conn: socket.TCPSocketConnection, keepAlive: boolean): void {
+  private serveCheatScript(conn: socket.TCPSocketConnection, keepAlive: boolean): Promise<void> {
     try {
       const js: string = buildBootScript();
       // 空内容（未启用作弊）时直接返回空脚本，避免 encodeInto('') 抛错
       const arr: Uint8Array = js.length > 0
         ? utf8Encoder.encodeInto(js)
         : new Uint8Array(0);
-      const buf: ArrayBuffer = new ArrayBuffer(arr.byteLength);
-      new Uint8Array(buf).set(arr);
       const header: string = 'HTTP/1.1 200 OK\r\n' +
         'Content-Type: application/javascript; charset=utf-8\r\n' +
         'Content-Length: ' + arr.byteLength + '\r\n' +
@@ -360,28 +473,18 @@ export class LocalHttpServer {
         'Access-Control-Allow-Origin: *\r\n' +
         'Connection: ' + (keepAlive ? 'keep-alive' : 'close') + '\r\n' +
         '\r\n';
-      conn.send({ data: header }).then(() => {
-        conn.send({ data: buf }).then(() => {
-          if (!keepAlive) {
-            conn.close();
-          }
-        }).catch((err: Error) => {
-          hilog.warn(DOMAIN, TAG, 'send cheat js failed: %{public}s', JSON.stringify(err));
-        });
-      }).catch((err: Error) => {
-        hilog.warn(DOMAIN, TAG, 'send cheat header failed: %{public}s', JSON.stringify(err));
-      });
       hilog.info(DOMAIN, TAG, 'served /__cheats__.js (%{public}d bytes)', arr.byteLength);
+      return this.sendMerged(conn, header, arr, keepAlive);
     } catch (err) {
       hilog.error(DOMAIN, TAG, 'serveCheatScript failed: %{public}s', JSON.stringify(err));
-      this.sendText(conn, 500, 'Internal Error', keepAlive);
+      return this.sendText(conn, 500, 'Internal Error', keepAlive);
     }
   }
 
   /** 读取 index.html 并注入存档守卫 + 作弊脚本标签 + 实验脚本后返回 */
   private servePatchedIndex(conn: socket.TCPSocketConnection, filePath: string,
-    headOnly: boolean, keepAlive: boolean): void {
-    fs.readText(filePath).then((html: string) => {
+    headOnly: boolean, keepAlive: boolean): Promise<void> {
+    return fs.readText(filePath).then((html: string) => {
       // 存档守卫放最前：必须在游戏脚本读 localStorage 之前完成回填
       // 作弊脚本始终注入（未启用时 /__cheats__.js 返回空内容），保证先于游戏脚本执行
       const inject: string = buildSaveGuardScript() +
@@ -392,8 +495,6 @@ export class LocalHttpServer {
         : inject + html;
 
       const arr: Uint8Array = utf8Encoder.encodeInto(patched);
-      const buf: ArrayBuffer = new ArrayBuffer(arr.byteLength);
-      new Uint8Array(buf).set(arr);
       const header: string = 'HTTP/1.1 200 OK\r\n' +
         'Content-Type: text/html\r\n' +
         'Content-Length: ' + arr.byteLength + '\r\n' +
@@ -401,40 +502,23 @@ export class LocalHttpServer {
         'Connection: ' + (keepAlive ? 'keep-alive' : 'close') + '\r\n' +
         '\r\n';
       if (headOnly) {
-        conn.send({ data: header }).then(() => {
-          if (!keepAlive) {
-            conn.close();
-          }
-        }).catch((err: Error) => {
-          hilog.warn(DOMAIN, TAG, 'send patched html header failed: %{public}s', JSON.stringify(err));
-        });
-        return;
+        return this.sendHeaderOnly(conn, header, keepAlive);
       }
-      conn.send({ data: header }).then(() => {
-        conn.send({ data: buf }).then(() => {
-          if (!keepAlive) {
-            conn.close();
-          }
-        }).catch((err: Error) => {
-          hilog.warn(DOMAIN, TAG, 'send patched html failed: %{public}s', JSON.stringify(err));
-        });
-      }).catch((err: Error) => {
-        hilog.warn(DOMAIN, TAG, 'send patched html header failed: %{public}s', JSON.stringify(err));
-      });
       hilog.info(DOMAIN, TAG, '%{public}s', 'served patched index.html (cheat + force canvas)');
+      return this.sendMerged(conn, header, arr, keepAlive);
     }).catch((err: Error) => {
       hilog.error(DOMAIN, TAG, 'servePatchedIndex failed: %{public}s', JSON.stringify(err));
-      this.sendText(conn, 500, 'Internal Error', keepAlive);
+      return this.sendText(conn, 500, 'Internal Error', keepAlive);
     });
   }
 
   private sendText(conn: socket.TCPSocketConnection, code: number, reason: string,
-    keepAlive: boolean): void {
+    keepAlive: boolean): Promise<void> {
     const header: string = 'HTTP/1.1 ' + code + ' ' + reason + '\r\n' +
       'Content-Length: 0\r\n' +
       'Connection: ' + (keepAlive ? 'keep-alive' : 'close') + '\r\n' +
       '\r\n';
-    conn.send({ data: header }).then(() => {
+    return conn.send({ data: header }).then(() => {
       if (!keepAlive) {
         conn.close();
       }

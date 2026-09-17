@@ -27,6 +27,20 @@ export function formatSpeed(bytesPerSec: number): string {
   return formatBytes(bytesPerSec) + '/s';
 }
 
+/**
+ * 错误详情文案：优先用 message；BusinessError 的 message 可能为空，
+ * 此时回退到错误码，避免界面上出现「下载失败：」这样的空尾。
+ */
+export function formatErrorDetail(message: string | undefined, code: number | undefined): string {
+  if (message !== undefined && message.length > 0) {
+    return message;
+  }
+  if (code !== undefined) {
+    return '错误码 ' + code;
+  }
+  return '未知错误';
+}
+
 /** 剩余时间（中文概数）：约 25 秒 / 约 3 分钟 / 约 1 小时 5 分钟；无效返回空串 */
 export function formatDuration(seconds: number): string {
   if (seconds <= 0 || !isFinite(seconds)) {

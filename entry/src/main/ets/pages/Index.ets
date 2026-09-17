@@ -49,6 +49,8 @@ struct Index {
   @State version: string = '';
   @State error: string = '';
   @State paused: boolean = false;
+  /** 应用切到后台：暂停进度动画的 60fps 重绘 */
+  @State appHidden: boolean = false;
   @State storageInsufficient: boolean = false;
   @State freeSizeText: string = '';
   @State cheatMasterOn: boolean = false;
@@ -102,6 +104,8 @@ struct Index {
   }
 
   onPageShow(): void {
+    // 回到前台：恢复进度动画
+    this.appHidden = false;
     // 首页底部安全区留白用白色
     setWindowBackground(HOME_BG_COLOR);
     // 手机：首页恒竖屏（游戏页可能已切换为横屏/跟随系统）；平板：跟随系统
@@ -120,6 +124,11 @@ struct Index {
       return;
     }
     session.refreshReadyState();
+  }
+
+  onPageHide(): void {
+    // 切后台：停掉进度动画的定时重绘，避免后台空转耗电
+    this.appHidden = true;
   }
 
   /** 启动时自动检查应用更新（24h 节流；失败静默） */
@@ -345,6 +354,7 @@ struct Index {
             DownloadFlowView({
               phase: this.prepPhase,
               paused: this.paused,
+              appHidden: this.appHidden,
               progress: this.progress,
               speedText: this.speedText,
               etaText: this.etaText,

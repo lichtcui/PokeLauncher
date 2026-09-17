@@ -21,7 +21,7 @@
 - 产物：`entry/build/default/outputs/default/entry-default-signed.hap`
 - App 名 **PokeLauncher**，bundle = `com.lichtcui.pokelauncher`
 - **每次改完代码都必须走完「编译 → 安装 → 重启 → 截图观察」闭环**。只编译不安装，设备上跑的仍是旧版本，会误判「改动没生效」。
-- ⚠️ `build-profile.json5` 的 `compatibleSdkVersion` / `targetSdkVersion` 必须是 `"6.1.1(24)"`（本机 SDK 是 API 26，真机是 API 24）。报「sdk version 不匹配」先查这里。
+- ⚠️ `build-profile.json5` 的 `compatibleSdkVersion` 为 `"5.0.0(12)"`、`targetSdkVersion` 为 `"6.1.1(24)"`（本机 SDK 是 API 26，真机是 API 24）。不要按旧文档把 `compatibleSdkVersion` 抬到 24——代码里多处以 `deviceInfo.sdkApiVersion` 对 API 12~21 的新特性做运行时兜底（见 [`docs/app-update.md`](./docs/app-update.md)），抬高会丢掉低版本兼容。报「sdk version 不匹配」先查这里。
 
 ## 2. 本项目约定
 

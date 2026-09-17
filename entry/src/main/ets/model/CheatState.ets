@@ -59,17 +59,14 @@ function parseParams(raw: string): void {
   }
 }
 
-function persist(): void {
+/** 只写变化的那一项，避免每次开关/滑块松手都重写全部三个 key 并 flush */
+function persist(key: string, value: preferences.ValueType): void {
   const ctx: common.UIAbilityContext | null = ctxRef;
   if (ctx === null) {
     return;
   }
   getStore(ctx, SETTINGS_STORE).then((store: preferences.Preferences) => {
-    store.put(KEY_MASTER, masterEnabled).then(() => {
-      return store.put(KEY_IDS, idsToString());
-    }).then(() => {
-      return store.put(KEY_PARAMS, paramsToString());
-    }).then(() => {
+    store.put(key, value).then(() => {
       return store.flush();
     }).catch((err: Error) => {
       hilog.warn(DOMAIN, TAG, 'flush cheat state failed: %{public}s', JSON.stringify(err));
@@ -110,7 +107,7 @@ export function setMaster(v: boolean): void {
     return;
   }
   masterEnabled = v;
-  persist();
+  persist(KEY_MASTER, masterEnabled);
 }
 
 /** 切换单条作弊（内存 + 持久化） */
@@ -121,7 +118,7 @@ export function toggleCheat(id: string): void {
   } else {
     enabledIds.push(id);
   }
-  persist();
+  persist(KEY_IDS, idsToString());
 }
 
 /** 读取数值参数（未设置返回 fallback） */
@@ -145,7 +142,7 @@ export function setParamLive(id: string, value: number): void {
 /** 设置数值参数（内存 + 立即持久化） */
 export function setParam(id: string, value: number): void {
   setParamLive(id, value);
-  persist();
+  persist(KEY_PARAMS, paramsToString());
 }
 
 /**

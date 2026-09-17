@@ -86,6 +86,8 @@ export struct PulseProgress {
   @Prop @Watch('onPhaseChange') phase: PrepPhase = PrepPhase.IDLE;
   /** 暂停时冻结波浪推进（进度事件不再前进，动画也不该继续流动） */
   @Prop paused: boolean = false;
+  /** 应用切到后台：停表省电，回到前台再续播（页面 onPageHide/onPageShow 驱动） */
+  @Prop @Watch('onAppHiddenChange') appHidden: boolean = false;
   @Prop canvasW: number = VB_W;
   @Prop canvasH: number = VB_H;
   @Prop strokeColor: string = '#DA3838';
@@ -142,7 +144,19 @@ export struct PulseProgress {
     if (this.phase === PrepPhase.IDLE) {
       this.stopLoop();
       this.renderStatic();
+    } else if (this.appHidden) {
+      // 后台不重绘，回前台由 onAppHiddenChange 重新起表
+      this.stopLoop();
     } else {
+      this.ensureLoop();
+    }
+  }
+
+  /** 前后台切换：后台停表，回前台且处于动画阶段时续播 */
+  private onAppHiddenChange(): void {
+    if (this.appHidden) {
+      this.stopLoop();
+    } else if (this.phase !== PrepPhase.IDLE) {
       this.ensureLoop();
     }
   }
@@ -367,7 +381,7 @@ export struct PulseProgress {
         this.canvasReady = true;
         if (this.phase === PrepPhase.IDLE) {
           this.renderStatic();
-        } else {
+        } else if (!this.appHidden) {
           this.ensureLoop();
         }
       })
