@@ -53,11 +53,14 @@ struct GamePage {
   private attached: boolean = false;
   private lastSavePath: string = '';
   private backTimer: number = -1;
+  /** 页面是否仍在栈中：异步回调返回时据此避免操作已销毁的页面 */
+  private alive: boolean = true;
   @State loadError: string = '';
   /** 返回按钮是否全显（false 时淡出，仅留可点痕迹，避免遮挡游戏信息） */
   @State backVisible: boolean = true;
 
   aboutToAppear(): void {
+    this.alive = true;
     // audioSessionType（@since 20）：与后台音乐并发混音；低版本不支持则回退（会降音）
     if (deviceInfo.sdkApiVersion >= 20) {
       this.mediaOptions.audioSessionType = AudioSessionType.AMBIENT;
@@ -84,6 +87,7 @@ struct GamePage {
   }
 
   aboutToDisappear(): void {
+    this.alive = false;
     if (this.backTimer >= 0) {
       clearTimeout(this.backTimer);
       this.backTimer = -1;
@@ -261,7 +265,9 @@ struct GamePage {
     const hostCtx = this.getUIContext().getHostContext();
     if (hostCtx !== undefined) {
       readOrientation(hostCtx as common.UIAbilityContext).then((v: string) => {
-        setOrientation(toOrientation(v));
+        if (this.alive) {
+          setOrientation(toOrientation(v));
+        }
       });
     }
     hilog.info(DOMAIN, TAG, 'onPageShow attached=%{public}s', this.attached.toString());

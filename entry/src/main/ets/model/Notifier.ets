@@ -16,13 +16,22 @@ const ID_FAILED: number = 1002;
  * - 本类负责「通知权限申请」与「完成/失败」通知。
  */
 export class Notifier {
+  /** 是否已发起过权限申请：进入未下载态会多次触发，避免重复调用系统 API */
+  private static permissionRequested: boolean = false;
+
   /** 申请通知权限（首次下载前调用；用户拒绝后不再弹窗） */
   static requestPermission(ctx: common.UIAbilityContext): void {
+    if (Notifier.permissionRequested) {
+      return;
+    }
+    Notifier.permissionRequested = true;
     notificationManager.requestEnableNotification(ctx)
       .then(() => {
         hilog.info(DOMAIN, TAG, '%{public}s', 'notification enabled');
       })
       .catch((err: BusinessError) => {
+        // 失败（如瞬时错误）允许下次重试，避免一次失败后永久不再申请
+        Notifier.permissionRequested = false;
         hilog.warn(DOMAIN, TAG, 'requestEnableNotification failed: %{public}s', JSON.stringify(err));
       });
   }

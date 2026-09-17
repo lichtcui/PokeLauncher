@@ -51,6 +51,24 @@ export function normalizeVersion(v: string): string {
 }
 
 /**
+ * Release 结果缓存（模块级）：首页与设置页各自 new 一个 GameRepository，
+ * 用实例缓存会各请求一次 GitHub API；共享缓存后同一 asset 只查一次。
+ */
+let cachedRelease: ReleaseInfo | null = null;
+
+/** 测速结果短 TTL：同日多次下载（重试/更新）不必重复探测同一组镜像 */
+const RANK_TTL_MS: number = 5 * 60 * 1000;
+let rankCacheKey: string = '';
+let rankCacheAt: number = 0;
+let rankCacheUrls: string[] = [];
+
+/** 下载失败说明该排序已不可信，丢弃缓存让下次重新测速 */
+function invalidateRankCache(): void {
+  rankCacheKey = '';
+  rankCacheUrls = [];
+}
+
+/**
  * 离线资源包仓库：负责下载、解压、删除、版本记录。
  * 数据目录：<sandbox>/files/game
  * 临时 zip：<sandbox>/cache/game.zip
@@ -62,9 +80,6 @@ export class GameRepository {
   private cancelled: boolean = false;
   private paused: boolean = false;
   private pollTimer: number = -1;
-  /** resolveRelease 结果缓存：首页 init 与 startDownload 会各调一次，避免重复请求 GitHub API */
-  private releaseCache: ReleaseInfo | null = null;
-  private releaseCacheAsset: string = '';
 
   constructor(ctx: common.UIAbilityContext) {
     this.ctx = ctx;
@@ -118,7 +133,7 @@ export class GameRepository {
   /**
    * 取资源包信息。DEBUG_ASSET_URL 非空时直接用它（本地小测试包），否则查 GitHub Release。
    */
-  async resolveRelease(assetName: string = DEFAULT_ASSET): Promise<ReleaseInfo> {
+  async resolveRelease(force: boolean = false): Promise<ReleaseInfo> {
     if (DEBUG_ASSET_URL.length > 0) {
       hilog.warn(DOMAIN, TAG, 'DEBUG_ASSET_URL in use: %{public}s', DEBUG_ASSET_URL);
       const info: ReleaseInfo = new ReleaseInfo();
@@ -128,12 +143,11 @@ export class GameRepository {
       info.assetSize = 0;
       return info;
     }
-    if (this.releaseCache !== null && this.releaseCacheAsset === assetName) {
-      return this.releaseCache;
+    if (!force && cachedRelease !== null) {
+      return cachedRelease;
     }
-    const info: ReleaseInfo = await this.fetchRelease(assetName);
-    this.releaseCache = info;
-    this.releaseCacheAsset = assetName;
+    const info: ReleaseInfo = await this.fetchRelease(DEFAULT_ASSET);
+    cachedRelease = info;
     return info;
   }
 
@@ -180,25 +194,42 @@ export class GameRepository {
     return urls;
   }
 
-  /** 并发探测各源速度，按“快 → 慢 → 失败”排序 */
+  /**
+   * 并发探测各源速度，按“快 → 慢 → 失败”排序。
+   * 最后一个候选是 GitHub 直连兜底：不参与测速（白读 128KB 且通常最慢），
+   * 镜像都不可用时才会用到它。
+   */
   private async rankSources(urls: string[]): Promise<string[]> {
+    const key: string = urls.join('|');
+    if (rankCacheKey === key && Date.now() - rankCacheAt < RANK_TTL_MS) {
+      hilog.info(DOMAIN, TAG, '%{public}s', 'rank cache hit');
+      return rankCacheUrls.slice();
+    }
+    const hasFallback: boolean = urls.length > 1;
+    const targets: string[] = hasFallback ? urls.slice(0, urls.length - 1) : urls;
     const probes: Promise<number>[] = [];
-    for (let i = 0; i < urls.length; i++) {
-      probes.push(this.probe(urls[i]));
+    for (let i = 0; i < targets.length; i++) {
+      probes.push(this.probe(targets[i]));
     }
     const speeds: number[] = await Promise.all(probes);
     const idx: number[] = [];
-    for (let i = 0; i < urls.length; i++) {
+    for (let i = 0; i < targets.length; i++) {
       idx.push(i);
     }
     idx.sort((a: number, b: number) => speeds[b] - speeds[a]);
     const sorted: string[] = [];
     for (let i = 0; i < idx.length; i++) {
-      sorted.push(urls[idx[i]]);
+      sorted.push(targets[idx[i]]);
       // 注意：hilog 不支持 %f，必须用 %s + 格式化后的字符串
       hilog.info(DOMAIN, TAG, 'source[%{public}d] speed=%{public}s KB/ms',
         idx[i], (speeds[idx[i]] / 1024).toFixed(2));
     }
+    if (hasFallback) {
+      sorted.push(urls[urls.length - 1]);
+    }
+    rankCacheKey = key;
+    rankCacheAt = Date.now();
+    rankCacheUrls = sorted.slice();
     return sorted;
   }
 
@@ -289,8 +320,9 @@ export class GameRepository {
         if (this.cancelled) {
           return;
         }
-        // 下载失败才换源重试
+        // 下载失败才换源重试；同时丢弃排序缓存，下次下载重新测速
         lastErr = err as Error;
+        invalidateRankCache();
         hilog.warn(DOMAIN, TAG, 'download attempt %{public}d failed: %{public}s',
           i, JSON.stringify(err));
         continue;

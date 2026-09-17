@@ -300,13 +300,13 @@ export class LauncherSession {
 
   private emitProgress(progress: number, receivedText: string, totalText: string,
     speedText: string, etaText: string): void {
-    const v: ProgressView = new ProgressView();
+    // 复用同一对象：进度刷新每 150ms 触发一次，避免高频 new 造成 GC 抖动
+    const v: ProgressView = this.lastProgress;
     v.progress = progress;
     v.receivedText = receivedText;
     v.totalText = totalText;
     v.speedText = speedText;
     v.etaText = etaText;
-    this.lastProgress = v;
     this.cb.setProgress(v);
   }
 

@@ -104,11 +104,18 @@ export struct PulseProgress {
   private timerId: number = -1;
   private canvasReady: boolean = false;
   private circleCache: number[][] = [];
+  /** 复用的点集缓冲：60fps 下每帧新建数百个数组会持续产生 GC 抖动，改为原地写入 */
+  private ringBuf: number[][] = [];
+  private waveBuf: number[][] = [];
+  private outBuf: number[][] = [];
 
   aboutToAppear(): void {
     for (let i = 0; i <= N; i++) {
       const th: number = SEAM + (i / N) * Math.PI * 2;
       this.circleCache.push([CX + R * Math.cos(th), CY + R * Math.sin(th)]);
+      this.ringBuf.push([0, 0]);
+      this.waveBuf.push([0, 0]);
+      this.outBuf.push([0, 0]);
     }
     // @Watch 只在值「变化」时触发：首次挂载（未下载页 → 下载页是不同分支，
     // 组件是新建的）必须自己按当前阶段初始化时间戳，
@@ -259,14 +266,7 @@ export struct PulseProgress {
         }
         const target: number[][] = this.ringAt(SMALL);
         const wave: number[][] = this.wavePoints(this.wavePhase, AMP);
-        const out: number[][] = [];
-        for (let i = 0; i <= N; i++) {
-          out.push([
-            lerp(wave[i][0], target[i][0], ease(p)),
-            lerp(wave[i][1], target[i][1], ease(p)),
-          ]);
-        }
-        return out;
+        return this.lerpPoints(wave, target, ease(p));
       }
 
       const tb: number = dt - SHRINK_MS;
@@ -287,14 +287,7 @@ export struct PulseProgress {
       if (dt < EXPAND_MS) {
         const p: number = clamp(dt / EXPAND_MS, 0, 1);
         const start: number[][] = this.ringAt(this.lastBreathR / R);
-        const out: number[][] = [];
-        for (let i = 0; i <= N; i++) {
-          out.push([
-            lerp(start[i][0], wave[i][0], ease(p)),
-            lerp(start[i][1], wave[i][1], ease(p)),
-          ]);
-        }
-        return out;
+        return this.lerpPoints(start, wave, ease(p));
       }
       return wave;
     }
@@ -318,27 +311,33 @@ export struct PulseProgress {
     return R * SMALL * (1 + BREATH_AMP * breath);
   }
 
-  /** 波浪上第 i 个采样点 */
+  /** 波浪上第 i 个采样点（写入复用缓冲 waveBuf） */
   private wavePoints(phase: number, amp: number): number[][] {
-    const out: number[][] = [];
     for (let i = 0; i <= N; i++) {
       const t: number = i / N;
-      out.push([
-        X0 + (X1 - X0) * t,
-        YC + amp * Math.sin(phase - t * Math.PI * 4),
-      ]);
+      this.waveBuf[i][0] = X0 + (X1 - X0) * t;
+      this.waveBuf[i][1] = YC + amp * Math.sin(phase - t * Math.PI * 4);
     }
-    return out;
+    return this.waveBuf;
   }
 
-  /** 半径比例为 s 的圆环点集（s=1 即原始圆） */
+  /** 半径比例为 s 的圆环点集（s=1 即原始圆，写入复用缓冲 ringBuf） */
   private ringAt(s: number): number[][] {
-    const out: number[][] = [];
     for (let i = 0; i <= N; i++) {
       const b: number[] = this.circleCache[i];
-      out.push([CX + (b[0] - CX) * s, CY + (b[1] - CY) * s]);
+      this.ringBuf[i][0] = CX + (b[0] - CX) * s;
+      this.ringBuf[i][1] = CY + (b[1] - CY) * s;
     }
-    return out;
+    return this.ringBuf;
+  }
+
+  /** a → b 按 t 插值（写入复用缓冲 outBuf；a/b 需为不同的缓冲） */
+  private lerpPoints(a: number[][], b: number[][], t: number): number[][] {
+    for (let i = 0; i <= N; i++) {
+      this.outBuf[i][0] = lerp(a[i][0], b[i][0], t);
+      this.outBuf[i][1] = lerp(a[i][1], b[i][1], t);
+    }
+    return this.outBuf;
   }
 
   /** 把点集描到画布 */

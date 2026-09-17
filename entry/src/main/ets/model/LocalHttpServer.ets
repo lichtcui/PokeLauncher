@@ -3,7 +3,7 @@ import { fileIo as fs } from '@kit.CoreFileKit';
 import { util } from '@kit.ArkTS';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { mimeOf } from '../common/Mime';
-import { FORCE_WILL_READ_FREQUENTLY } from '../common/Const';
+import { FORCE_WILL_READ_FREQUENTLY, DEBUG_UI } from '../common/Const';
 import { buildBootScript } from './CheatState';
 import { buildSaveGuardScript } from './SaveGuard';
 
@@ -21,6 +21,9 @@ const MAX_REQUEST_HEADER: number = 16 * 1024;
 
 /** 发送文件的分块大小：避免大文件一次性读进内存，同时减少 send 次数 */
 const SEND_CHUNK: number = 1024 * 1024;
+
+/** 空闲连接超时：keep-alive 连接长时间无请求时主动关闭，避免异常客户端长期占用 */
+const IDLE_TIMEOUT_MS: number = 60 * 1000;
 
 let servedCount: number = 0;
 let servedBytes: number = 0;
@@ -117,12 +120,36 @@ export class LocalHttpServer {
 
   private handleConnection(conn: socket.TCPSocketConnection): void {
     let buf: Uint8Array = new Uint8Array(0);
+    let idleTimer: number = -1;
+    const clearIdle = (): void => {
+      if (idleTimer >= 0) {
+        clearTimeout(idleTimer);
+        idleTimer = -1;
+      }
+    };
+    const armIdle = (): void => {
+      clearIdle();
+      idleTimer = setTimeout(() => {
+        idleTimer = -1;
+        hilog.info(DOMAIN, TAG, '%{public}s', 'closing idle connection');
+        try {
+          conn.close();
+        } catch (err) {
+          hilog.warn(DOMAIN, TAG, 'close idle conn failed: %{public}s', JSON.stringify(err));
+        }
+      }, IDLE_TIMEOUT_MS);
+    };
+    conn.on('close', () => {
+      clearIdle();
+    });
     conn.on('message', (info: socket.SocketMessageInfo) => {
       try {
+        armIdle();
         buf = concat(buf, new Uint8Array(info.message));
         if (buf.length > MAX_REQUEST_HEADER) {
           hilog.warn(DOMAIN, TAG, 'request header too large (%{public}d), closing', buf.length);
           buf = new Uint8Array(0);
+          clearIdle();
           conn.close();
           return;
         }
@@ -132,8 +159,10 @@ export class LocalHttpServer {
       }
     });
     conn.on('error', (err: Error) => {
+      clearIdle();
       hilog.warn(DOMAIN, TAG, 'conn error: %{public}s', JSON.stringify(err));
     });
+    armIdle();
   }
 
   private processBuffer(conn: socket.TCPSocketConnection, buf: Uint8Array): Uint8Array {
@@ -213,7 +242,10 @@ export class LocalHttpServer {
     headOnly: boolean, keepAlive: boolean): void {
     fs.stat(filePath).then((stat: fs.Stat) => {
       noteServed(stat.size);
-      hilog.info(DOMAIN, TAG, 'GET %{public}s (%{public}d)', path, stat.size);
+      // 资源请求可达数百次/次加载：仅在调试时逐条打印，正式包只保留 noteServed 的聚合日志
+      if (DEBUG_UI) {
+        hilog.info(DOMAIN, TAG, 'GET %{public}s (%{public}d)', path, stat.size);
+      }
       const header: string = 'HTTP/1.1 200 OK\r\n' +
         'Content-Type: ' + mimeOf(filePath) + '\r\n' +
         'Content-Length: ' + stat.size + '\r\n' +
@@ -241,7 +273,8 @@ export class LocalHttpServer {
   private sendFile(conn: socket.TCPSocketConnection, filePath: string, size: number,
     header: string, keepAlive: boolean): void {
     fs.open(filePath, fs.OpenMode.READ_ONLY).then((fd: fs.File) => {
-      const buf: ArrayBuffer = new ArrayBuffer(SEND_CHUNK);
+      // 按文件大小分配：小文件（游戏里数百个 JS/音频）不再各占 1MB，降低 GC 压力
+      const buf: ArrayBuffer = new ArrayBuffer(Math.min(SEND_CHUNK, size));
       let sent: number = 0;
       const closeFd = (): void => {
         try {

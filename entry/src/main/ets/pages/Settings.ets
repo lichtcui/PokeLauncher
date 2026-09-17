@@ -83,7 +83,8 @@ struct Settings {
       return;
     }
     this.checkingGame = true;
-    repo.fetchRelease()
+    // force=true：绕过模块级缓存，拿到最新 Release（TTL 判断已在上面完成）
+    repo.resolveRelease(true)
       .then((info: ReleaseInfo) => {
         gameRemoteTag = info.tag;
         gameCheckAt = Date.now();

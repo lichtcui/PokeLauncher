@@ -71,26 +71,27 @@ function writeTextAsync(path: string, data: string): Promise<void> {
     });
 }
 
-function readTextAsync(path: string): Promise<string> {
-  return fs.access(path).then((exists: boolean) => {
-    if (!exists) {
-      return '';
-    }
-    return fs.readText(path).catch((err: Error) => {
-      hilog.warn(DOMAIN, TAG, 'readTextAsync %{public}s failed: %{public}s', path, JSON.stringify(err));
-      return '';
-    });
-  }).catch(() => {
-    return '';
-  });
-}
-
-/** 已成功落盘的内容（用于去重，以及滚动 .bak 时免去一次同步读） */
+/** 已成功落盘的内容（用于去重） */
 let diskContent: string = '';
 /** 已排队/正在写的内容（写入期间再次提交时用于去重与合并） */
 let queuedContent: string = '';
 /** 串行化写入，避免并发写同一文件互相覆盖 */
 let writeChain: Promise<void> = Promise.resolve();
+
+/** 把主文件改名为 .bak（原子、不复制数据）：写主文件途中被杀也能从 .bak 恢复 */
+function rotateBackup(main: string, bak: string): void {
+  try {
+    if (!fs.accessSync(main)) {
+      return;
+    }
+    if (fs.accessSync(bak)) {
+      fs.unlinkSync(bak);
+    }
+    fs.renameSync(main, bak);
+  } catch (err) {
+    hilog.warn(DOMAIN, TAG, 'rotate snapshot failed: %{public}s', JSON.stringify(err));
+  }
+}
 
 async function doWrite(data: string): Promise<void> {
   try {
@@ -99,14 +100,8 @@ async function doWrite(data: string): Promise<void> {
       fs.mkdirSync(dir, true);
     }
     const main: string = pathOf();
-    // 先把上一份滚到 .bak，再写主文件：写主文件途中被杀也能从 .bak 恢复
-    let previous: string = diskContent;
-    if (previous.length <= 2) {
-      previous = await readTextAsync(main);
-    }
-    if (previous.length > 2) {
-      await writeTextAsync(bakPathOf(), previous);
-    }
+    // 先把上一份滚到 .bak，再写主文件
+    rotateBackup(main, bakPathOf());
     await writeTextAsync(main, data);
     diskContent = data;
     hilog.info(DOMAIN, TAG, 'snapshot saved: %{public}d bytes', data.length);
