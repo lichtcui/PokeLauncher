@@ -2,6 +2,19 @@
  * 全局常量
  */
 
+import { deviceInfo } from '@kit.BasicServicesKit';
+
+/**
+ * 调试开关：true 时强制走「低版本 API」分支（`apiAtLeast()` 恒返回 false），
+ * 用于在现有高版本设备上验证降级路径。正式发布必须为 false。
+ */
+export const DEBUG_FORCE_OLD_API: boolean = false;
+
+/** 系统 API 等级是否 >= n（`DEBUG_FORCE_OLD_API` 为 true 时恒 false，便于本地验证兜底） */
+export function apiAtLeast(n: number): boolean {
+  return !DEBUG_FORCE_OLD_API && deviceInfo.sdkApiVersion >= n;
+}
+
 /** GitHub Release API（离线资源包来源） */
 export const RELEASE_API: string =
   'https://api.github.com/repos/Admiral-Billy/pokerogue/releases/latest';

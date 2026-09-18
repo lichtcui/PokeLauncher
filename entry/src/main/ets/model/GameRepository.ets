@@ -1,11 +1,11 @@
-import { request, zlib, BusinessError, deviceInfo } from '@kit.BasicServicesKit';
+import { request, zlib, BusinessError } from '@kit.BasicServicesKit';
 import { http } from '@kit.NetworkKit';
 import { fileIo as fs } from '@kit.CoreFileKit';
 import { common, wantAgent } from '@kit.AbilityKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import {
   RELEASE_API, USER_AGENT, DEFAULT_ASSET, GAME_DIR_NAME, DOWNLOAD_MIRRORS, API_MIRROR,
-  DEBUG_ASSET_URL
+  DEBUG_ASSET_URL, apiAtLeast
 } from '../common/Const';
 import { requestText } from '../common/Http';
 
@@ -619,7 +619,7 @@ export class GameRepository {
     };
     // notification 字段 @since 15、visibility @since 21、wantAgent @since 22：
     // 低版本整体不设置，回退到 gauge 决定通知样式（仍显示进度），只是点击不再拉起应用。
-    if (deviceInfo.sdkApiVersion >= 22) {
+    if (apiAtLeast(22)) {
       const wantAgentInfo: wantAgent.WantAgentInfo = {
         wants: [
           {
@@ -776,7 +776,7 @@ export class GameRepository {
 
     try {
       // parallel 选项 @since 18：低版本回退为串行解压（仅慢一些）
-      if (deviceInfo.sdkApiVersion >= 18) {
+      if (apiAtLeast(18)) {
         await zlib.decompressFile(this.zipPath, this.stagingDir, {
           parallel: zlib.ParallelStrategy.PARALLEL_STRATEGY_PARALLEL_DECOMPRESSION
         });

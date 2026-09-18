@@ -107,10 +107,12 @@ scripts/build-release-app.sh
   - `pages/GamePage.ets` `fileUri.FileUri`（@15）：≥15 用；低版本回退 `@ohos.uri` 的 `URI.path`
   - `model/GameRepository.ets` `request.agent.Notification`（@15）/ `visibility`（@21）/ `wantAgent`（@22）：<22 整体不设置通知，回退 `gauge`（仍显进度），**通知点击不再拉起应用**
   - 已在 API 24 真机冒烟（首页 + 游戏页正常）；**API 12~23 真机仍未验证**。注意编译器和 hvigor **不校验 API 版本**（降级也能编过），可能仍有未扫出的 >12 调用，需真机/模拟器确认。
+  - 调试开关 `Const.DEBUG_FORCE_OLD_API`（默认 false）：置 true 时 `apiAtLeast()` 恒 false，可在高版本真机上强制走降级路径。本机 API 24 实测：四条降级分支**全部可用**——首页/游戏页不崩、完整「下载 → 解压（zlib 串行）→ 就绪」、导出存档（`uri.URI.path` 回退，文件成功落盘 19116B）。**仍缺**：真实 API 12~17 设备（安装 + 可能未扫出的 >12 调用）。
 - **设备类型（部分已做，2026-09-18）**：`deviceTypes=['phone','tablet']`；新增 `WindowHolder.isTablet()`，平板首页/设置页不再强制竖屏，大屏内容 `constraintSize({maxWidth:560})` 居中。**平板侧未验证**（本机无镜像/真机）；PC（`2in1`）尚未加入。
+- **本地模拟器不可用（2026-09-18 实测）**：开发机是 **Intel Mac (x86_64)**，Device Manager 报 `the local emulator does not support mac x86 pcs. please use the emulator on mac arm and windows pcs`。即本机**本地模拟器（含 phone/tablet）全部不可用**。可用替代：Device Manager 的 **Remote Simulator（远程模拟器，需登录华为账号）**、真机、或 Windows / Apple Silicon 机器。
 - **待办（当前环境无法完成，需真机/资源）**：
   1. 在**未注册**的 HarmonyOS 6.1+ 设备上跑通「下载 → 签名 → 安装」端到端（本机设备在 debug profile 白名单里，证明不了）。
   2. 覆盖升级的**签名一致性**（工具是否复用同一调试证书）与存档保留验证。
-  3. 平板验证：本机无平板模拟器镜像（DevEco 镜像需 SDK Manager 下载），也无 MatePad 真机。
-  4. HarmonyOS 5 真机验证（若决定下调 API）。
+  3. 平板验证：本地模拟器不支持 Intel Mac；可用远程模拟器 / MatePad 真机 / Windows 机器。
+  4. HarmonyOS 5.x 验证：同上，需远程模拟器 / 旧系统真机 / Windows 机器上的旧镜像。
 - **更新地址**：上架后可改 Gitee `version.json` 的 `pageUrl` / `downloadUrl`（App 优先用远程 `pageUrl`），**无需重新打包**；`Const.APP_UPDATE_PAGE_URL` 只是远程为空时的兜底，改它才需重发版本。

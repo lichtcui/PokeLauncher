@@ -2,13 +2,14 @@ import { webview } from '@kit.ArkWeb';
 import { router, promptAction } from '@kit.ArkUI';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { picker, fileUri, fileIo as fs } from '@kit.CoreFileKit';
-import { BusinessError, deviceInfo } from '@kit.BasicServicesKit';
+import { BusinessError } from '@kit.BasicServicesKit';
 import { common } from '@kit.AbilityKit';
 import { uri } from '@kit.ArkTS';
 import { sharedServerBaseUrl, sharedServerReady, sharedServerErrorText } from '../model/LocalHttpServer';
 import { setWindowBackground, setOrientation, GAME_BG_COLOR } from '../model/WindowHolder';
 import { readOrientation, toOrientation } from '../model/OrientationPref';
 import { SaveGuardBridge } from '../model/SaveGuard';
+import { apiAtLeast } from '../common/Const';
 
 const DOMAIN: number = 0x0000;
 const TAG: string = 'GamePage';
@@ -21,7 +22,7 @@ const FALLBACK_BASE: string = 'http://127.0.0.1:18787';
  * 通用 `@ohos.uri` 的 `URI`（@since 8），二者对 file:// URI 的 path 语义一致。
  */
 function pathOfUri(u: string): string {
-  if (deviceInfo.sdkApiVersion >= 15) {
+  if (apiAtLeast(15)) {
     return new fileUri.FileUri(u).path;
   }
   return new uri.URI(u).path;
@@ -62,7 +63,7 @@ struct GamePage {
   aboutToAppear(): void {
     this.alive = true;
     // audioSessionType（@since 20）：与后台音乐并发混音；低版本不支持则回退（会降音）
-    if (deviceInfo.sdkApiVersion >= 20) {
+    if (apiAtLeast(20)) {
       this.mediaOptions.audioSessionType = AudioSessionType.AMBIENT;
     }
     const base: string = sharedServerBaseUrl();
