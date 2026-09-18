@@ -3,7 +3,7 @@
   "versionName": "1.1.0",
   "minVersionCode": 1000000,
   "forceUpdate": false,
-  "changelog": "1. 更名为 PokeLauncher，更换应用图标\n2. 新增存档快照：清除缓存后可自动恢复存档，避免无感知丢档\n3. 设置页「关于」新增作者与 GitHub 仓库入口，移除「支持作者」占位",
+  "changelog": "1. 更名为 PokeRogue（离线鸿蒙版），更换应用图标与启动画面\n2. 新增宝可梦球下载 / 解压动画，暂停时冻结、切后台停止\n3. 降低最低系统要求至 HarmonyOS 5.0（API 12），并适配平板大屏布局\n4. 新增存档快照：系统清除缓存后可自动恢复存档，避免无感知丢档\n5. 设置页「关于」新增作者与 GitHub 仓库入口",
   "downloadUrl": "https://gitee.com/licht3345/PokeLauncher/releases",
   "pageUrl": "https://gitee.com/licht3345/PokeLauncher/releases"
 }
