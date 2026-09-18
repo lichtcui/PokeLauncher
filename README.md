@@ -1,6 +1,6 @@
-# PokeLauncher
+# PokeRogue 离线版（PokeLauncher）
 
-在 HarmonyOS NEXT 手机上**离线游玩 PokeRogue** 的启动器（原生 HAP）。
+在 HarmonyOS NEXT 手机上**离线游玩 PokeRogue** 的原生应用（HAP）。
 
 > 本 App 只是「壳 + 启动器」，**不含游戏本体**：首次启动时由 App 从公开来源下载游戏资源并解压到本机，之后即可断网游玩。
 

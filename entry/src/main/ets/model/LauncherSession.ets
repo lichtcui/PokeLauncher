@@ -9,7 +9,7 @@ import { Notifier } from './Notifier';
 import { getStore } from '../common/Prefs';
 import { clearWebCache } from '../common/WebCache';
 import { formatBytes, formatSpeed, formatDuration, formatErrorDetail } from '../common/Format';
-import { PrepPhase, SHRINK_MS, BURST_MS } from '../components/PulseProgress';
+import { PrepPhase, SHRINK_MS, BURST_MS } from '../components/PokeballLoader';
 
 const DOMAIN: number = 0x0000;
 const TAG: string = 'Launcher';
@@ -122,9 +122,9 @@ export class LauncherSession {
   flowTitle(): string {
     switch (this.prepPhase) {
       case PrepPhase.DOWNLOADED:  return '下载完成';
-      case PrepPhase.EXTRACTING:  return '正在解压离线资源…';
-      case PrepPhase.READY:       return '资源准备就绪';
-      default:                    return this.paused ? '已暂停' : '正在下载离线资源';
+      case PrepPhase.EXTRACTING:  return '正在解压 PokeRogue 资源…';
+      case PrepPhase.READY:       return 'PokeRogue 资源准备就绪';
+      default:                    return this.paused ? '已暂停' : '正在下载 PokeRogue 资源';
     }
   }
 
@@ -158,7 +158,7 @@ export class LauncherSession {
             this.enterExtracting();
           },
           (url: string, sourceIndex: number, sourceCount: number) => {
-            // 选源完成、真正开始下载：测速呼吸圆展开成波浪
+            // 选源完成、真正开始下载：精灵球保持摇晃
             if (this.prepPhase === PrepPhase.PROBING) {
               this.setPrepPhase(PrepPhase.DOWNLOADING);
             }
@@ -178,7 +178,7 @@ export class LauncherSession {
       })
       .then(() => {
         this.enterReady();
-        promptAction.showToast({ message: '离线资源下载完成' });
+        promptAction.showToast({ message: 'PokeRogue 资源下载完成' });
       })
       .catch((err: BusinessError) => {
         if (err.message === 'cancelled') {
@@ -360,7 +360,7 @@ export class LauncherSession {
     });
   }
 
-  /** 下载完成：先播「波浪收缩」，过渡播完再切「解压中」 */
+  /** 下载完成：精灵球停留片刻再切「解压中」（打开动画） */
   private enterExtracting(): void {
     this.setPrepPhase(PrepPhase.DOWNLOADED);
     this.setStage(LauncherStage.Extracting);
@@ -371,7 +371,7 @@ export class LauncherSession {
     }, SHRINK_MS);
   }
 
-  /** 解压完成：先播「脉冲爆发」，播完再进就绪页 */
+  /** 解压完成：打开动画收尾后再进就绪页 */
   private enterReady(): void {
     this.setPrepPhase(PrepPhase.READY);
     // 资源刚解压完成：清掉 Web 缓存，避免继续加载旧文件

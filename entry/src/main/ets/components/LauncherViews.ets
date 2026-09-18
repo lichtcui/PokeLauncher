@@ -1,4 +1,4 @@
-import { PrepPhase, PulseProgress } from './PulseProgress';
+import { PrepPhase, PokeballLoader } from './PokeballLoader';
 
 /**
  * 首页各状态的视图组件。
@@ -25,15 +25,20 @@ export struct NotDownloadedView {
 
   build() {
     Column({ space: 16 }) {
-      // 静止小圆环 = 动画的起点（呼吸峰值半径），点「开始下载」后原地开始呼吸，无跳变
-      PulseProgress({ phase: PrepPhase.IDLE })
-      Text('尚未安装离线资源').fontSize(18).fontWeight(FontWeight.Medium)
+      // 未开始：静止的精灵球，点「开始下载」后开始左右摇晃
+      PokeballLoader({ phase: PrepPhase.IDLE })
+      Text('PokeRogue 离线资源未安装').fontSize(18).fontWeight(FontWeight.Medium)
+      Text('本应用是 PokeRogue 的离线鸿蒙版，安装资源后即可断网游玩')
+        .fontSize(13)
+        .fontColor('#888888')
+        .textAlign(TextAlign.Center)
+        .padding({ left: 24, right: 24 })
 
       // 资源包信息卡片
       Column({ space: 10 }) {
         Row() {
           Text('来源').fontSize(14).fontColor('#888888')
-          Text('公开源').fontSize(14).fontColor('#333333')
+          Text('PokeRogue 公开源').fontSize(14).fontColor('#333333')
         }
         .width('100%')
         .justifyContent(FlexAlign.SpaceBetween)
@@ -134,7 +139,7 @@ export struct NotDownloadedView {
 
 /**
  * 下载 + 解压共用一个动画组件：只有阶段不变时组件才不被重建，
- * 波浪 → 收缩 → 呼吸 → 爆发 才能连贯播放。
+ * 摇晃 → 打开 才能连贯播放。
  */
 @Component
 export struct DownloadFlowView {
@@ -150,7 +155,7 @@ export struct DownloadFlowView {
 
   build() {
     Column({ space: 16 }) {
-      PulseProgress({ phase: this.phase, paused: this.paused, appHidden: this.appHidden })
+      PokeballLoader({ phase: this.phase, paused: this.paused, appHidden: this.appHidden })
       Text(this.flowTitle).fontSize(18).fontWeight(FontWeight.Medium)
 
       if (this.phase === PrepPhase.DOWNLOADED
@@ -224,7 +229,7 @@ export struct ReadyView {
 
   build() {
     Column({ space: 12 }) {
-      Image($r('app.media.resource_icon'))
+      Image($r('app.media.pokeball'))
         .width(96)
         .height(96)
         .objectFit(ImageFit.Contain)

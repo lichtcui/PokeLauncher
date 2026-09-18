@@ -53,11 +53,11 @@ export class Notifier {
   }
 
   static publishComplete(): void {
-    Notifier.publish(ID_COMPLETE, '离线资源下载完成', '点击开始运行');
+    Notifier.publish(ID_COMPLETE, 'PokeRogue 资源下载完成', '点击开始运行');
   }
 
   static publishFailed(reason: string): void {
-    Notifier.publish(ID_FAILED, '离线资源下载失败', reason.length > 0 ? reason : '点击重试');
+    Notifier.publish(ID_FAILED, 'PokeRogue 资源下载失败', reason.length > 0 ? reason : '点击重试');
   }
 
   private static publish(id: number, title: string, text: string): void {

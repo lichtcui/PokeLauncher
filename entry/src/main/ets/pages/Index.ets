@@ -18,7 +18,7 @@ import { LauncherSession, LauncherStage, ProgressView } from '../model/LauncherS
 import { setWindowBackground, setOrientation, isTablet, HOME_BG_COLOR } from '../model/WindowHolder';
 import { isMasterEnabled } from '../model/CheatState';
 import { sharedServerReady } from '../model/LocalHttpServer';
-import { PrepPhase } from '../components/PulseProgress';
+import { PrepPhase } from '../components/PokeballLoader';
 import { NotDownloadedView, DownloadFlowView, ReadyView } from '../components/LauncherViews';
 
 const DOMAIN: number = 0x0000;

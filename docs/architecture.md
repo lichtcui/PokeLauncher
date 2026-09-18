@@ -21,7 +21,7 @@ entry/src/main/ets/
 │  ├─ WebCache.ets                 # clearWebCache()：清 Web HTTP/JS 缓存
 │  └─ Format.ets                   # 纯展示格式化（字节/速度/时长，有单测）
 ├─ components/
-│  ├─ PulseProgress.ets            # 资源准备动画：呼吸↔波浪↔收缩↔爆发（6 阶段，下载/解压共用）
+│  ├─ PokeballLoader.ets           # 资源准备动画：精灵球左右摇晃↔逐帧打开（下载/解压共用）
 │  └─ LauncherViews.ets            # 首页各状态视图（NotDownloadedView / DownloadFlowView / ReadyView）
 ├─ model/
 │  ├─ GameRepository.ets           # 下载(request.agent+镜像) / 原子解压(zlib) / 恢复 / 删除 / 版本 / 接管

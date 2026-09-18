@@ -2,15 +2,15 @@
   "string": [
     {
       "name": "module_desc",
-      "value": "离线游戏资源启动器"
+      "value": "PokeRogue 的离线鸿蒙版：安装一次资源后即可断网游玩"
     },
     {
       "name": "EntryAbility_desc",
-      "value": "离线游戏资源启动器"
+      "value": "PokeRogue 的离线鸿蒙版：安装一次资源后即可断网游玩"
     },
     {
       "name": "EntryAbility_label",
-      "value": "PokeLauncher"
+      "value": "PokeRogue"
     }
   ]
 }

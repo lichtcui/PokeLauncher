@@ -384,7 +384,7 @@ struct Settings {
             this.gameVersion.length > 0 ? normalizeVersion(this.gameVersion) : '未安装',
             '#999999', false, () => {})
           this.divider()
-          this.navRow('资源来源', '公开源', '#999999', false, () => {})
+          this.navRow('资源来源', 'PokeRogue 公开源', '#999999', false, () => {})
           this.divider()
           this.navRow('作者', 'lichtcui', '#999999', false, () => {})
           this.divider()
@@ -394,7 +394,7 @@ struct Settings {
           this.navRow('法律与免责声明', '', '#999999', true,
             () => router.pushUrl({ url: 'pages/Legal' }))
 
-          Text('PokeLauncher · 仅供学习交流')
+          Text('PokeRogue 离线版 · 仅供学习交流')
             .fontSize(12)
             .fontColor('#BBBBBB')
             .margin({ top: 32, bottom: 40 })

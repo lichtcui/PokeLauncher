@@ -19,7 +19,7 @@
 > 这些是**本机全局安装**的 skill（由 triage 按需路由）。换机器 / CI / 别人 clone 时未必存在，此时按通用 HarmonyOS 流程自行处理。
 
 - 产物：`entry/build/default/outputs/default/entry-default-signed.hap`
-- App 名 **PokeLauncher**，bundle = `com.lichtcui.pokelauncher`
+- App 名 **PokeRogue**（launcher label / `EntryAbility_label`；描述里写明“离线鸿蒙版”），bundle 仍为 `com.lichtcui.pokelauncher`（改 bundle 会换沙箱并丢存档）
 - **每次改完代码都必须走完「编译 → 安装 → 重启 → 截图观察」闭环**。只编译不安装，设备上跑的仍是旧版本，会误判「改动没生效」。
 - ⚠️ `build-profile.json5` 的 `compatibleSdkVersion` 为 `"5.0.0(12)"`、`targetSdkVersion` 为 `"6.1.1(24)"`（本机 SDK 是 API 26，真机是 API 24）。不要按旧文档把 `compatibleSdkVersion` 抬到 24——代码里多处以 `deviceInfo.sdkApiVersion` 对 API 12~21 的新特性做运行时兜底（见 [`docs/app-update.md`](./docs/app-update.md)），抬高会丢掉低版本兼容。报「sdk version 不匹配」先查这里。
 
@@ -49,7 +49,7 @@
 ### 代码
 
 - ArkTS 严格模式：不要用 `any`；`fileIo` 没有 `writeFileSync`（用 `openSync`+`writeSync`+`closeSync`）；`getHostContext()` 返回 `Context | undefined` 需判空。
-- 改 UI 文案/布局：首页各状态视图在 `components/LauncherViews.ets`（`NotDownloadedView` / `DownloadFlowView` / `ReadyView`），下载/解压业务在 `model/LauncherSession.ets`（页面只做渲染 + 状态回写），动画在 `components/PulseProgress.ets`，设置页在 `pages/Settings.ets` 的 `build()`。
+- 改 UI 文案/布局：首页各状态视图在 `components/LauncherViews.ets`（`NotDownloadedView` / `DownloadFlowView` / `ReadyView`），下载/解压业务在 `model/LauncherSession.ets`（页面只做渲染 + 状态回写），动画在 `components/PokeballLoader.ets`（阶段枚举 `PrepPhase` 与时长常量也在该文件），设置页在 `pages/Settings.ets` 的 `build()`。
 - **ArkUI 坑**：`@Builder` 的**值参数**不会触发重渲染，动态文案要直接在 `build()` 里读 `@State`（见 `Settings.ets` 的「检查更新」「删除本地数据」行）；需要随状态刷新时用 `@Component` + `@Prop`。
 - **release 已开混淆**（`entry/build-profile.json5` + `entry/obfuscation-rules.txt`）。新增 JSON 解析字段或 `javaScriptProxy` 的 `methodList` 方法名时，必须把对应属性名加进 `-keep-property-name`，否则 release 包会静默读不到值。未开 `-enable-filename-obfuscation`（会破坏 `main_pages.json` 静态路由）。
 - 新增静态资源放 `entry/src/main/resources/base/media/`，引用 `$r('app.media.xxx')`。

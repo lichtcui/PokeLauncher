@@ -2,15 +2,15 @@
   "string": [
     {
       "name": "module_desc",
-      "value": "Offline game resource launcher"
+      "value": "PokeRogue offline HarmonyOS version: install resources once, then play offline"
     },
     {
       "name": "EntryAbility_desc",
-      "value": "Offline game resource launcher"
+      "value": "PokeRogue offline HarmonyOS version: install resources once, then play offline"
     },
     {
       "name": "EntryAbility_label",
-      "value": "PokeLauncher"
+      "value": "PokeRogue"
     }
   ]
 }
