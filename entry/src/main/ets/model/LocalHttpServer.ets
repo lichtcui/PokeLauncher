@@ -4,7 +4,7 @@ import { util } from '@kit.ArkTS';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { mimeOf } from '../common/Mime';
 import { FORCE_WILL_READ_FREQUENTLY, DEBUG_UI } from '../common/Const';
-import { buildBootScript } from './CheatState';
+import { buildBootScript, hasAnyEnabled } from './CheatState';
 import { buildSaveGuardScript } from './SaveGuard';
 
 const DOMAIN: number = 0x0000;
@@ -65,6 +65,34 @@ function concat(a: Uint8Array, b: Uint8Array): Uint8Array {
   out.set(a, 0);
   out.set(b, a.length);
   return out;
+}
+
+/**
+ * 规范化请求路径并做穿越判定：剥离 query/fragment → 解码 → 判 `..`。
+ * 返回空串表示应拒绝（403）。纯函数，便于单测（安全边界）。
+ */
+export function resolveRequestPath(rawPath: string): string {
+  let path: string = rawPath;
+  const q: number = path.indexOf('?');
+  if (q >= 0) {
+    path = path.substring(0, q);
+  }
+  const h: number = path.indexOf('#');
+  if (h >= 0) {
+    path = path.substring(0, h);
+  }
+  try {
+    path = decodeURIComponent(path);
+  } catch (err) {
+    // 非法百分号编码：保留解码前串（后续 `..` 判定仍生效）
+  }
+  if (path.length === 0 || path === '/') {
+    path = '/index.html';
+  }
+  if (path.indexOf('..') >= 0) {
+    return '';
+  }
+  return path;
 }
 
 /**
@@ -217,24 +245,8 @@ export class LocalHttpServer {
 
   private async servePath(conn: socket.TCPSocketConnection, rawPath: string, headOnly: boolean,
     keepAlive: boolean): Promise<void> {
-    let path: string = rawPath;
-    const q: number = path.indexOf('?');
-    if (q >= 0) {
-      path = path.substring(0, q);
-    }
-    const h: number = path.indexOf('#');
-    if (h >= 0) {
-      path = path.substring(0, h);
-    }
-    try {
-      path = decodeURIComponent(path);
-    } catch (err) {
-      hilog.warn(DOMAIN, TAG, 'decode path failed: %{public}s', path);
-    }
-    if (path.length === 0 || path === '/') {
-      path = '/index.html';
-    }
-    if (path.indexOf('..') >= 0) {
+    const path: string = resolveRequestPath(rawPath);
+    if (path.length === 0) {
       await this.sendText(conn, 403, 'Forbidden', keepAlive);
       return;
     }
@@ -486,9 +498,10 @@ export class LocalHttpServer {
     headOnly: boolean, keepAlive: boolean): Promise<void> {
     return fs.readText(filePath).then((html: string) => {
       // 存档守卫放最前：必须在游戏脚本读 localStorage 之前完成回填
-      // 作弊脚本始终注入（未启用时 /__cheats__.js 返回空内容），保证先于游戏脚本执行
-      const inject: string = buildSaveGuardScript() +
-        '<script src="/__cheats__.js"><\/script>' + this.buildInjectScript();
+      // 作弊脚本仅在有启用条目时注入，未启用时不下发标签（省一次 no-cache 请求）
+      const cheatsTag: string = hasAnyEnabled()
+        ? '<script src="/__cheats__.js"><\/script>' : '';
+      const inject: string = buildSaveGuardScript() + cheatsTag + this.buildInjectScript();
       const headIdx: number = html.indexOf('<head>');
       const patched: string = headIdx >= 0
         ? html.substring(0, headIdx + 6) + inject + html.substring(headIdx + 6)

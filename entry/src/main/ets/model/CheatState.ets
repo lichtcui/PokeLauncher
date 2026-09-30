@@ -101,6 +101,11 @@ export function isCheatEnabled(id: string): boolean {
   return enabledIds.indexOf(id) >= 0;
 }
 
+/** 是否有启用中的作弊条目（决定是否注入 /__cheats__.js 标签） */
+export function hasAnyEnabled(): boolean {
+  return masterEnabled && enabledIds.length > 0;
+}
+
 /** 总开关（内存 + 持久化） */
 export function setMaster(v: boolean): void {
   if (masterEnabled === v) {

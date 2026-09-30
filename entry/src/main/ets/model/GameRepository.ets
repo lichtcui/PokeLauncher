@@ -219,10 +219,17 @@ export class GameRepository {
     idx.sort((a: number, b: number) => speeds[b] - speeds[a]);
     const sorted: string[] = [];
     for (let i = 0; i < idx.length; i++) {
+      const sp: number = speeds[idx[i]];
+      // 有直连兜底时跳过测速失败/超时的镜像，避免下载阶段再试一次死源；
+      // 单源（debug 包）不跳过——它是唯一候选，仍要尝试下载。
+      if (hasFallback && sp <= 0) {
+        hilog.info(DOMAIN, TAG, 'skip source (probe failed): %{public}s', targets[idx[i]]);
+        continue;
+      }
       sorted.push(targets[idx[i]]);
       // 注意：hilog 不支持 %f，必须用 %s + 格式化后的字符串
       hilog.info(DOMAIN, TAG, 'source[%{public}d] speed=%{public}s KB/ms',
-        idx[i], (speeds[idx[i]] / 1024).toFixed(2));
+        idx[i], (sp / 1024).toFixed(2));
     }
     if (hasFallback) {
       sorted.push(urls[urls.length - 1]);
@@ -381,6 +388,11 @@ export class GameRepository {
       // 已安装：清掉所有残留任务（含历史通知）
       if (this.hasGameFiles()) {
         await this.removeTasks(all);
+        return false;
+      }
+
+      // 无任何残留任务：直接返回，跳过下面按 state 的 4 次 search（常见于首次安装）
+      if (all.length === 0) {
         return false;
       }
 
