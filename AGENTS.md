@@ -38,6 +38,7 @@
     ```
 - 用 DevEco Studio 打开本目录**首次 Sync** 会生成 `hvigorw`、`hvigor/hvigor-wrapper.js`、`local.properties`（未入库）。
 - 本地签名缺失时：DevEco `File > Project Structure > Signing Configs` 勾选自动签名重新生成。
+- 本仓库有两个远端：`origin`（Gitee，App 更新清单 `version.json` 由它读取）与 `github`（GitHub，主页/Issue/文档）。**每个提交都要推到两边**：`git push origin master && git push github master`（或一条命令 `git push both master`，`both` 是一个远端配两个 push URL）。GitHub 走 HTTPS，国内网络可能不稳/被墙，报 HTTP2/连接失败时重试即可——但**至少要保证 Gitee 推上去了**（App 自更新依赖它）。
 - **提交前先编译通过**，再真机验证。命令行校验（debug 包，最快）：
   ```bash
   export DEVECO_SDK_HOME=/Applications/DevEco-Studio.app/Contents/sdk
