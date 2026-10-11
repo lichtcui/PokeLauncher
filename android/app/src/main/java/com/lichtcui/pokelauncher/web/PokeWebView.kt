@@ -13,6 +13,7 @@ import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -226,6 +227,33 @@ fun PokeWebView(
                         ) {
                             super.onReceivedError(view, request, error)
                             val text = "error ${error?.errorCode} ${error?.description} ${request?.url}"
+                            // ⚠️ 这个 4 参版本对**所有资源**都会回调（iframe / 图片 / 脚本…），
+                            // 只有主框架失败才该整页报错，否则游戏里随便丢一个可选资源
+                            // 就会把整页换成错误卡片（子资源失败只记日志）。
+                            if (request?.isForMainFrame != true) {
+                                Log.w(Const.TAG, "sub-resource failed: $text")
+                                return
+                            }
+                            Log.e(Const.TAG, text)
+                            currentError(text)
+                        }
+
+                        /**
+                         * 主框架拿到 4xx/5xx（典型场景：`index.html` 缺失 → 本地服务的 404）。
+                         *
+                         * `onReceivedError` 只报**连接级**错误，HTTP 状态码走这个回调 —— 不接的话
+                         * 用户看到的是服务端裸文本（`Not Found`）白页，连「重试」都没有。
+                         */
+                        override fun onReceivedHttpError(
+                            view: WebView?,
+                            request: WebResourceRequest?,
+                            errorResponse: WebResourceResponse?
+                        ) {
+                            super.onReceivedHttpError(view, request, errorResponse)
+                            if (request?.isForMainFrame != true) return
+                            val code = errorResponse?.statusCode ?: 0
+                            if (code < 400) return
+                            val text = "http $code ${request.url}"
                             Log.e(Const.TAG, text)
                             currentError(text)
                         }

@@ -46,7 +46,22 @@ object CheatFormat {
         val trimmed = raw?.trim().orEmpty()
         val n = if (trimmed.isEmpty()) param.defaultValue else trimmed.toDoubleOrNull() ?: param.defaultValue
         if (n.isNaN()) return param.defaultValue
-        return n.coerceIn(param.min, param.max)
+        return snapToStep(param, n.coerceIn(param.min, param.max))
+    }
+
+    /**
+     * 消除滑块带来的浮点漂移：只在**非常接近**某个档位时吸附回该档。
+     *
+     * Compose `Slider(steps=…)` 给出的档位值是 `min + i * (max-min)/steps`，浮点除法的
+     * 结果是 `10.999999999` 这类值 —— 不处理就会显示成「10.999999x」并把脏数字写进存档。
+     * 容差 `1e-6` 只吃浮点误差：真实的中间值（如 `7.5`）不动，与鸿蒙版取值语义保持一致。
+     */
+    fun snapToStep(param: CheatParam, value: Double): Double {
+        if (param.step <= 0.0) return value
+        val steps = (value - param.min) / param.step
+        val nearest = Math.round(steps).toDouble()
+        if (Math.abs(steps - nearest) > 1e-6) return value
+        return param.min + nearest * param.step
     }
 
     /**

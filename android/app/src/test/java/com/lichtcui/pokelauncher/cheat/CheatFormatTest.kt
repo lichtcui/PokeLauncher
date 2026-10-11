@@ -129,6 +129,30 @@ class CheatFormatTest {
         assertEquals(0.0, CheatFormat.resolveNumber(tier, "-3"), 0.0)
     }
 
+    // ---------------------------------------------------------------- 滑块浮点漂移
+
+    @Test
+    fun resolveNumber_snapsSliderFloatDrift() {
+        // 真机实测：Compose Slider(steps=98) 拖到「11」时给出 10.999999 -> 显示成 10.999999x
+        assertEquals(11.0, CheatFormat.resolveNumber(rate, "10.999999999"), 0.0)
+        assertEquals("11x", CheatFormat.displayValue(rate, CheatFormat.resolveNumber(rate, "10.999999999")))
+        assertEquals(52.0, CheatFormat.resolveNumber(rate, "51.99999999999999"), 0.0)
+    }
+
+    @Test
+    fun resolveNumber_keepsRealIntermediateValues() {
+        // 容差吸附只吃浮点误差，不能顺手把真实的中间值也改掉（与鸿蒙版取值语义一致）
+        assertEquals(7.5, CheatFormat.resolveNumber(rate, "7.5"), 0.0)
+        assertEquals(12.34, CheatFormat.resolveNumber(rate, "12.34"), 0.0)
+    }
+
+    @Test
+    fun resolveNumber_keepsTierLabelsIntact() {
+        assertEquals(3.0, CheatFormat.resolveNumber(tier, "3"), 0.0)
+        assertEquals("Master", CheatFormat.displayValue(tier, CheatFormat.resolveNumber(tier, "4")))
+        assertEquals(0.0, CheatFormat.resolveNumber(tier, "0"), 0.0)
+    }
+
     // ---------------------------------------------------------------- JS 数字字面量
 
     @Test
