@@ -114,6 +114,18 @@ class SpikeController(private val app: Context) {
     var fatalPageError by mutableStateOf("")
         private set
 
+    /** 最近一次「存档从快照回填」的条数（0 = 没回填过） */
+    var saveRestoredCount by mutableStateOf(0)
+        private set
+
+    /**
+     * 回填事件自增序号：游戏页据此弹一次性提示。
+     * 用序号而不是条数，是因为「两次回填的条数恰好一样」时状态值不变，
+     * `LaunchedEffect(count)` 就不会重跑，用户会看不到第二次提示。
+     */
+    var saveRestoredSeq by mutableStateOf(0)
+        private set
+
     /** P0 判据 7：注入补丁是否真的生效（getImageData 次数应远小于 2 万） */
     var getImageDataCount by mutableStateOf(0)
         private set
@@ -538,6 +550,18 @@ class SpikeController(private val app: Context) {
 
     fun onPageError(text: String) {
         fatalPageError = text
+    }
+
+    /**
+     * 存档快照回填（`PokeSaveGuard.notifyRestored`）。
+     *
+     * 调用方在 **WebView 的 JS 线程**（`@JavascriptInterface`），所以要切回主线程再写状态。
+     */
+    fun onSaveRestored(count: Int) {
+        mainHandler.post {
+            saveRestoredCount = count
+            saveRestoredSeq++
+        }
     }
 
     // ------------------------------------------------------------ 注入脚本回传

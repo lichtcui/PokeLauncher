@@ -62,9 +62,9 @@
 | `zlib.decompressFile` | `java.util.zip.ZipFile` |
 | `preferences` | **SharedPreferences**（库名同为 `pokelauncher_settings`）（不采用原先写的 DataStore，理由见 §4.3.2 第 10 条） |
 | `@ohos.router` + `pages/` | Compose Navigation |
-| `Web` 组件 | `android.webkit.WebView` |
+| `Web` 组件 | `android.webkit.WebView`（后台静音用 `MUTE_AUDIO`，不支持时降级到 `game.sound.mute`，见 §4.3.6-5） |
 | `javaScriptProxy` | `addJavascriptInterface` |
-| `WebDownloadDelegate` | `DownloadListener` + **blob→base64 JS 桥**（Android 不触发 `blob:` 下载，必须做桥） |
+| `WebDownloadDelegate` | `DownloadListener` + **blob→base64 JS 桥**（Android 不触发 `blob:` 下载，必须做桥）（**P4**，见 §4.3.6-10） |
 | `DocumentViewPicker`（保存） | `MediaStore.Downloads`（API 29+ 零权限） |
 | `DocumentViewPicker`（选 zip） | SAF `ACTION_OPEN_DOCUMENT` |
 | 游戏内 `<input type=file>` 导入存档 | `WebChromeClient.onShowFileChooser` |
@@ -83,7 +83,7 @@ android/
 │  ├─ cheat/      Cheats(注册表·JS 逐字保真) / CheatFormat(纯编解码) / CheatState(状态+持久化) / CheatScripts(生成 /__cheats__.js)
 │  ├─ install/    GameRepository(Release 查询·镜像测速·断点续传) / GameInstaller(原子解压切换·recover) / DownloadService(前台服务)
 │  ├─ web/        PokeWebView(JS 桥) / SaveGuard(存档镜像·JS 桥) / WebCache(clearCache 时机)
-│  └─ ui/         Compose：首页四态 / 设置 / 参数调整 / 法律 / 游戏页（目前只有打靶页）
+│  └─ ui/         Compose：首页四态 / 设置 / 参数调整 / 法律 / 游戏页 / 打靶页（P3 已全部落地，清单见 §4.1）
 └─ app/src/test/  JVM 纯函数单测（core / install / cheat / server / web）
 ```
 
@@ -136,25 +136,26 @@ android/                                   Gradle 8.14.3 / AGP 8.11.0 / Kotlin 2
 │  ├─ cheat/ CheatFormat.kt                ids/params 编解码 + 夹紧 + JS 数字字面量（纯函数）
 │  ├─ cheat/ CheatState.kt                 总开关/启用项/参数 + SharedPreferences 持久化
 │  ├─ cheat/ CheatScripts.kt               SCENE_RUNTIME + buildBootScript()（/__cheats__.js 的内容）
-│  ├─ web/ PokeWebView.kt                  WebView 配置 + PokeNative JS 桥 + PokeSaveGuard 存档桥
+│  ├─ web/ PokeWebView.kt                  WebView 配置 + PokeNative JS 桥 + PokeSaveGuard 存档桥 + 切后台静音
 │  ├─ web/ SaveGuard.kt                    存档镜像（filesDir/saves/localstorage.json + .bak）+ 注入脚本
 │  ├─ web/ WebCache.kt                     clearCache 时机（活实例优先，否则临时实例；仅主线程）
-│  └─ ui/                                  首页 + 打靶页 + 设置页 + 参数调整页 + 法律页 + 游戏页（P3 已落地部分）
+│  └─ ui/                                  首页 + 打靶页 + 设置页 + 参数调整页 + 法律页 + 游戏页（P3 全部落地）
 │     ├─ Theme.kt / Common.kt              主题色；页面外壳公共件（返回栏 / 分组标题 / 导航行 / 状态行 / formatMs）
 │     ├─ PageOrientation.kt                根组件套用屏幕方向（游戏页用偏好，其余页面手机竖屏/平板跟随系统）
 │     ├─ RootScreen.kt                     应用根：主题 + 路由（6 页布尔量）+ 单一 BackHandler + 方向
 │     ├─ HomeState.kt                      首页四态 + 精灵球阶段 + 流程文案（**纯函数**，可 JVM 单测）
 │     ├─ HomeScreen.kt                     首页四态视图（对应鸿蒙 Index.ets + LauncherViews.ets）
 │     ├─ PokeballLoader.kt                 精灵球摇晃动画（±14° / 450ms，与鸿蒙同参数）
-│     ├─ GameScreen.kt                     游戏页：WebView + 悬浮指标面板
+│     ├─ GameState.kt                      游戏页纯逻辑：浮层判定（错误 > 加载中）+ 返回按钮常量 + 静音兜底脚本（**纯函数**）
+│     ├─ GameScreen.kt                     游戏页：WebView + 返回按钮（3s 淡出）+ 加载/错误浮层 + 悬浮指标面板
 │     ├─ SpikeController.kt                应用级控制器（首页 / 设置页 / 打靶页共用同一实例）
 │     ├─ SpikeScreen.kt / CheatScreen.kt   开发者诊断页；参数调整页（纯注册表驱动）
 │     └─ SettingsScreen.kt / LegalText.kt / LegalScreen.kt   设置页；法律正文（纯数据）；法律页
-├─ app/src/test/java/.../                  **231 个 JVM 单测**（core 31：Paths 7 / Format 6 / Mime 5 / Version 4 / OrientationPref 7 / Prefs 2；
+├─ app/src/test/java/.../                  **240 个 JVM 单测**（core 31：Paths 7 / Format 6 / Mime 5 / Version 4 / OrientationPref 7 / Prefs 2；
 │                                          install 50：DownloadUrls 12 / DownloadState 16 / DownloadStatus 16 / ReleaseInfo 6；
 │                                          cheat 71：CheatFormat 27 / CheatScripts 14 / CheatState 13 / Cheats 17；
 │                                          server 19：InjectScripts 9 / ServerDiag 10；web 22：SaveGuard 22；
-│                                          appupdate 18：AppUpdate 18；ui 20：HomeState 13 / LegalText 7）
+│                                          appupdate 18：AppUpdate 18；ui 29：HomeState 13 / GameState 9 / LegalText 7）
 └─ app/src/main/res/                       图标（品牌红环）/ 通知图标 ic_download / 精灵球 ic_pokeball / 主题 / network_security_config
 ```
 
@@ -164,8 +165,8 @@ android/                                   Gradle 8.14.3 / AGP 8.11.0 / Kotlin 2
 | --- | --- |
 | `./gradlew assembleDebug` | ✅ `app-debug.apk` 10 MB |
 | `./gradlew assembleRelease`（R8 + 资源收缩） | ✅ `app-release-unsigned.apk` 1.2 MB（含 OkHttp/Okio） |
-| `./gradlew testDebugUnitTest` | ✅ **231 tests, 0 failures** |
-| `./gradlew :app:lintDebug` | ✅ **0 errors**（26 warnings / 7 hints，均为依赖版本提示类，不阻塞） |
+| `./gradlew testDebugUnitTest` | ✅ **240 tests, 0 failures** |
+| `./gradlew :app:lintDebug` | ✅ **0 errors**（26 warnings / 10 hints，均为依赖版本提示与 autoboxing 建议类，不阻塞） |
 | release 包 JS 桥是否存活 | ✅ 反编译 dex：`PokeNative` / `reportTiming` / `reportState` / **`PokeSaveGuard`** / **`load` / `save` / `notifyRestored`** 均在（`o1.g.load`：类名可混淆，方法名由 `-keepclassmembers @JavascriptInterface` 保住） |
 | release 包新链路常量是否存活 | ✅ dex 里仍有 `tag_name` / `browser_download_url` / `receivedBytes` / `bytes=0-` / `If-Range` / `Content-Range` / `game.zip.download.json` / `pokerogue-download` |
 | release 包注入链常量是否存活 | ✅ dex 里仍有 `__cheats__.js` ×4 / `__pk_boot.js` ×2 / `window.__pkGameHooks` ×3 / 7 条脚本标记（`__cheatCandy/Exp/Money/Luck/Catch/FreeEgg/Reward`）/ `cheatMaster`·`cheatEnabledIds`·`cheatParams` / `localstorage.json`·`localstorage.bak.json` / `SAVEGUARD` ×5 |
@@ -175,9 +176,11 @@ android/                                   Gradle 8.14.3 / AGP 8.11.0 / Kotlin 2
 | release 包中文常量存活（P3 设置页/法律页） | ✅ 字节搜索 dex：`设置` / `屏幕方向` / `竖屏` / `横屏` / `跟随系统` / `应用更新` / `离线资源更新` / `删除本地数据` / `更新到新版本` / `法律与免责声明` / `关于` / `应用版本` / `资源版本` / `资源来源` / `仍然开启` / `开启参数调整` / 两段风险确认全文 / `安卓版暂未发布` / `检查中…` / `已是最新` / `发现新版本` / `未安装` / `正在删除…` / `将删除已下载的离线资源，本地存档不受影响。确定删除吗？` / `本地数据已删除` / `最近更新：2026-09-18` 等全部在 |
 | 方向偏好 / 更新比较 / 法律正文 | ✅ 纯逻辑已由单测覆盖（`OrientationPrefTest` 7 / `AppUpdateTest` 18 / `LegalTextTest` 7），三处都不依赖设备 |
 | 首页四态 / 精灵球阶段 | ✅ 纯逻辑已由单测覆盖（`HomeStateTest` 13：四态判定、PAUSED 仍算流程中、安装中优先于暂停、文案逐字对齐鸿蒙、动画常量同值） |
+| 游戏页浮层 / 返回按钮 / 静音 | ✅ 纯逻辑已由单测覆盖（`GameStateTest` 9：**错误浮层优先于加载浮层**、`loadErrorText` 前缀、存档回填提示只在 count>0 时出、`BACK_FADE_MS=3000` / `0.2f` 与鸿蒙同值、兜底脚本读 `window.__pkGame.sound.mute` 且不含 `$`） |
 | release 包中文常量存活（P3 首页） | ✅ 字节搜索 dex：`正在检查本地资源…` / `PokeRogue 离线资源未安装` / `本应用是 PokeRogue 的离线安卓版，安装资源后即可断网游玩` / `需要存储` / `可用空间` / `· 需要开启通知权限` / `继续下载` / `换源重试（丢弃已下载的分片）` / `下载太慢？复制下方直链自行下载资源包，再用「上传资源」导入` / `上传资源` / `直链已复制` / `取消下载` / `确定取消下载吗？已下载的` / `将全部丢失。` / `请勿关闭应用` / `正在解压 PokeRogue 资源…` / `PokeRogue 资源准备就绪` / `离线资源已就绪` / `开始运行` / `开发者诊断（打靶页）` 全部在（48/48） |
+| release 包中文常量存活（P3 游戏页） | ✅ 字节搜索 dex：`返回` / `正在载入游戏…` / `游戏加载失败` / `加载出错: ` / `重试` / `本地资源服务可能没起来` / `检测到本地存档缺失，已从快照恢复` / `项数据` / `页面有报错` / 指标面板 `canvas 补丁` / `DOM 载入` 全部在；静音兜底脚本的 `__pkGame` / `sound.mute` 也在 |
 
-> ⚠️ **release 包不能靠类名取证**：R8 混淆后 `SettingsScreenKt` / `CommonKt` / `HomeScreenKt` / `RootScreenKt` / `SpikeController` 这些类名在 dex 里**根本不存在**（被改名或 class-merging 内联掉；`HomeStateKt` / `DownloadUrls` 甚至直接是 `R8$$REMOVED$$CLASS$$<n>`——方法全被内联）。查 release 只有两条可靠路径：① dex 字符串（中文常量用字节搜索）；② `app/build/outputs/mapping/release/mapping.txt`（看类被映射成什么、哪些名字被 keep 规则保住；被合并的类只在 member 行里出现，如 `ui.HomeStateKt.prepPhaseOf(...)`）。
+> ⚠️ **release 包不能靠类名取证**：R8 混淆后 `SettingsScreenKt` / `CommonKt` / `HomeScreenKt` / `RootScreenKt` / `GameScreenKt` / `SpikeController` 这些类名在 dex 里**根本不存在**（被改名或 class-merging 内联掉；`HomeStateKt` / `GameStateKt` / `DownloadUrls` 甚至直接是 `R8$$REMOVED$$CLASS$$<n>`——方法全被内联，如 `ui.GameStateKt.muteFallbackScript(boolean)` 只作为 member 行出现在 `PokeWebViewKt` 里）。查 release 只有两条可靠路径：① dex 字符串（中文常量用字节搜索）；② `app/build/outputs/mapping/release/mapping.txt`（看类被映射成什么、哪些名字被 keep 规则保住；被合并的类只在 member 行里出现，如 `ui.HomeStateKt.prepPhaseOf(...)`）。
 
 > 验 dex 字符串时注意：**字符串池是 UTF-8**，`strings -a` 只能看到 ASCII，中文要用字节搜索：
 > `python3 -c "import sys;print(sys.stdin.buffer.read().count('参数调整'.encode()))" < classes.dex`。
@@ -246,11 +249,28 @@ adb logcat -s PokeLauncher          # 全部日志统一 tag
 
 顶部总开关 → 两个分组（倍率修改 / 其他）→ 每条一个开关；声明了 `param` 的条目多一个滑块（拖动实时改内存、松手才落盘）。打开总开关前有账号风险确认弹窗（文案与鸿蒙版逐字一致，从鸿蒙的设置页搬到了本页）。改动需**重载游戏页**才生效（`__CHEAT_PARAMS__` 是页面加载时烘进脚本的，与鸿蒙口径一致）。页面完全由 `CHEATS` 驱动，**新增条目不需改 UI**。
 
-**P3 设置页 / 法律页（打靶页右上角「设置」进入）**
+**P3 设置页 / 法律页（首页右上角 `⚙` 进入；打靶页也能从设置页的「开发者诊断（打靶页）」进入）**
 
 - 运行设置：屏幕方向三段（竖屏 / 横屏 / 跟随系统，只影响游戏页）；「参数调整」入口行（显示已开启/已关闭，**开关本体在参数调整页**）。
 - 数据管理：`应用更新`（点一下强制检查；没有 `androidVersionCode` 时显示「安卓版暂未发布」，有更新时多出一行「去更新」+ 更新说明）；`离线资源更新`（对比本地资源版本，发现新版时多出一行「更新到新版本」→ 返回首页自动开始下载）；`删除本地数据`（确认弹窗 → 异步删除 → Toast + 返回首页）。
 - 关于：应用版本（`BuildConfig`）/ 资源版本 / 资源来源 / 作者 / GitHub（浏览器打开）/ 法律与免责声明（进入法律页，10 个章节）/ **开发者诊断（打靶页）**（调试与发布包都常驻：真机判据要在「还没装资源」时就能跑）。
+
+**P3 游戏页（首页「开始运行」进入）**
+
+全屏 WebView + 三样浮层，对应鸿蒙 `pages/GamePage.ets`：
+
+| 元素 | 实现 | 与鸿蒙的对应 |
+| --- | --- | --- |
+| 返回按钮 | 进入/重载后全显 **3 秒** → 淡到 `0.2`；淡出状态下点一下只把它**唤回**（不退出），全显时才真返回 | `setTimeout(3000)` + `opacity(backVisible ? 1 : 0.2)`，语义逐字对齐（常量在 `ui/GameState.kt`） |
+| 加载浮层 | `pageLoaded=false` 时的半透明蒙层 + 精灵球 + 「正在载入游戏…」 | 鸿蒙靠 Web 组件自己白屏，安卓补一层，顺便把首次载入的闪白遮掉（底色 `GAME_BG_ARGB`） |
+| 错误浮层 | 居中卡片「游戏加载失败」+ `加载出错: <detail>` + 一行说明 + `重试`；面板里只留一行「页面有报错」 | 鸿蒙是右上角一行 12sp 小字（无按钮） |
+| 方向 | 根组件的 `ApplyPageOrientation(gamePageActive = showGame)` 套用设置页选的方向（竖/横/跟随系统） | `WindowHolder.setOrientation(readOrientation())` |
+| 静音 | Activity 进后台（`ON_PAUSE`）→ `MUTE_AUDIO` 特性优先、否则注入 `game.sound.mute`；回前台解除；销毁 WebView 前先静音 | 鸿蒙 `onPageHide/onPageShow` + `setAudioMuted`（受 `apiAtLeast(20)` 限制，低版本同样得降级） |
+| 存档回填提示 | `PokeSaveGuard.notifyRestored` → `SpikeController.saveRestoredSeq` → 游戏页 Toast「检测到本地存档缺失，已从快照恢复 N 项数据」 | 鸿蒙在 `onPageEnd` 里弹同一句 toast |
+
+- **浮层判定顺序是「错误 > 加载中」**（`gameOverlayOf`）：加载失败时 `pageLoaded` 永远是 false，顺序反了用户只会看到「正在载入…」。
+- 返回按钮放**左上角**（鸿蒙在右上角）：右上角被打靶指标面板占着，两个叠一起会互相吃点击；错误浮层也因此从右上角改成居中卡片。见 §4.3.6。
+- 打靶指标面板（`canvas 补丁` / `DOM 载入` / 计时点 / `gid` / 重载 / 退出）**仍是打靶期产物，发布前必须挪到 debug 开关后面**（见 §4.3.6-8）。
 
 ### 4.3 与上面计划的差异（实现期决定）
 
@@ -311,7 +331,7 @@ adb logcat -s PokeLauncher          # 全部日志统一 tag
 
 1. **共享 `version.json` 新增 5 个安卓字段**（本轮唯一跨端数据结构变更）：`androidVersionCode` / `androidVersionName` / `androidMinVersionCode`（0 = 未声明）/ `androidChangelog` / `apkUrl`。安卓**只认** `android*` 字段：没有 `androidVersionCode` 就判 `androidPublished=false`，界面显示「安卓版暂未发布」；**绝不**拿鸿蒙的 `versionCode`（当前 1001000）去比——安卓包号还很小，那会永远显示「发现新版本」，而且点进去是 HAP 下载页（判据见 §4.4 P3-7）。发版对齐规则写进了 §8。
 2. **应用内自更新不在本阶段**：与鸿蒙版行为一致（检测 + 浏览器打开 `apkUrl`，无 `apkUrl` 时打开 `pageUrl`）。应用内下载安装 APK 要 FileProvider + `REQUEST_INSTALL_PACKAGES`，属 P4。
-3. **「更新到新版本」用标记而不是直接开下载**：设置页只调 `controller.requestUpdate()`（置 `pendingUpdate`），返回打靶页后由 `SpikeScreen` 的 `LaunchedEffect` 消费标记发起下载（等价于鸿蒙的 `AppStorage('pendingUpdate')`）。理由：申请通知权限要 Activity 的 launcher，「预检 → 启动前台服务」这条链只该有一份实现（首页），否则两个入口早晚分叉。
+3. **「更新到新版本」用标记而不是直接开下载**：设置页只调 `controller.requestUpdate()`（置 `pendingUpdate`），回首页后由首页的 `LaunchedEffect` 消费标记并发起下载（等价于鸿蒙的 `AppStorage('pendingUpdate')`）。理由：申请通知权限要 Activity 的 launcher，「预检 → 启动前台服务」这条链只该有一份实现（首页），否则两个入口早晚分叉。（本块最初落在打靶页，§4.3.5-12 已搬到首页并删掉打靶页那份。）
 4. **参数调整总开关不放设置页**（§4.3.3-2 的落地）：设置页只有一行入口，开关本体在参数调整页顶部；开启前的风险确认弹窗也搬到了那边（文案逐字一致）。一个状态只配一个控件。
 5. **屏幕方向由根组件套用，且只对游戏页生效**：`ApplyPageOrientation(gamePageActive)`——游戏页用偏好（竖屏/横屏/跟随系统 → `PORTRAIT` / `SENSOR_LANDSCAPE` / `UNSPECIFIED`），其余页面手机恒竖屏、平板（`smallestScreenWidthDp ≥ 600`）跟随系统。放根组件而不是 `MainActivity`：进/出游戏页要**立即**生效，而 Activity 只创建一次；`configChanges` 已声明，改 `requestedOrientation` 不会重建 Activity。设置方向包了 `runCatching`（多窗口等场景会抛异常）。
 6. **设置页不新建 Controller**：方向/参数调整/资源版本都在 `remember` 里直接读现有单例，只有「应用更新的检查结果」是模块级缓存（避开每次进出重发请求）。副产物：从设置页进参数调整再返回时设置页是**重建**的（状态重新读过，显示的就是最新的，不会出现两份状态）。
@@ -335,6 +355,21 @@ adb logcat -s PokeLauncher          # 全部日志统一 tag
 10. **`SpikeController` 不改名**：它现在同时服务首页/设置/打靶三页，「Spike」这个名字已经名不副实，但改名会污染 6 个文件的 diff 且没有任何功能收益（§4.3.4-6 也已经依赖它的单实例语义）。留待 P5 统一清理。
 11. **`Prefs` 补 `getLong`/`putLong`**：24 小时自动检查需要存时间戳，SharedPreferences 原生支持 Long；未初始化时读走 fallback、写静默 no-op（`PrefsTest` 锁住），所以这些逻辑在 JVM 上也能跑。
 12. **设置页的「更新到新版本」仍然回首页再下载**（§4.3.4-3 的 `pendingUpdate` 标记）：通知权限的 launcher 在首页，下载链只保留一份实现。本块把 `LaunchedEffect(controller.pendingUpdate)` 从打靶页搬到了首页（`HomeScreen`），打靶页的那段已删——否则两处都会消费同一个标记。
+
+### 4.3.6 P3（游戏页）实现期决定
+
+> P3 最后一块：**游戏页**（返回按钮淡出 / 加载+错误浮层 / 方向 / 静音），对应鸿蒙 `pages/GamePage.ets`（284 行）。
+
+1. **返回按钮放左上角**（鸿蒙在右上角）：右上角被 P0–P2 的打靶指标面板占着，两个浮控件叠在一起会互相吃掉点击。代价是与鸿蒙不一致，对齐方案是把面板挪到 debug 开关后面（第 8 条）——那时可以把返回按钮搬回右上角。
+2. **错误浮层从「右上角一行 12sp 小字」改成居中卡片**：卡片里是「游戏加载失败」+ `加载出错: <detail>` + 一句自助说明 + `重试` 按钮；面板里只留一行「页面有报错」免得被撑爆。理由：鸿蒙那行小字在游戏画面上几乎读不到，也没有任何恢复手段（只能自己找返回）。
+3. **加载浮层是安卓新增的**：鸿蒙靠 Web 组件自己的白屏过渡，安卓 WebView 首帧前是一块惨白，且与暗色主题格格不入。安卓先铺 `GAME_BG_ARGB`（暗色）底，再叠一层 `0xCC000000` 蒙层 + 精灵球 + 「正在载入游戏…」，`pageLoaded` 一到就拿掉。
+4. **切后台只静音、不 `WebView.onPause()`**（对齐鸿蒙注释里的「保留游戏进程」）：`onPause()` 会把 Phaser 的计时器一起冻住，回前台容易追帧/卡顿；代价是后台仍占 CPU/内存，留 P5 真机看电量再决定要不要加。
+5. **静音双路径**：`WebViewFeature.MUTE_AUDIO` 可用就用 `WebViewCompat.setAudioMuted`（与鸿蒙 `controller.setAudioMuted` 同语义），不可用则注入 `window.__pkGame.sound.mute`（引导脚本已经把 Game 实例挂在那里）。Destroy 前也先静音一次（安卓上有「destroy 后音频还在响」的机型）。
+6. **浮层判定做成纯函数**（`ui/GameState.kt` 的 `gameOverlayOf`，`GameStateTest` 9 条）：本机没有模拟器，写进 `@Composable` 就等于零验证。最要命的一条是**错误优先于加载中**——加载失败时 `pageLoaded` 永远是 false，顺序反了用户就只看到「正在载入…」。返回按钮的 `3000ms` / `0.2f` 也一并定了常量。
+7. **存档回填提示用自增序号而不是条数**：`SpikeController.saveRestoredSeq` 每回填一次加一，游戏页 `LaunchedEffect(seq)` 弹一次 toast。用条数的话，两次回填条数恰好一样时状态值不变，第二次提示就不会弹。桥回调在 JS 线程，写状态前先切主线程。
+8. **打靶指标面板本块保留原样，但必须在发布前挪到 debug 开关后面**：P0–P3 每条真机判据都要在截图里同时拍到游戏画面与计时，所以现在不能关；线上包带着它既丑又泄露实现细节。P5 清单里记一条。
+9. **方向本块没写新代码**：§4.3.4-5 的 `ApplyPageOrientation(gamePageActive = controller.showGame)` 已经盖住游戏页，本块只确认它挂在了根组件（而不是 `MainActivity`）。切后台静音也走的是 Activity 生命周期（`LocalLifecycleOwner`），不另开一套。
+10. **两项鸿蒙游戏页能力本块不做**：① `WebDownloadDelegate`（游戏内导出存档/下载文件 → 鸿蒙写进沙箱）→ P4（安卓要 `WebView.setDownloadListener` + MediaStore/SAF，且要区分「存档导出」与「资源包下载」）；② `mediaOptions.audioSessionType`（鸿蒙把 Web 音频映射到 GAME 流，避免被其它音频压低）→ 安卓没有对应 API，只能靠第 5 条的两条路径。
 
 ### 4.4 实测记录（待真机，空着等数据）
 
@@ -393,6 +428,10 @@ adb logcat -s PokeLauncher          # 全部日志统一 tag
 | P3-14 | 未安装态的换源/直链/导入 | 「换源重试（丢弃已下载的分片）」只在失败后出现；点「复制镜像直链」→ Toast「直链已复制」；「上传资源」弹出 SAF 选择器 → 选一个 zip → 界面进入「正在解压…」且文件计数前进，完成后回就绪页并能进游戏 | |
 | P3-15 | 应用更新弹窗（冷启动） | 首次启动（或清偏好后）冷启动会自动检查一次（日志有请求）；有 `androidVersionCode > 本地` 且 `androidPublished=true` 时才弹「发现新版本」弹窗，`forceUpdate=true` 时无「稍后」；24h 内重启不重复请求；点「去更新」用浏览器打开 `apkUrl`（无 `apkUrl` 时 `pageUrl`） | |
 | P3-16 | 首页文案红线 | 首页/下载流/就绪页/弹窗逐字看一遍：无「作弊」字样（对应 P2-8 / P3-4 / P3-10） | |
+| P3-17 | 游戏页返回按钮淡出 | 进入游戏后 3 秒内「返回」是全亮（点一下直接回首页）；3 秒后淡到 0.2（仍可见）；此时点一下只把它**唤回全亮**、**不退出**，再点才回首页；「重载」后计时重新开始 | |
+| P3-18 | 游戏页加载 / 错误浮层 | ① 进游戏瞬间是暗底 + 精灵球 + 「正在载入游戏…」，首帧画出来后自动消失（**不能**闪一下惨白）；② 先 `stopServer`（或把 `gameDir` 改坏）再进游戏 → 出现居中「游戏加载失败」卡片 + `加载出错: …` + 「重试」，点「重试」能重新加载（**不能**一直停在「正在载入…」） | |
+| P3-19 | 游戏页静音 | 进游戏听 BGM → 按 Home 退到后台：BGM 立即停（日志 `web audio muted=true`）；回前台恢复（`muted=false`）；点「返回」退出游戏页 BGM 也停；拿一台不支持 `MUTE_AUDIO` 的老机型验证 `game.sound.mute` 兜底同样生效 | |
+| P3-20 | 存档回填提示 | 抹掉游戏 `localStorage`（DevTools）但保留 `files/saves/localstorage.json` → 重进游戏 → 弹「检测到本地存档缺失，已从快照恢复 N 项数据」，且游戏内进度确实是快照那份（P2-2 的 UI 侧判据） | |
 
 **P0 未通过时**的退路：改用 `androidx.webkit` 的 `WebViewAssetLoader`（`https://appassets.androidplatform.net`，免 socket 免 cleartext），代价是丢 HTTP 缓存与 Range。
 
@@ -403,7 +442,7 @@ adb logcat -s PokeLauncher          # 全部日志统一 tag
 | **P0 打靶** | 工程骨架（Kotlin + Compose, minSdk 26）+ NanoHTTPD + 注入 + 导入 zip + 进游戏计时 | 2–3 天 | ✅ 代码完成 + 本机编译/单测/release 混淆校验通过；**真机判据待跑（§4.4）** |
 | **P1 下载/解压** | Release 查询 → 镜像并发测速 → 断点续传 → 原子解压切换 → `recover()`；前台服务 + 通知进度；暂停/继续/取消；SAF 手动导入 | 4–6 天 | ✅ 代码完成（71 单测全绿，debug/release 均编译通过）；**真机判据待跑（§4.4）** |
 | **P2 服务与注入** | index.html 补丁、虚拟端点 `/__pk_boot.js` + `/__cheats__.js`、端口占用兜底、8001 stub、`clearCache` 时机、参数调整状态与存档镜像 | 3–4 天 | ✅ 代码完成（累计 180 单测全绿，debug/release 均编译通过，lint 0 error）；**真机判据待跑（§4.4）** |
-| **P3 UI** | Compose：首页四态 + 下载流 + 精灵球动画、设置页、参数调整页、游戏页（返回按钮淡出/错误浮层/方向/静音）、法律页 | 4–6 天 | 🚧 进行中：参数调整页 ✅、设置页 ✅（含方向偏好/应用更新/删除本地数据）、法律页 ✅、首页四态 + 下载流 + 精灵球 ✅（累计 231 单测全绿，lint 0 error）；**游戏页（返回按钮淡出 / 加载与错误浮层 / 方向与静音）待做** |
+| **P3 UI** | Compose：首页四态 + 下载流 + 精灵球动画、设置页、参数调整页、游戏页（返回按钮淡出/错误浮层/方向/静音）、法律页 | 4–6 天 | ✅ 代码完成（参数调整页 / 设置页 / 法律页 / 首页四态 + 下载流 + 精灵球 / 游戏页全部落地；累计 240 单测全绿，debug/release 均编译通过，lint 0 error）；**真机判据待跑（§4.4 P3 全部）** |
 | **P4 平台特有** | 存档导出/导入、Auto Backup、应用内自更新（FileProvider + `REQUEST_INSTALL_PACKAGES`）、通知权限 | 3–4 天 |
 | **P5 打磨发布** | 真机矩阵（多 WebView 版本）、性能调优、GitHub Actions 出 APK、签名发版 | 3–5 天 |
 
@@ -450,6 +489,12 @@ P3 首页新增：
 28. **首页「诊断」入口刻意常驻**（鸿蒙只在就绪态给齿轮）：P0/P1 的真机判据必须在「刚装好、还没资源」时就能跑到；这是有意偏离，别为了「还原鸿蒙」把它藏回就绪态。
 29. **`installer.recover()` 不能放进「刷新状态」这类热路径**：它会删掉/接管 `stagingDir`，而下载服务可能正拿着同一个目录解压——用户点一下「刷新」就会把解压踩成半成品。恢复只在启动时跑一次（`SpikeController.init`，与鸿蒙同口径）。
 30. **`initializing = false` 要等首帧状态全部落定**：已安装资源的用户否则会先闪一下「未安装 / 可用空间缺失」（首帧状态是异步从磁盘读的）。
+
+P3 游戏页新增：
+
+31. **游戏页浮层的判定顺序必须是「错误 > 加载中」**：加载失败时 `pageLoaded` 永远是 false，顺序反了就永远停在「正在载入游戏…」，用户看不到任何错误。`gameOverlayOf` 已按此写、`GameStateTest` 锁住（与坑 #25 同一类：判定顺序错了编译器不会报错）。
+32. **`RequiresFeature` 检查必须写在 `if` 条件里**：写成 `val ok = WebViewFeature.isFeatureSupported(...)` 再 `if (ok)` 会被 lint 报 `setAudioMuted should only be called if the feature MUTE_AUDIO is present`（当前基线 0 error / 26 warning，别再加回去）；同时**降级分支不能省**——`MUTE_AUDIO` 在旧 WebView 上不存在，只写 `setAudioMuted` 就是一台机器静音、另一台报错。
+33. **切后台静音不能顺手加 `WebView.onPause()`**：会把 Phaser 的计时器一起冻住，回前台容易追帧/卡顿（鸿蒙同样只静音、保留游戏进程）。要省电另开一个开关，别塞进静音这条路径里。
 
 ## 7. 风险
 

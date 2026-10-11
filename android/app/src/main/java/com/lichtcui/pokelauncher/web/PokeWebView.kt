@@ -24,8 +24,14 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.webkit.WebViewCompat
+import androidx.webkit.WebViewFeature
 import com.lichtcui.pokelauncher.BuildConfig
 import com.lichtcui.pokelauncher.core.Const
+import com.lichtcui.pokelauncher.ui.muteFallbackScript
 
 /**
  * JS → 原生桥。对应鸿蒙版 `GamePage` 里的 `javaScriptProxy`（PokeSaveGuard）。
@@ -52,7 +58,7 @@ private class NativeBridge(
  * `load()` / `save()` 都是同步返回的：JS 侧在 localStorage 为空时必须能**同步**拿到
  * 快照再回填，异步化会让游戏读到空存档。
  */
-private class SaveGuardBridge {
+private class SaveGuardBridge(private val onRestored: (Int) -> Unit) {
     @JavascriptInterface
     fun load(): String = SaveGuard.loadSnapshot()
 
@@ -65,12 +71,18 @@ private class SaveGuardBridge {
     fun notifyRestored(count: Int) {
         SaveGuard.notifyRestored(count)
         Log.i(Const.TAG, "SAVEGUARD restored $count keys")
+        onRestored(count)
     }
 }
 
 /**
- * 游戏 WebView。对应鸿蒙版 `pages/GamePage.ets`（P0 阶段只保留「能加载 + 可观测」的部分，
- * 下载代理 / 静音 / 方向 / 返回按钮在 P3 补齐）。
+ * 游戏 WebView。对应鸿蒙版 `pages/GamePage.ets`。
+ *
+ * 与鸿蒙同一口径的两条约定：
+ * 1. **切后台只静音、不暂停**（鸿蒙注释「保留游戏进程」）：不调 `WebView.onPause()`，
+ *    否则 Phaser 的计时器会冻结，回前台会出现追帧/卡顿；代价是后台仍占 CPU，留 P5 再评估。
+ * 2. **优先用 `MUTE_AUDIO` 特性**（`WebViewCompat.setAudioMuted`，对应鸿蒙 `setAudioMuted`），
+ *    不支持时降级注入 `game.sound.mute`（鸿蒙低版本也拿不到音频会话能力，两边都只能降级）。
  */
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
@@ -81,7 +93,8 @@ fun PokeWebView(
     onTiming: (String) -> Unit,
     onState: (String) -> Unit,
     onPageFinished: (Long) -> Unit,
-    onError: (String) -> Unit
+    onError: (String) -> Unit,
+    onSaveRestored: (Int) -> Unit
 ) {
     // 回调放进 rememberUpdatedState：否则 AndroidView 的 factory 会捕获首次组合的旧闭包
     val currentLog by rememberUpdatedState(onLog)
@@ -89,14 +102,31 @@ fun PokeWebView(
     val currentState by rememberUpdatedState(onState)
     val currentFinished by rememberUpdatedState(onPageFinished)
     val currentError by rememberUpdatedState(onError)
+    val currentRestored by rememberUpdatedState(onSaveRestored)
 
     var webView by remember { mutableStateOf<WebView?>(null) }
     var pageStart by remember { mutableStateOf(0L) }
+
+    // 切后台静音（鸿蒙 onPageHide / onPageShow 的等价物）：由 Activity 生命周期驱动
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_PAUSE -> setWebAudioMuted(webView, true)
+                Lifecycle.Event.ON_RESUME -> setWebAudioMuted(webView, false)
+                else -> Unit
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     DisposableEffect(Unit) {
         onDispose {
             // 必须显式销毁：WebView 持有 native 资源，且会被主线程全局列表引用
             webView?.let { wv ->
+                // 销毁前先静音：安卓上有「destroy 后音频还在响」的机型，多这一步保险
+                setWebAudioMuted(wv, true)
                 WebCache.detach(wv)
                 runCatching {
                     wv.stopLoading()
@@ -139,7 +169,10 @@ fun PokeWebView(
                         "PokeNative"
                     )
                     // 存档镜像：localStorage ⇄ filesDir/saves/localstorage.json
-                    addJavascriptInterface(SaveGuardBridge(), SaveGuard.BRIDGE_NAME)
+                    addJavascriptInterface(
+                        SaveGuardBridge { count -> currentRestored(count) },
+                        SaveGuard.BRIDGE_NAME
+                    )
                     // 登记给 WebCache：资源更新后需要清掉这个实例的 HTTP 缓存
                     WebCache.attach(this)
                     webViewClient = object : WebViewClient() {
@@ -179,5 +212,32 @@ fun PokeWebView(
                 }.also { webView = it }
             }
         )
+    }
+}
+
+/**
+ * 切后台/回前台时静音 Web 音频（对应鸿蒙 `GamePage` 的 `onPageHide` / `onPageShow`）。
+ *
+ * 两条路径：
+ * 1. `MUTE_AUDIO` 特性可用（Chromium 77+ / androidx.webkit 1.2+）→ `WebViewCompat.setAudioMuted`，
+ *    与鸿蒙 `controller.setAudioMuted` 同语义；
+ * 2. 不可用 → 注入 [muteFallbackScript] 直接改 Phaser 的 `game.sound.mute`（鸿蒙侧低版本
+ *    同样拿不到音频会话能力，降级逻辑两边一致）。
+ *
+ * 只在主线程调用（生命周期回调本来就是主线程）；失败只记日志，不能影响游戏页渲染。
+ */
+private fun setWebAudioMuted(webView: WebView?, muted: Boolean) {
+    val wv = webView ?: return
+    try {
+        // 特性判定必须写在条件里（写成局部变量 lint 的 RequiresFeature 就看不出来了）
+        if (WebViewFeature.isFeatureSupported(WebViewFeature.MUTE_AUDIO)) {
+            WebViewCompat.setAudioMuted(wv, muted)
+        } else {
+            wv.evaluateJavascript(muteFallbackScript(muted), null)
+        }
+        Log.i(Const.TAG, "web audio muted=$muted")
+    } catch (t: Throwable) {
+        // WebView 实现千奇百怪（尤其定制 ROM），静音失败绝不能把游戏页搞崩
+        Log.w(Const.TAG, "mute web audio failed: muted=$muted, ${t.message}")
     }
 }
