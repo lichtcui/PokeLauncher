@@ -6,6 +6,7 @@ import android.net.Uri
 import android.util.Log
 import com.lichtcui.pokelauncher.BuildConfig
 import com.lichtcui.pokelauncher.core.Const
+import com.lichtcui.pokelauncher.core.Prefs
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -45,6 +46,18 @@ object AppUpdateRepository {
     fun localVersionCode(): Int = BuildConfig.VERSION_CODE
 
     fun localVersionName(): String = BuildConfig.VERSION_NAME
+
+    /**
+     * 启动时是否该自动检查（24h 节流，与鸿蒙版 `shouldAutoCheck` 同规则同 key 名）。
+     * 偏好未初始化（JVM 单测 / 极早期调用）时读到 0 → 到期，行为安全。
+     */
+    fun shouldAutoCheck(now: Long = System.currentTimeMillis()): Boolean =
+        isAutoCheckDue(Prefs.getLong(KEY_LAST_CHECK, 0L), now)
+
+    /** 记录本次检查时间（**仅在成功拿到清单后**调用，与鸿蒙版一致） */
+    fun markChecked(now: Long = System.currentTimeMillis()) {
+        Prefs.putLong(KEY_LAST_CHECK, now)
+    }
 
     /**
      * 检查应用更新。
@@ -102,4 +115,7 @@ object AppUpdateRepository {
             return parseAppUpdateManifest(body)
         }
     }
+
+    /** 自动检查的节流时间戳（与鸿蒙版 `AppUpdate.KEY_LAST_CHECK` 同名） */
+    private const val KEY_LAST_CHECK = "appUpdateLastCheck"
 }

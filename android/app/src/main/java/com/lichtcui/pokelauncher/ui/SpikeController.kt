@@ -79,7 +79,26 @@ class SpikeController(private val app: Context) {
     var busyText by mutableStateOf("")
         private set
 
+    /**
+     * 本地 zip 导入/安装中（与「下载」无关的另一条安装途径）。
+     * 首页据此把「导入中」也当成安装阶段显示（与下载共用精灵球动画），
+     * 但不能拿 [busy] 代：删除本地数据也是 busy，那个不该显示成安装中。
+     */
+    var installing by mutableStateOf(false)
+        private set
+
     var gameReady by mutableStateOf(false)
+        private set
+
+    /**
+     * 启动时的首帧判定（读沙箱目录 / 版本 / 可用空间都是 IO）。
+     * 不加这个标志的话，已安装资源的用户会先看到一闪而过的「未安装资源」页。
+     */
+    var initializing by mutableStateOf(true)
+        private set
+
+    /** 可用的内部存储字节数（首页存储预检用；预检本身是纯函数 [Storage.check]） */
+    var freeBytes by mutableStateOf(0L)
         private set
     var showGame by mutableStateOf(false)
         private set
@@ -144,16 +163,17 @@ class SpikeController(private val app: Context) {
         observeDownloadBus()
         // recover / 磁盘统计都要遍历大目录，放到 IO 线程
         scope.launch {
-            val ready = withContext(Dispatchers.IO) { installer.recover(); installer.isReady() }
-            gameReady = ready
-            log("game ready=$gameReady")
-            log("free space=${installer.availableBytes() / 1024 / 1024}MB")
-            val zip = installer.localZipFile
-            if (zip.isFile) {
-                log("local zip found: ${zip.absolutePath} (${zip.length() / 1024 / 1024}MB) — 可直接点「安装本地 game.zip」")
+            try {
+                // recover() 只能在启动路径跑一次：它会清掉/接管 stagingDir，
+                // 而下载服务在别处正拿 stagingDir 解压（见 loadDirState 的注释）
+                withContext(Dispatchers.IO) { installer.recover() }
+                // 然后一次 IO 取回全部首帧状态（未完成下载 + 版本 + 可用空间）
+                applyDirState(loadDirState())
+                checkRelease()
+            } finally {
+                // 上面全部落定才撤掉「正在检查」：否则会用空状态闪一下「未安装 / 可用空间缺失」
+                initializing = false
             }
-            refreshDownloadState()
-            checkRelease()
         }
     }
 
@@ -197,24 +217,50 @@ class SpikeController(private val app: Context) {
         }
     }
 
-    /** 刷新「未完成下载 / 已装版本」这两个只读状态 */
+    /** 刷新「未完成下载 / 已装版本 / 可用空间」这几个只读状态 */
     fun refreshDownloadState() {
-        scope.launch {
-            val (pending, version, ready) = withContext(Dispatchers.IO) {
-                Triple(repository.inspectPending(), installer.readVersion(), installer.isReady())
-            }
-            pendingDownload = pending
-            installedVersion = version
-            gameReady = ready
-            maybeClearCacheAfterUpgrade(version)
-            pending?.let {
-                log(
-                    "发现未完成的下载：${it.tag} 已完成 " +
-                        "${Format.bytes(it.received)}（${it.percent}%），可续传"
-                )
-            }
+        scope.launch { applyDirState(loadDirState()) }
+    }
+
+    /**
+     * 磁盘盘点：未完成下载 / 已装版本 / 可用空间。
+     *
+     * ⚠️ 这里**故意不调 `installer.recover()`**：`recover()` 会删掉/接管 `stagingDir`，
+     * 而下载服务可能正在同一个目录里解压（用户点一下「刷新」就会把它踩没）。
+     * 恢复只放在启动路径（[init]）跑一次。
+     */
+    private suspend fun loadDirState(): DirState = withContext(Dispatchers.IO) {
+        DirState(
+            pending = repository.inspectPending(),
+            version = installer.readVersion(),
+            ready = installer.isReady(),
+            freeBytes = installer.availableBytes()
+        )
+    }
+
+    /** 把一次磁盘盘点的结果写回 UI 状态（Compose 状态只能在主线程改） */
+    private fun applyDirState(s: DirState) {
+        pendingDownload = s.pending
+        installedVersion = s.version
+        gameReady = s.ready
+        freeBytes = s.freeBytes
+        log("game ready=${s.ready}")
+        maybeClearCacheAfterUpgrade(s.version)
+        s.pending?.let {
+            log(
+                "发现未完成的下载：${it.tag} 已完成 " +
+                    "${Format.bytes(it.received)}（${it.percent}%），可续传"
+            )
         }
     }
+
+    /** 一次磁盘盘点的结果（[loadDirState] 一次 IO 取回，避免多次切线程） */
+    private data class DirState(
+        val pending: PendingDownload?,
+        val version: String,
+        val ready: Boolean,
+        val freeBytes: Long
+    )
 
     /** 查询远程 Release（有网络才成功，失败只在日志/卡片里提示，不拦任何操作） */
     fun checkRelease(force: Boolean = false) {
@@ -374,6 +420,7 @@ class SpikeController(private val app: Context) {
     ) {
         if (busy) return
         busy = true
+        installing = true
         busyText = "$label：准备中…"
         log("install start: $label")
         scope.launch {
@@ -396,6 +443,7 @@ class SpikeController(private val app: Context) {
                 log("install failed: ${e.message}")
             } finally {
                 busy = false
+                installing = false
                 busyText = ""
             }
         }
@@ -422,14 +470,14 @@ class SpikeController(private val app: Context) {
                     installer.deleteGame()
                     repository.clearDownloadFiles()
                 }
-                gameReady = false
-                installedVersion = ""
-                pendingDownload = null
                 // 资源没了，「已清缓存的版本」也要跟着作废：重新装回同一版本时还得再清一次
+                // （必须在 refreshDownloadState() 之前清，否则会把旧版本号又写回去）
                 Prefs.putString(KEY_LAST_CACHED_VERSION, "")
                 // 与鸿蒙版 Settings 的「删除本地数据」一致：数据删了就顺手把缓存也清掉
                 if (WebCache.clear("game deleted")) log("已清除 WebView 缓存")
                 log("game deleted")
+                // 一次把 gameReady / installedVersion / pendingDownload / freeBytes 全部对齐磁盘
+                refreshDownloadState()
             } catch (e: Throwable) {
                 log("delete failed: ${e.message}")
             } finally {

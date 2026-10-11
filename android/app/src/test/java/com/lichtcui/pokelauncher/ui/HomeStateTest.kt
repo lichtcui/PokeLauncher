@@ -1,0 +1,149 @@
+package com.lichtcui.pokelauncher.ui
+
+import com.lichtcui.pokelauncher.install.DownloadPhase
+import com.lichtcui.pokelauncher.install.DownloadStatus
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+/**
+ * 首页四态 + 精灵球阶段 + 流程文案的纯逻辑测试。
+ *
+ * 这几段本来是 `pages/Index.ets` 里散在 `@State` 上的判定，安卓侧故意先抽成纯函数：
+ * 它是「下载中切后台、回来还能点到继续」「更新资源时别提前显示已就绪」这类
+ * 真机才会暴露的坑，而 Compose 组件在本机跑不起来（没有模拟器），
+ * 只能靠这层纯逻辑 + 编译把判定锁住。
+ */
+class HomeStateTest {
+
+    private fun status(phase: DownloadPhase) = DownloadStatus(phase = phase)
+
+    // ---------------------------------------------------------------- 四态
+
+    @Test
+    fun checkingWinsOverEverything() {
+        // 冷启动读盘期间即使磁盘上已经有资源，也先显示「正在检查」
+        assertEquals(HomeState.CHECKING, homeStateOf(initializing = true, inFlow = true, gameReady = true))
+        assertEquals(HomeState.CHECKING, homeStateOf(initializing = true, inFlow = false, gameReady = false))
+    }
+
+    @Test
+    fun flowWinsOverReady() {
+        // 更新资源包时旧包还在（gameReady=true），必须显示下载流程而不是就绪页
+        assertEquals(HomeState.FLOW, homeStateOf(initializing = false, inFlow = true, gameReady = true))
+    }
+
+    @Test
+    fun readyAndNotDownloaded() {
+        assertEquals(HomeState.READY, homeStateOf(initializing = false, inFlow = false, gameReady = true))
+        assertEquals(
+            HomeState.NOT_DOWNLOADED,
+            homeStateOf(initializing = false, inFlow = false, gameReady = false)
+        )
+    }
+
+    // ---------------------------------------------------------------- 流程可见性
+
+    @Test
+    fun flowCoversEveryActivePhase() {
+        // 进行中的三个阶段
+        assertTrue(inFlowOf(status(DownloadPhase.PROBING), busyInstalling = false, holdReady = false))
+        assertTrue(inFlowOf(status(DownloadPhase.DOWNLOADING), busyInstalling = false, holdReady = false))
+        assertTrue(inFlowOf(status(DownloadPhase.EXTRACTING), busyInstalling = false, holdReady = false))
+    }
+
+    @Test
+    fun pausedStillCountsAsFlow() {
+        // 关键：暂停后服务还挂着，界面必须留着「继续」按钮，否则用户回不到下载
+        assertTrue(inFlowOf(status(DownloadPhase.PAUSED), busyInstalling = false, holdReady = false))
+        assertFalse(DownloadStatus(phase = DownloadPhase.PAUSED).isActive)
+    }
+
+    @Test
+    fun terminalPhasesLeaveFlow() {
+        assertFalse(inFlowOf(status(DownloadPhase.IDLE), busyInstalling = false, holdReady = false))
+        assertFalse(inFlowOf(status(DownloadPhase.DONE), busyInstalling = false, holdReady = false))
+        assertFalse(inFlowOf(status(DownloadPhase.FAILED), busyInstalling = false, holdReady = false))
+        assertFalse(inFlowOf(status(DownloadPhase.CANCELLED), busyInstalling = false, holdReady = false))
+    }
+
+    @Test
+    fun installingAndBurstKeepFlow() {
+        // 本地 zip 导入（与下载无关的另一条安装途径）
+        assertTrue(inFlowOf(status(DownloadPhase.IDLE), busyInstalling = true, holdReady = false))
+        // 下载完成后的 900ms 停留，让「资源准备就绪」被看见
+        assertTrue(inFlowOf(status(DownloadPhase.DONE), busyInstalling = false, holdReady = true))
+    }
+
+    // ---------------------------------------------------------------- 精灵球阶段
+
+    @Test
+    fun prepPhaseFollowsDownloadPhase() {
+        val gameReady = false
+        assertEquals(PrepPhase.IDLE, prepPhaseOf(DownloadPhase.IDLE, false, gameReady))
+        assertEquals(PrepPhase.PROBING, prepPhaseOf(DownloadPhase.PROBING, false, gameReady))
+        assertEquals(PrepPhase.DOWNLOADING, prepPhaseOf(DownloadPhase.DOWNLOADING, false, gameReady))
+        assertEquals(PrepPhase.DOWNLOADING, prepPhaseOf(DownloadPhase.PAUSED, false, gameReady))
+        assertEquals(PrepPhase.EXTRACTING, prepPhaseOf(DownloadPhase.EXTRACTING, false, gameReady))
+        assertEquals(PrepPhase.READY, prepPhaseOf(DownloadPhase.DONE, false, gameReady))
+        // 失败/取消回到静止
+        assertEquals(PrepPhase.IDLE, prepPhaseOf(DownloadPhase.FAILED, false, gameReady))
+        assertEquals(PrepPhase.IDLE, prepPhaseOf(DownloadPhase.CANCELLED, false, gameReady))
+        // 磁盘上已有资源但下载服务空闲：就绪
+        assertEquals(PrepPhase.READY, prepPhaseOf(DownloadPhase.IDLE, false, gameReady = true))
+    }
+
+    @Test
+    fun installingBeatsDownloadPhase() {
+        // 导入中即使下载服务处于暂停态，也要显示「解压安装中」
+        assertEquals(PrepPhase.EXTRACTING, prepPhaseOf(DownloadPhase.PAUSED, busyInstalling = true, gameReady = true))
+    }
+
+    @Test
+    fun shakingOnlyWhileRunning() {
+        assertTrue(isShaking(PrepPhase.PROBING, paused = false))
+        assertTrue(isShaking(PrepPhase.DOWNLOADING, paused = false))
+        assertTrue(isShaking(PrepPhase.EXTRACTING, paused = false))
+        assertTrue(isShaking(PrepPhase.READY, paused = false))
+        // 静止 / 暂停：停在正中
+        assertFalse(isShaking(PrepPhase.IDLE, paused = false))
+        assertFalse(isShaking(PrepPhase.DOWNLOADING, paused = true))
+        assertFalse(isShaking(PrepPhase.IDLE, paused = true))
+    }
+
+    // ---------------------------------------------------------------- 文案与常量
+
+    @Test
+    fun flowTitleMatchesHarmonyWording() {
+        assertEquals("正在下载 PokeRogue 资源", flowTitleOf(PrepPhase.DOWNLOADING, paused = false))
+        assertEquals("已暂停", flowTitleOf(PrepPhase.DOWNLOADING, paused = true))
+        assertEquals("正在解压 PokeRogue 资源…", flowTitleOf(PrepPhase.EXTRACTING, paused = false))
+        assertEquals("PokeRogue 资源准备就绪", flowTitleOf(PrepPhase.READY, paused = false))
+        // 本地导入的进度文案优先（形如「本地 game.zip：34 个文件，120MB」）
+        assertEquals(
+            "本地 game.zip：34 个文件，120MB",
+            flowTitleOf(PrepPhase.EXTRACTING, paused = false, installingText = "本地 game.zip：34 个文件，120MB")
+        )
+        // 暂停与解压的文案不能被 importingText 顶掉时保持原样
+        assertEquals("已暂停", flowTitleOf(PrepPhase.DOWNLOADING, paused = true, installingText = ""))
+    }
+
+    @Test
+    fun progressHiddenWhileExtractingOrReady() {
+        assertFalse(hidesProgress(PrepPhase.DOWNLOADING))
+        assertFalse(hidesProgress(PrepPhase.PROBING))
+        assertTrue(hidesProgress(PrepPhase.EXTRACTING))
+        assertTrue(hidesProgress(PrepPhase.READY))
+    }
+
+    @Test
+    fun animationConstantsMatchHarmony() {
+        // 与鸿蒙版 PokeballLoader.ets 同值：换向间隔 450ms / 幅度 ±14° / 过渡 420ms
+        assertEquals(450L, SHAKE_INTERVAL_MS)
+        assertEquals(14f, SHAKE_ANGLE)
+        assertEquals(420, SHAKE_ANIM_MS)
+        // 解压完成后停留 900ms（鸿蒙版 BURST_MS；那边的 SHRINK_MS 安卓用不上）
+        assertEquals(900L, BURST_MS)
+    }
+}

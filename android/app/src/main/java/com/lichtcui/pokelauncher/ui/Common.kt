@@ -48,6 +48,9 @@ internal fun LauncherTopBar(
     )
 }
 
+/** 毫秒显示：负值（未测到）显示破折号 */
+internal fun formatMs(value: Long): String = if (value < 0) "—" else "$value ms"
+
 /** 分组小标题（对应鸿蒙版的 `groupTitle` builder） */
 @Composable
 internal fun GroupTitle(text: String) {

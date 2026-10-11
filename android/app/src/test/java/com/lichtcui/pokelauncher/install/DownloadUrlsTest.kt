@@ -95,4 +95,16 @@ class DownloadUrlsTest {
         assertEquals("直连", DownloadUrls.kindOf(3, 4))
         assertEquals("直连", DownloadUrls.kindOf(0, 1))
     }
+
+    @Test
+    fun mirrorOfWrapsGithubUrlsOnly() {
+        // 首页「下载太慢？」里给用户复制的那一行：GitHub 直链套首个镜像
+        assertEquals("https://m1/$raw", DownloadUrls.mirrorOf(raw, mirrors))
+        // 非 GitHub 地址不套镜像（镜像基本只代理 github.com）
+        assertEquals("", DownloadUrls.mirrorOf("https://gitee.com/a/b.zip", mirrors))
+        // 没配镜像时为空（调用方据此只显示原始直链）
+        assertEquals("", DownloadUrls.mirrorOf(raw, emptyList()))
+        // 空地址不报错，也不会变成「镜像前缀 + 空串」
+        assertEquals("", DownloadUrls.mirrorOf("", mirrors))
+    }
 }

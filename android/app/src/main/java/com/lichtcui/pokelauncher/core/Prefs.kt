@@ -50,8 +50,11 @@ object Prefs {
     /** 读字符串（缺省空串） */
     fun getString(key: String): String = store()?.getString(key, "") ?: ""
 
+    /** 读长整型（时间戳类偏好用；缺省 fallback） */
+    fun getLong(key: String, fallback: Long): Long = store()?.getLong(key, fallback) ?: fallback
+
     /**
-     * 写布尔/字符串。用 `apply()`：单次写很小，异步落盘足够，
+     * 写布尔/字符串/长整型。用 `apply()`：单次写很小，异步落盘足够，
      * 不必在主线程等 `commit()` 的 fsync。
      */
     fun putBoolean(key: String, value: Boolean) {
@@ -60,5 +63,9 @@ object Prefs {
 
     fun putString(key: String, value: String) {
         store()?.edit()?.putString(key, value)?.apply()
+    }
+
+    fun putLong(key: String, value: Long) {
+        store()?.edit()?.putLong(key, value)?.apply()
     }
 }

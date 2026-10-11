@@ -61,4 +61,15 @@ object DownloadUrls {
 
     /** 候选列表里的角色：最后一个候选是 GitHub 直连，其余是镜像 */
     fun kindOf(index: Int, count: Int): String = if (index < count - 1) "镜像" else "直连"
+
+    /** GitHub 直链前缀：只有这种地址才套加速镜像 */
+    const val GITHUB_PREFIX = "https://github.com/"
+
+    /**
+     * 给 GitHub 原始直链套上首个加速镜像（首页「下载太慢？」里展示给用户复制）。
+     * 非 GitHub 地址或没有配置镜像时返回空串（调用方据此只显示原始直链）。
+     * 与鸿蒙版 `pages/Index.mirrorOf` 同规则。
+     */
+    fun mirrorOf(url: String, mirrors: List<String> = Const.DOWNLOAD_MIRRORS): String =
+        if (mirrors.isEmpty() || !url.startsWith(GITHUB_PREFIX)) "" else mirrors[0] + url
 }

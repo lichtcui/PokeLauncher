@@ -1,5 +1,6 @@
 package com.lichtcui.pokelauncher.appupdate
 
+import com.lichtcui.pokelauncher.core.Const
 import org.json.JSONObject
 
 /**
@@ -114,6 +115,19 @@ fun shouldRefetchAppUpdate(
     lastCheckAt: Long,
     now: Long
 ): Boolean = force || !hasCached || now - lastCheckAt >= APP_UPDATE_CHECK_TTL_MS
+
+/**
+ * 启动时的自动检查是否到期（24h 节流，与鸿蒙版 `shouldAutoCheck` 同规则）。
+ *
+ * `lastCheckMs = 0`（从没查过）→ 到期；`now - last >= interval` → 到期。
+ * 注意「上次检查时间在末来」（用户改过系统时间）时结果是 false：宁可少查一次，
+ * 也不要在时间被回拨后每次启动都发请求。
+ */
+fun isAutoCheckDue(
+    lastCheckMs: Long,
+    now: Long,
+    intervalMs: Long = Const.APP_UPDATE_CHECK_INTERVAL_MS
+): Boolean = now - lastCheckMs >= intervalMs
 
 /**
  * 本地版本 vs 远端清单。

@@ -95,7 +95,7 @@ HDC=/Applications/DevEco-Studio.app/Contents/sdk/default/openharmony/toolchains/
 
 ## 4. 安卓版（`android/`）
 
-同一个仓库里的**第二个 App**：`android/` 是独立的 Gradle 工程（不在 HAP 编译范围内），bundle/applicationId 也叫 `com.lichtcui.pokelauncher`，目前在 **P0（打靶）+ P1（下载/解压链路）+ P2（注入链/端口兜底/缓存）代码已完成**，P3（Compose UI）进行中（参数调整页、设置页、法律页已落地）；**都还没在真机上跑过判据**。完整方案、分期计划、关键坑见 [`docs/android-port.md`](./docs/android-port.md)。
+同一个仓库里的**第二个 App**：`android/` 是独立的 Gradle 工程（不在 HAP 编译范围内），bundle/applicationId 也叫 `com.lichtcui.pokelauncher`，目前在 **P0（打靶）+ P1（下载/解压链路）+ P2（注入链/端口兜底/缓存）代码已完成**，P3（Compose UI）进行中（参数调整页、设置页、法律页、首页四态 + 下载流 + 精灵球动画已落地；游戏页待做）；**都还没在真机上跑过判据**。完整方案、分期计划、关键坑见 [`docs/android-port.md`](./docs/android-port.md)。
 
 ```bash
 export JAVA_HOME=/Library/Java/JavaVirtualMachines/temurin-17.jdk/Contents/Home
@@ -103,7 +103,7 @@ export ANDROID_HOME=/usr/local/share/android-commandlinetools
 export PATH="$JAVA_HOME/bin:$PATH"
 cd android
 ./gradlew assembleDebug        # → app/build/outputs/apk/debug/app-debug.apk
-./gradlew testDebugUnitTest    # JVM 纯函数单测 211 例（core / install / cheat / server / web / appupdate / ui）
+./gradlew testDebugUnitTest    # JVM 纯函数单测 231 例（core / install / cheat / server / web / appupdate / ui）
 ./gradlew :app:lintDebug       # 需 0 error（MissingPermission 等）
 ```
 
@@ -120,6 +120,11 @@ Android 侧的红线（改之前先读）：
 - **WebView 缓存只用 `clearCache(true)`，**绝不能**用 `clearStorage`/`deleteAllData()`**（会连 localStorage 存档一起干掉）；`clearCache` 必须主线程（统一走 `web/WebCache.kt`）。资源包版本变了要清一次（偏好键 `lastCachedGameVersion`，覆盖「后台服务里装完时游戏页从未打开」的时机）。
 - **参数调整（cheat）**：UI 文案一律叫「**参数调整**」（不得出现「作弊」字样，审核风险）；`cheat/Cheats.kt` 的 7 条 JS 必须与 `entry/src/main/ets/model/Cheats.ets` **逐字同步**（改一边就得改另一边），且**不得出现 `$`**（Kotlin raw string 会当模板插值，单测有断言）；声明了 `param` 就必须真的读 `__CHEAT_PARAMS__`。开关是「总开关 && 至少一条启用」才注入 `/__cheats__.js`。参数调整页（`ui/CheatScreen.kt`）完全由注册表驱动，**新增条目不需要改 UI**；总开关在参数调整页顶部（与鸿蒙的「设置页」位置不同），开启前有账号风险确认弹窗，设置页里**只加入口行**（显示已开启/已关闭），不重复放开关。
 - **状态持久化用 `core/Prefs.kt`（SharedPreferences，库名 `pokelauncher_settings` 与鸿蒙一致），不用 DataStore**：本地 HTTP 服务要在处理 `/index.html` 时**同步**读 `hasAnyEnabled()`。存档镜像落 `filesDir/saves/`（对应鸿蒙的 SaveGuard，只为 Auto Backup/导出兜底），同样不得放 `cacheDir`。
+- **首页四态/阶段判定写在 `ui/HomeState.kt` 的纯函数里**（`homeStateOf` / `inFlowOf` / `prepPhaseOf` / `flowTitleOf` …），**不要**把它们塞回 `@Composable`：本机没有模拟器/真机，Compose 组件零验证，纯函数能被 `HomeStateTest` 锁住。两条容易改错的边界：四态优先级是 `initializing` → `inFlow` → `gameReady`（更新资源时旧包还在，不能直接跳就绪页）；**`DownloadPhase.PAUSED` 算「流程中」**（它不在 `isActive` 里，漏算会让用户暂停后再也点不到「继续」）。
+- **`SpikeController.installing` 是独立状态**：它和 `busy` 不是一回事——「删除本地数据」也是 `busy`，但绝不能渲染成「正在解压」。
+- **`pendingUpdate` 标记只能由首页（`ui/HomeScreen.kt`）消费**：通知权限 launcher 在首页，下载链只保留一份实现（打靶页里那段已删；两处都留着会双开下载）。
+- **打靶页入口在首页右上角常驻「诊断」按钮 + 设置页「开发者诊断（打靶页）」行**（debug/release 都可见）：真机判据要在「刚装好、还没资源」时就能跑到；首页的设置齿轮（`⚙`）仍然只在就绪态出现。图标一律用文字字形，**不引 `material-icons`**（`libs.versions.toml` 里没有这个依赖）。
+- **`installer.recover()` 只在启动路径（`SpikeController.init`）调用一次**：它会删掉/接管 `stagingDir`，而下载服务可能正在同一个目录里解压，把它塞进「刷新状态」之类的热路径会被踩成半成品。顺带：首帧状态（未完成下载/版本/可用空间）要一次取回，`initializing = false` 必须等状态全部落定（否则已安装用户会先闪一下「未安装」）。
 - **无真机不下结论**：模拟器与真机的 WebView/Chromium 版本差异极大，P0 的七项判据、P1 的下载判据与 P2 的注入/端口/缓存判据、P3 的 UI 判据（见 [`docs/android-port.md`](./docs/android-port.md) §4.4）必须在真机上跑（`adb install -r` → 打开 App → 截图读悬浮面板指标，日志 `-s PokeLauncher`）。
 - **应用自更新只认 `version.json` 的 `android*` 字段**（`androidVersionCode` / `androidVersionName` / `androidMinVersionCode` / `androidChangelog` / `apkUrl`；与鸿蒙字段同在一份清单里）：缺 `androidVersionCode` 时安卓端必须显示「安卓版暂未发布」，**绝不**拿鸿蒙的 `versionCode` 比（会永远显示「发现新版本」并指向 HAP 页）。发版对齐规则见 [`docs/android-port.md`](./docs/android-port.md) §8。
 - **`ui/` 里不要写 `Modifier.then(...)`，也不要声明 `fun Modifier.xxx()` 扩展**：本机 lint 版本下这两者会让 compose 的 lint 检查器 `NoClassDefFoundError`，**直接弄挂 `:app:lintDebug`**（是任务失败，不是警告）。用 if/else 选 Modifier。

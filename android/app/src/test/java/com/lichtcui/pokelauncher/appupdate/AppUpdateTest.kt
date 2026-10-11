@@ -1,5 +1,6 @@
 package com.lichtcui.pokelauncher.appupdate
 
+import com.lichtcui.pokelauncher.core.Const
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -199,5 +200,40 @@ class AppUpdateTest {
         assertFalse(shouldRefetchAppUpdate(false, true, lastCheckAt = 1000L, now = 1000L + ttl - 1))
         // 恰好到 TTL 视为过期
         assertTrue(shouldRefetchAppUpdate(false, true, lastCheckAt = 1000L, now = 1000L + ttl))
+    }
+
+    // ---------------------------------------------------------------- 启动自动检查（24h）
+
+    @Test
+    fun autoCheckDueWhenNeverChecked() {
+        // 从没查过（偏好里读到默认 0）
+        assertTrue(isAutoCheckDue(lastCheckMs = 0L, now = 1_700_000_000_000L))
+    }
+
+    @Test
+    fun autoCheckIntervalIsTwentyFourHours() {
+        val day = 24L * 60 * 60 * 1000
+        assertEquals("启动自动检查的节流窗口应为 24 小时", day, Const.APP_UPDATE_CHECK_INTERVAL_MS)
+    }
+
+    @Test
+    fun autoCheckBoundary() {
+        val now = 1_700_000_000_000L
+        val interval = Const.APP_UPDATE_CHECK_INTERVAL_MS
+        // 刚查完：不到期
+        assertFalse(isAutoCheckDue(lastCheckMs = now, now = now))
+        // 差 1ms 到期：仍不到期
+        assertFalse(isAutoCheckDue(lastCheckMs = now - interval + 1, now = now))
+        // 恰好过期：到期
+        assertTrue(isAutoCheckDue(lastCheckMs = now - interval, now = now))
+        // 早就过期：到期
+        assertTrue(isAutoCheckDue(lastCheckMs = now - 30 * interval, now = now))
+    }
+
+    @Test
+    fun autoCheckIgnoresFutureTimestamp() {
+        // 用户改过系统时间（上次检查时间在「未来」）：宁可少查一次，也不要每次启动都发请求
+        val now = 1_700_000_000_000L
+        assertFalse(isAutoCheckDue(lastCheckMs = now + 60_000L, now = now))
     }
 }

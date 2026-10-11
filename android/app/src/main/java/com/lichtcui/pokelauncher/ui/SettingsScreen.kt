@@ -57,6 +57,8 @@ fun SettingsScreen(
     onBack: () -> Unit,
     onOpenCheats: () -> Unit,
     onOpenLegal: () -> Unit,
+    /** 开发者诊断页（调试与发布包都常驻：真机判据要在「还没装资源」时也能跑） */
+    onOpenSpike: () -> Unit,
     onTriggerUpdate: () -> Unit
 ) {
     val context = LocalContext.current
@@ -228,6 +230,14 @@ fun SettingsScreen(
             )
             RowDivider()
             NavRow(label = "法律与免责声明", showArrow = true, onClick = onOpenLegal)
+
+            // ---------------------------------------------------- 开发者
+            GroupTitle("开发者")
+            NavRow(
+                label = "开发者诊断（打靶页）",
+                showArrow = true,
+                onClick = onOpenSpike
+            )
 
             Text(
                 "PokeRogue 离线版 · 仅供学习交流",

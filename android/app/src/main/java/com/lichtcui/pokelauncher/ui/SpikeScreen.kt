@@ -3,11 +3,9 @@ package com.lichtcui.pokelauncher.ui
 import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
-import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
@@ -15,28 +13,17 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -50,59 +37,18 @@ import com.lichtcui.pokelauncher.core.Format
 import com.lichtcui.pokelauncher.install.DownloadPhase
 import com.lichtcui.pokelauncher.install.DownloadText
 import com.lichtcui.pokelauncher.server.GameServer
-import com.lichtcui.pokelauncher.web.PokeWebView
-
-@Composable
-fun PokeLauncherApp(controller: SpikeController) {
-    PokeTheme {
-        // 页面路由：暂时用几个本地状态量（P3 阶段页面总数只有五个，
-        // 引入 navigation-compose 反而多一层依赖与混淆风险）。
-        // 层级关系：打靶页（=首页）→ 设置页 → {参数调整页, 法律页}。
-        var showCheats by remember { mutableStateOf(false) }
-        var showSettings by remember { mutableStateOf(false) }
-        var showLegal by remember { mutableStateOf(false) }
-
-        // 只有游戏页用「屏幕方向」偏好；其余页面手机上恒竖屏、平板上跟随系统
-        ApplyPageOrientation(gamePageActive = controller.showGame)
-
-        // 单一返回键处理：优先级与下面的 `when` 显示顺序一致。
-        // （不能用多个 BackHandler：当 showCheats 与 showSettings 同时为 true 时，
-        //  最后注册的那个会抢到事件，可能出现「退出设置却还停在参数调整页」。）
-        BackHandler(enabled = controller.showGame || showCheats || showLegal || showSettings) {
-            when {
-                controller.showGame -> controller.exitGame()
-                // 参数调整页 / 法律页都是从设置页进的，先回设置页
-                showCheats -> showCheats = false
-                showLegal -> showLegal = false
-                else -> showSettings = false
-            }
-        }
-
-        when {
-            controller.showGame -> GameScreen(controller)
-            showLegal -> LegalScreen(onBack = { showLegal = false })
-            showCheats -> CheatScreen(onBack = { showCheats = false })
-            showSettings -> SettingsScreen(
-                spike = controller,
-                onBack = { showSettings = false },
-                onOpenCheats = { showCheats = true },
-                onOpenLegal = { showLegal = true },
-                onTriggerUpdate = {
-                    // 回首页后由首页发起下载（首页才有通知权限的 launcher）
-                    controller.requestUpdate()
-                    showSettings = false
-                }
-            )
-            else -> SpikeScreen(controller, onOpenSettings = { showSettings = true })
-        }
-    }
-}
 
 // ==================================================================== 打靶页
 
-@OptIn(ExperimentalMaterial3Api::class)
+/**
+ * 开发者诊断页（P0/P1/P2 真机判据用的打靶页）。
+ *
+ * P3 起它**不再是首页**：入口在设置页 → 关于 → 开发者诊断（调试与发布包都常驻，
+ * 因为真机判据要在“还没装资源”的状态下也能跑）。首页见 [HomeScreen]，
+ * 路由与游戏页见 [PokeLauncherApp] / [GameScreen]。
+ */
 @Composable
-private fun SpikeScreen(controller: SpikeController, onOpenSettings: () -> Unit) {
+internal fun SpikeScreen(controller: SpikeController, onBack: () -> Unit) {
     val pickZip = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         // zip 的 MIME 在不同文件管理器里可能是 application/zip / octet-stream / 空，
         // 所以选择器必须放开到 */*，只在回调里做校验
@@ -127,27 +73,10 @@ private fun SpikeScreen(controller: SpikeController, onOpenSettings: () -> Unit)
         controller.startDownload(fresh)
     }
 
-    // 设置页点了「更新到新版本」：回到本页后立即发起下载（对应鸿蒙版 `pendingUpdate` 标记）
-    LaunchedEffect(controller.pendingUpdate) {
-        if (controller.pendingUpdate) {
-            controller.consumePendingUpdate()
-            startDownload(false)
-        }
-    }
-
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
-            TopAppBar(
-                title = { Text("P1 打靶 · 下载 / 解压链路", fontSize = 18.sp) },
-                actions = {
-                    TextButton(onClick = onOpenSettings) { Text("设置") }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface,
-                    titleContentColor = MaterialTheme.colorScheme.primary
-                )
-            )
+            LauncherTopBar(title = "开发者诊断（打靶页）", onBack = onBack)
         },
         bottomBar = { BottomBar(controller, onPickZip = { pickZip.launch(arrayOf("*/*")) }) }
     ) { padding ->
@@ -403,7 +332,7 @@ private fun PatchCard(controller: SpikeController) {
 @Composable
 private fun TimingCard(controller: SpikeController) {
     Section("计时指标（同一台机器开/关补丁各跑一次对比）") {
-        LabeledRow("DOM 载入（原生）", ms(controller.lastPageLoadMs))
+        LabeledRow("DOM 载入（原生）", formatMs(controller.lastPageLoadMs))
         LabeledRow("页面已加载", if (controller.pageLoaded) "是" else "否")
         for (mark in controller.timings) {
             val label = when (mark.key) {
@@ -413,7 +342,7 @@ private fun TimingCard(controller: SpikeController) {
                 "ready" -> "Game ready ✅"
                 else -> mark.key
             }
-            LabeledRow(label, ms(mark.ms), if (mark.key == "ready") MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.onSurface)
+            LabeledRow(label, formatMs(mark.ms), if (mark.key == "ready") MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.onSurface)
         }
         LabeledRow("getImageData 次数", controller.getImageDataCount.toString())
         LabeledRow("canvas 数量", controller.canvasCount.toString())
@@ -445,58 +374,6 @@ private fun LogCard(controller: SpikeController) {
     }
 }
 
-// ==================================================================== 游戏页
-
-@Composable
-private fun GameScreen(controller: SpikeController) {
-    Box(Modifier.fillMaxSize()) {
-        // key(gameSession)：加一就重建 WebView（DisposableEffect 会先把旧的 destroy 掉）。
-        // 只调 loadUrl 复现不了冷启动，所以 A/B 对比必须真的重建。
-        key(controller.gameSession) {
-            PokeWebView(
-                url = controller.gameUrl,
-                modifier = Modifier.fillMaxSize(),
-                onLog = { controller.log(it) },
-                onTiming = { controller.onTiming(it) },
-                onState = { controller.onState(it) },
-                onPageFinished = { controller.onPageFinished(it) },
-                onError = { controller.onPageError(it) }
-            )
-        }
-        // 悬浮面板：截图时能把「游戏画面 + 计时指标」拍进同一张图
-        Card(
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .padding(8.dp)
-                .width(210.dp),
-            colors = CardDefaults.cardColors(containerColor = Color(0xCC000000))
-        ) {
-            Column(Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text("canvas 补丁: ${if (controller.patchCanvas) "开" else "关"}",
-                    fontSize = 11.sp, color = MaterialTheme.colorScheme.secondary)
-                Text("DOM 载入: ${ms(controller.lastPageLoadMs)}", fontSize = 11.sp, color = Color.White)
-                for (mark in controller.timings) {
-                    Text("${mark.key}: ${mark.ms}ms", fontSize = 11.sp, color = Color.White)
-                }
-                Text("gid: ${controller.getImageDataCount}", fontSize = 11.sp, color = Color.White)
-                if (controller.fatalPageError.isNotEmpty()) {
-                    Text(controller.fatalPageError.take(80), fontSize = 10.sp, color = MaterialTheme.colorScheme.error)
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    OutlinedButton(
-                        onClick = { controller.reloadGame() },
-                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
-                    ) { Text("重载", fontSize = 11.sp) }
-                    OutlinedButton(
-                        onClick = { controller.exitGame() },
-                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
-                    ) { Text("退出", fontSize = 11.sp) }
-                }
-            }
-        }
-    }
-}
-
 // ==================================================================== 小组件
 
 @Composable
@@ -522,4 +399,3 @@ private fun LabeledRow(label: String, value: String, valueColor: Color = Materia
     }
 }
 
-private fun ms(value: Long): String = if (value < 0) "—" else "$value ms"
