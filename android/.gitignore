@@ -1,0 +1,17 @@
+# Gradle
+.gradle/
+build/
+captures/
+
+# 本机 SDK 路径（DevEco 生成 / Android Studio 生成，因机器而异）
+local.properties
+
+# 签名凭据：绝不入库（与仓库根目录 `signature/` 同一条红线）
+keystore.properties
+*.jks
+*.keystore
+
+# IDE
+.idea/
+*.iml
+.kotlin/

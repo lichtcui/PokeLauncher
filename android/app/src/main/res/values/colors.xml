@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 与鸿蒙版 `start_window_background` 一致 -->
+    <color name="start_window_background">#FFFFFF</color>
+    <!-- 游戏底色：#484050，底部安全区留白染成同色（见 docs/architecture.md「窗口」） -->
+    <color name="game_background">#484050</color>
+    <!-- 品牌红，来自 design/app_icon.svg -->
+    <color name="brand_red">#DA3838</color>
+</resources>

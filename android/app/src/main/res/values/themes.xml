@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 用平台主题而非 com.google.android.material，少一个依赖；界面全部由 Compose 绘制 -->
+    <style name="Theme.PokeLauncher" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/start_window_background</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@color/game_background</item>
+    </style>
+</resources>

@@ -90,3 +90,28 @@ HDC=/Applications/DevEco-Studio.app/Contents/sdk/default/openharmony/toolchains/
 | [`docs/device-cli.md`](./docs/device-cli.md) | 本 App 的日志 tag 与抓日志要点 |
 | [`docs/debugging.md`](./docs/debugging.md) | 游戏 WebView DevTools 调试前置条件 |
 | [`docs/troubleshooting.md`](./docs/troubleshooting.md) | 常见问题（仅项目特有） |
+
+---
+
+## 4. 安卓版（`android/`）
+
+同一个仓库里的**第二个 App**：`android/` 是独立的 Gradle 工程（不在 HAP 编译范围内），bundle/applicationId 也叫 `com.lichtcui.pokelauncher`，当前处于 **P0 打靶阶段**。完整方案、分期计划、关键坑见 [`docs/android-port.md`](./docs/android-port.md)。
+
+```bash
+export JAVA_HOME=/Library/Java/JavaVirtualMachines/temurin-17.jdk/Contents/Home
+export ANDROID_HOME=/usr/local/share/android-commandlinetools
+export PATH="$JAVA_HOME/bin:$PATH"
+cd android
+./gradlew assembleDebug        # → app/build/outputs/apk/debug/app-debug.apk
+./gradlew testDebugUnitTest    # core 层纯函数单测（Paths/Format/Mime）
+```
+
+Android 侧的红线（改之前先读）：
+
+- **端口固定 18787，绝不回退**：localStorage 以 origin 为键，换端口 = 丢存档（与鸿蒙侧同一条约束）。
+- **存档在 WebView 的 localStorage**，物理落在应用数据目录；因此**任何要持久化的数据都不要放 `cacheDir`**（Android「清除缓存」会清）。清理只用 `WebView.clearCache()`，**不能**用 `clearStorage`（会连存档一起干掉）。
+- **`keystore.properties` / `*.jks` / `*.keystore` 绝不入库**（已加进 `android/.gitignore`，同 `signature/` 的红线）。
+- **release 已开 R8**：新增 JS 桥方法名（`@JavascriptInterface`）或 `JSONObject` 解析的字段名时，要同步 `app/proguard-rules.pro`；写完后用 `./gradlew assembleRelease` 验证，并确认 debug/release 的 dex 行为一致（`PokeNative` 等字符串两边都要在）。
+- **通用代码对齐两套实现**：`core/Const.kt` 与 `common/Const.ets`（端口、镜像列表、资源来源）必须同步修改，否则两端行为分叉。
+- **无真机不下结论**：模拟器与真机的 WebView/Chromium 版本差异极大，P0 的七项判据必须在真机上跑（`adb install -r` → 打开 App → 截图读悬浮面板指标）。
+- 日志统一 tag `PokeLauncher`（`adb logcat -s PokeLauncher`），与鸿蒙侧同 tag 便于对照。

@@ -117,6 +117,10 @@
 
 更多问题见 [`docs/troubleshooting.md`](./docs/troubleshooting.md)。
 
+## 其他平台
+
+- **Android**：仓库内的 [`android/`](./android) 是 Android 版（Kotlin + Jetpack Compose + NanoHTTPD + WebView，同一个应用 ID / 同一个资源包来源），目前处于 **P0 打靶验证阶段**，尚不可日常使用。方案、分期计划与编译步骤见 [`docs/android-port.md`](./docs/android-port.md)。
+
 ## 许可与免责
 
 - 本项目（启动器代码）以 [MIT License](./LICENSE) 发布。

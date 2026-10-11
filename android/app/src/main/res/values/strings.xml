@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 与鸿蒙版 `EntryAbility_label` 保持一致 -->
+    <string name="app_name">PokeRogue</string>
+    <string name="app_desc">PokeRogue 离线安卓版启动器：首次安装资源后即可断网游玩</string>
+</resources>
