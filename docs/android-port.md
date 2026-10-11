@@ -487,7 +487,7 @@ adb logcat -s PokeLauncher          # 全部日志统一 tag
 - **P1-2 ✅**：`probe ghproxy.net failed: timeout` / `probe ghfast.top failed: timeout` / `probe gh-proxy.com speed=0.05 KB/ms` → 实际下载用的就是 `gh-proxy.com`；二次下载命中 `rank cache hit`。
 - **P1-3 ✅（暂停→继续）**：界面 `已暂停 | 15% | 继续`，通知保留；点「继续」→ `resume from 82021080 bytes`（82MB ≈ 暂停时的 15%），**不重头下**。判据里「强杀进程→重开→点继续」未单独跑（与暂停同一条恢复路径）。
 - **P1-4 ⏭️ 未测**：需把 `DEBUG_ASSET_URL` 指向不支持 Range 的静态服务器。
-- **P1-5 部分 ✅**：暂停/继续与界面三态一致；**「取消下载」未测**（会删分片，代价是重下一遍 760MB）。
+- **P1-5 ✅**：暂停/继续与界面三态一致（见 P1-3）。「取消下载」已补测：确认框「确定取消下载吗？已下载的 **5.2 MB** 将全部丢失。」+「继续下载」/「确定取消」→ 点确定后日志 `取消下载（丢弃已下载的分片）` / `下载：收到取消` / `download cancelled` / `game ready=false`，`game.zip.part` 与 `game.zip.download.json` 一并消失、前台服务停止、界面回未安装态。
 - **P1-6 ✅**：`keyevent 3` 退到后台后服务仍在跑、通知进度前进，`game.zip.part` 从 82MB 长到 360MB 并在后台下载完成；`stopWithTask="false"` 生效。
 - **P1-7 ⚠️ 本机不可测**：API 31 不需要运行时通知权限。
 - **P1-8 ✅**：`space precheck ok: need 1622MB, free 101361MB` —— 与界面「需要存储 1.6 GB」一致（3.2 × 531701861B）。
@@ -509,7 +509,7 @@ adb logcat -s PokeLauncher          # 全部日志统一 tag
 **实测结论（P2）**：注入链 + 缓存 + 存档镜像全通 ✅
 
 - **P2-1 ✅**：`served patched index.html (canvasPatch=true, cheats=true, saveGuard=true)`；页面脚本顺序 = `inline, inline, __cheats__.js, __pk_boot.js?canvas=1, inline, index-*.js`（注入链顺序正确）。
-- **P2-2 ✅**：`files/saves/localstorage.json` = `{"prLang":"zh-Hans"}`，与页面 `localStorage` 逐字节一致；冷启动日志 `saveSnapshot=20 chars`（= 该串长度）。**「抹掉 localStorage 后回填」未测**（见 P3-20）。
+- **P2-2 ✅**：`files/saves/localstorage.json` = `{"prLang":"zh-Hans"}`，与页面 `localStorage` 逐字节一致；冷启动日志 `saveSnapshot=20 chars`（= 该串长度）。**「抹掉 localStorage 后回填」见 P3-20 ✅**。
 - **P2-3 ✅**：用 `run-as rm -rf cache/*` 模拟系统「清除缓存」（设备的 `cache/` 里只有 `WebView` 一项）→ `files/saves/localstorage.json` 与页面 `localStorage` 都在。**架构证据**：华为 WebView 的 localStorage 落在 `app_hws_webview/Default/Local Storage`（**不在 `cacheDir`**），系统清缓存按设计碰不到它 —— 这与鸿蒙侧（`cache/web/`，会被清）正好相反，所以 `SaveGuard` 在安卓侧是「Auto Backup + 导出镜像」而不是救命绳。
 - **P2-4 部分 ✅**：`cheatMaster=true` + `cheatEnabledIds=candy` 时 CDP 实测 `window.__pkGameHooks.length = 1`、`typeof window.__cheatScene = object`、`/__cheats__.js` len=3195（含 `candy` 与 `10`）→ 脚本确实注入且钩子挂上；「糖果真的 ×10」需游戏内打到糖果，未验。
 - **P2-5 ✅**：关掉总开关后 `window.__pkGameHooks` 不存在（`hasAnyEnabled()=false` → 不注入 `/__cheats__.js`，与鸿蒙同口径）。
@@ -546,8 +546,8 @@ adb logcat -s PokeLauncher          # 全部日志统一 tag
 **实测结论（P3）**：页面与交互全部走通 ✅（未测项已标注）
 
 - **P3-1 ✅**：参数调整页可进入/可返回，系统返回键逐层回退（参数调整→设置页→首页，每次恰好一层）；总开关关闭时条目置灰 + 「关闭时游戏页不注入任何脚本（默认关闭）」。
-- **P3-2 部分 ✅**：滑块组（「倍率修改」糖果/经验/金币 ×10 档）渲染正确；**逐档边界（5 档稀有度、1↔100）未逐个拉**。
-- **P3-3 ✅**：`shared_prefs/pokelauncher_settings.xml` = `cheatMaster=true` / `cheatEnabledIds=candy`；杀进程冷启动 → `init done: cheats=true (1 项)` + CDP `hooks=1`（持久化闭环）。
+- **P3-2 ✅**：滑块组（「倍率修改」糖果/经验/金币）渲染正确，「糖果获取倍率」能拉到 **1x 与 100x** 两端；「强制奖励稀有度」逐档实拉 5 个位置，取值**精确落在这 5 档**：`Common / Great / Ultra / Rogue / Master`（不存在中间值，与 `CheatParam(min=0, max=4, step=1, labels=…)` 一致）。顺带确认一条 UI 规则：**条目自己的开关没打开时它的滑块是禁用的**（`CheatScreen.kt` 的 `enabled = masterEnabled && checked`）—— 第一次测「强制奖励稀有度」拖不动就是因为它开关没开，打开后拖动立即生效。
+- **P3-3 ✅**：`shared_prefs/pokelauncher_settings.xml` = `cheatMaster=true` / `cheatEnabledIds=candy` / `cheatParams=candy=9.0`；杀进程冷启动 → 参数调整页仍显示 **`9x`** + 日志 `init done: cheats=true (1 项)`；再进游戏页用 CDP 读到注入脚本里 `/__cheats__.js` 的 **`__CHEAT_PARAMS__={"candy":9}`**（只含已启用条目）—— 界面值 → prefs → 注入脚本三者一致（持久化闭环）。
 - **P3-4 ✅ / P3-10 ✅ / P3-16 ✅**：页面逐字 dump 无「作弊」字样（法律页首屏 14 个文本块全部核对）。
 - **P3-5 ✅**：设置页进入/返回正常，「参数调整」行状态与实际一致。
 - **P3-6 ✅**：设置页选「横屏」→ `shared_prefs` 写 `orientation=landscape` → 进游戏页 `SurfaceOrientation: 1`（横屏），退出游戏页回到 `0`（竖屏），选择已还原为默认 `portrait`。代码侧 `LANDSCAPE → SCREEN_ORIENTATION_SENSOR_LANDSCAPE`（对齐鸿蒙 `AUTO_ROTATION_LANDSCAPE`，允许随传感器左右翻转）；**翻转本身未验**（要用到旋转传感器）。
@@ -555,14 +555,14 @@ adb logcat -s PokeLauncher          # 全部日志统一 tag
 - **P3-8 部分 ✅**：本地 `e4e9b53` 与远端一致时「离线资源更新」行显示 **「已是最新」**（没有误报「发现新版本」）；「更新到新版本」分支需构造版本不一致，未测。
 - **P3-9 ✅**：确认框「将删除已下载的离线资源，本地存档不受影响。确定删除吗？」→ 确认后日志 `game data deleted` + `webcache cleared (temp webview): game deleted` + `game ready=false`，`files/game` 目录消失、首页回未安装态、可重新下载。
 - **P3-11 ✅**：① 未安装态（来源 / 体积 507.1 MB / 需要存储 1.6 GB / 可用空间 / 三条提示 / 镜像+GitHub 直链 / 「上传资源」）② 下载流 ④ **暂停后回首页仍是下载流（`已暂停 15%` + 「继续」），不是未安装页** ⑤ 删除后回未安装页；③「资源准备就绪」停留 ~1s 未单独取证。
-- **P3-12 ✅**：`0% → 5% → 15%` 与服务通知一致，`624 KB/s · 约 14 分钟 → 4.8 MB/s · 约 2 分钟`（速度/ETA 实时刷新），「暂停」→「继续」且进度条保留；「取消下载」未测。
-- **P3-13 部分 ⏭️**：精灵球动画在下载/解压时可见，**角度/周期未量测**。
-- **P3-14 部分 ⏭️**：「上传资源」按钮在位；换源重试、复制镜像直链、SAF 选包导入未逐个跑（P4-2 已验证同一个 SAF 通道可用）。
+- **P3-12 ✅**：`0% → 5% → 15%` 与服务通知一致，`624 KB/s · 约 14 分钟 → 4.8 MB/s · 约 2 分钟`（速度/ETA 实时刷新），「暂停」→「继续」且进度条保留；「取消下载」的行为、文案与磁盘清理见 P1-5。
+- **P3-13 ✅（常量核对 + 目视）**：精灵球动画在下载/解压时可见；幅度/周期**没法用 UI 文本量测**，改用常量核对：`HomeState.kt` 的 `SHAKE_ANGLE = 14f` / `SHAKE_INTERVAL_MS = 450L` / `SHAKE_ANIM_MS = 420` 与鸿蒙版同值，静止/暂停时 `targetAngle = 0f`（球停正中，与鸿蒙 `sync()` 一致）。
+- **P3-14 ✅（两项）/ 换源重试未测**：「复制镜像直链」→ 系统剪贴板日志 `ClipboardService: checkAndSetPrimaryClip pkg=com.lichtcui.pokelauncher … textLength=106`（106 = 镜像直链长度）；「上传资源」→ `mResumedActivity: com.android.documentsui/.picker.PickActivity`，取消后回 `MainActivity` 不崩，**选 zip 后走到「正在解压…」未跑**（P4-2 已证明同一个 SAF 通道能取回文件）；**「换源重试」未测**（只在下载失败后出现）。
 - **P3-15 ⏭️ 未测**：需 `androidPublished=true` 且远端版本更高的清单。
 - **P3-17 ✅**：进游戏 3 秒内「返回」全亮、点一下直接回首页；淡出后再点只唤回全亮不退出（`BACK_FADE_MS=3000`）。返回按钮位置 `[68,178][136,233]` = 左上角（符合 §4.3.6 的决定）。
-- **P3-18 部分 ✅**：加载浮层（暗底 + 精灵球 + 「正在载入游戏…」）在首帧后自动消失；**错误卡片（「游戏加载失败」/「重试」）未构造失败场景验证**。
+- **P3-18 ✅**：① 加载浮层（暗底 + 精灵球 + 「正在载入游戏…」）在首帧后自动消失，正常进游戏 `DOM 载入 100ms / phaser 556ms / ready 2723ms`。② 失败场景已构造：移走 `files/game/index.html` → 点「重载」→ 居中卡片 **「游戏加载失败」** + **「加载出错: http 404 http://127.0.0.1:18787/index.html」** + 「本地资源服务可能没起来，或资源包不完整。可以重试，或返回首页重新安装资源。」+「重试」，日志 `E PokeLauncher: http 404 …`；文件放回后点「重试」→ `ready 1632ms` 正常进游戏（**不会**卡在「正在载入…」）。注：这条是补了 `onReceivedHttpError` 之后才成立的，见下面「第三轮补测新暴露的两个缺陷」。
 - **P3-19 ✅**：本机 WebView 不支持 `MUTE_AUDIO`（`MUTE_AUDIO supported=false`）→ 走 `game.sound.mute` 兜底：切后台 `web audio muted=true`（CDP `mute=true`），回前台 `muted=false`，且 `window.__pkGame.loop.running=true` 证明**没有**调 `WebView.onPause()`。
-- **P3-20 ✅**：CDP `localStorage.clear()` → 退出游戏页 → 重进 → 日志 `SAVEGUARD restored 1 keys`，页面 `prLang=zh-Hans` 回来了（快照 `files/saves/localstorage.json` = `{"prLang":"zh-Hans"}`）。
+- **P3-20 ✅**：CDP `localStorage.clear()`（返回 `len=0`）→ 退出游戏页 → 重进 → 日志 `SAVEGUARD restored 1 keys`，页面 `prLang=zh-Hans` 回来了（快照 `files/saves/localstorage.json` = `{"prLang":"zh-Hans"}`）。提示也实证到了：Android 11+ 的 Toast 由 SystemUI 渲染、`uiautomator` 抓不到，改用 `dumpsys window windows` 抓到 `Window #13 Window{… u0 Toast}`；文案来自纯函数 `saveRestoredText()`，`GameStateTest` 锁住「检测到本地存档缺失，已从快照恢复 N 项数据」。
 
 **P4（平台特有）——逐条取证**
 
@@ -593,6 +593,16 @@ adb logcat -s PokeLauncher          # 全部日志统一 tag
 - **P4-8 – P4-13 ⏭️ 未测**：需要一份带 `androidVersionCode` + `apkUrl` 的 `version.json`（当前清单安卓字段为 0），P4-13 还需要「够老的一版包」。
 - 顺带确认：APK 下载**不走前台服务**在真机无副作用——只有下载游戏资源时才起 `DownloadService`。
 
+**第三轮补测新暴露的两个缺陷（已修，`f91f75a`）**
+
+补测 P3-18② 与 P3-2 时真机又暴露了两个问题 —— 都不是「判据没跑」，而是跑了才发现的行为错误：
+
+- **子资源失败会整页报错**：`onReceivedError(WebView, WebResourceRequest, WebResourceError)` 这个 4 参版本对**所有资源**都会回调（iframe / 图片 / 脚本…），之前没做 `isForMainFrame` 过滤 —— 游戏里随便丢一个可选资源，整页就会被换成「游戏加载失败」卡片。现在子资源失败只记 `W PokeLauncher: sub-resource failed`。
+- **主框架 404 没人接**：把 `files/game/index.html` 移走后重载，用户看到的是本地服务返回的裸文本 `Not Found` 白页（首帧只有 9ms），既没有中文说明也没有「重试」。补上 `onReceivedHttpError`（只处理主框架 `>= 400`）后走居中卡片（见 P3-18②）；把文件放回再点「重试」恢复正常。
+- **滑块档位浮点漂移**：Compose `Slider(steps=…)` 的档位值是 `min + i * (max-min)/steps`，浮点除法给出 `10.999999` —— 界面显示「10.999999x」，这个脏数字还会写进 `cheatParams` 与注入脚本（`__CHEAT_PARAMS__`）。在 `CheatFormat.resolveNumber()` 里加容差 `1e-6` 的吸附（`snapToStep`）：只吃浮点误差，手填的真实中间值（如 `7.5`）保持原样（与鸿蒙版取值语义一致）。真机上 prefs 里遗留的 `candy=10.999999` 升级后直接显示成 `11x`。
+
+单测从 275 涨到 **278**（+3：浮点漂移吸附、真实中间值不受影响、档位标签保持），`clean assembleDebug assembleRelease testDebugUnitTest :app:lintDebug` 全绿。
+
 **P0 未通过时**的退路：改用 `androidx.webkit` 的 `WebViewAssetLoader`（`https://appassets.androidplatform.net`，免 socket 免 cleartext），代价是丢 HTTP 缓存与 Range。
 
 ## 5. 分期计划
@@ -602,7 +612,7 @@ adb logcat -s PokeLauncher          # 全部日志统一 tag
 | **P0 打靶** | 工程骨架（Kotlin + Compose, minSdk 26）+ NanoHTTPD + 注入 + 导入 zip + 进游戏计时 | 2–3 天 | ✅ 代码完成 + 本机编译/单测/release 混淆校验通过；**真机判据见 §4.4（P0 全通）** |
 | **P1 下载/解压** | Release 查询 → 镜像并发测速 → 断点续传 → 原子解压切换 → `recover()`；前台服务 + 通知进度；暂停/继续/取消；SAF 手动导入 | 4–6 天 | ✅ 代码完成（71 单测全绿，debug/release 均编译通过）；**真机判据见 §4.4（主链路全通，P1-7/P1-9 需更新系统）** |
 | **P2 服务与注入** | index.html 补丁、虚拟端点 `/__pk_boot.js` + `/__cheats__.js`、端口占用兜底、8001 stub、`clearCache` 时机、参数调整状态与存档镜像 | 3–4 天 | ✅ 代码完成（累计 180 单测全绿，debug/release 均编译通过，lint 0 error）；**真机判据见 §4.4（注入链/缓存/存档镜像全通）** |
-| **P3 UI** | Compose：首页四态 + 下载流 + 精灵球动画、设置页、参数调整页、游戏页（返回按钮淡出/错误浮层/方向/静音）、法律页 | 4–6 天 | ✅ 代码完成（参数调整页 / 设置页 / 法律页 / 首页四态 + 下载流 + 精灵球 / 游戏页全部落地；累计 240 单测全绿，debug/release 均编译通过，lint 0 error）；**真机判据见 §4.4（页面与交互全通，未测项已标注）** |
+| **P3 UI** | Compose：首页四态 + 下载流 + 精灵球动画、设置页、参数调整页、游戏页（返回按钮淡出/错误浮层/方向/静音）、法律页 | 4–6 天 | ✅ 代码完成（参数调整页 / 设置页 / 法律页 / 首页四态 + 下载流 + 精灵球 / 游戏页全部落地；累计 240 单测全绿，debug/release 均编译通过，lint 0 error）；**真机判据见 §4.4（页面与交互全通；仅 P3-14「换源重试」、P3-15 更新弹窗未测）** |
 | **P4 平台特有** | 存档导出/导入、Auto Backup、应用内自更新（FileProvider + `REQUEST_INSTALL_PACKAGES`）、通知权限 | 3–4 天 | ✅ 代码完成（存档导出/导入 + Auto Backup + 应用内自更新 + 通知权限全部落地；累计 270 单测全绿，debug/release 均编译通过，lint 0 error）；**真机判据见 §4.4（导出/导入闭环通过；自更新需清单带安卓字段）** |
 | **P5 打磨发布** | 真机矩阵（多 WebView 版本）、性能调优、GitHub Actions 出 APK、签名发版 | 3–5 天 |
 
@@ -667,6 +677,8 @@ P4 新增：
 40. **APK 下载必须 `.part` + `fd.sync()` + 改名，下完必须验魔数**：直接写目标文件，中途被杀会留下一个「长度对得上但内容不全」的包，安装器只会报一句语焉不详的「解析包时出现问题」；不校验 zip 魔数/最小体积，国内镜像的 404 页（`Content-Length` 也是 200）会被当成安装包交给安装器。
 41. **自更新弹窗与设置页行的状态必须同源**：两处各自写「下载中怎么办」很容易长歪成「一处可取消、一处重新下载」，点两下就双开下载（同一个目标文件互相覆盖，进度还会来回跳）。判定与文案统一走 `apkActionOf` / `apkRowLabel` / `apkRowValue` 三个纯函数（`ApkUpdateTest` 锁住）。
 42. **「能否进游戏」不能把「本地服务已在跑」算进去（真机才暴露的死锁）**：`SpikeController.canEnterGame` 原本要求 `serverState == RUNNING`，但 `init()` 从不启动服务，服务只在 `enterGame()` / `restartServer()` 里起 —— 于是**冷启动（资源已就绪、进程刚起来）时首页「开始运行」是禁用的**，而首页没有第二个启动入口，用户只能绕道打靶页点「重启服务」（P0/P3 一堆判据全卡在这，实测时第一次就撞上）。修法是把判定收窄成「资源就绪 + WebView 达标」（`canEnterGameOf`），服务启动失败的反馈交给 `serverError` 红字（`enterGameBlockReasonOf`）而不是禁用按钮——失败后还得能重试。鸿蒙侧 `LauncherViews.ets` 的「开始运行」只受存储条件限制、本来就不看服务状态，是移植时多加了条件。
+43. **WebView 的 `onReceivedError`（4 参）对**所有**资源都会回调，而主框架 4xx/5xx 走的是另一个回调**：漏了 `request.isForMainFrame` 过滤，游戏里随便丢一个可选资源（图片/脚本）就会把整页换成「游戏加载失败」卡片；反过来只接 `onReceivedError` 又接不住主框架 404 —— 把 `index.html` 移走再重载，用户看到的是本地服务返回的裸文本 `Not Found` 白页（首帧 9ms），没有中文说明也没有「重试」。两个回调都要接，且都以 `isForMainFrame` 为界（子资源失败只记日志）。
+44. **Compose `Slider(steps=…)` 的档位值带浮点漂移**：档位值是 `min + i * (max-min)/steps`，实拉会得到 `10.999999`，界面显示「10.999999x」并把脏数字写进 `cheatParams` 与注入脚本。取值入口（`CheatFormat.resolveNumber`）要做**容差吸附**（`1e-6`）而不是无条件取整 —— 无条件 `round` 会把用户手填的真实中间值（`7.5`）也改掉，与鸿蒙版取值语义分叉。
 
 ## 7. 风险
 
