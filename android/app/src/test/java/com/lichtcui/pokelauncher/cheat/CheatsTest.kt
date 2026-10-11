@@ -127,4 +127,38 @@ class CheatsTest {
         val p = CHEATS.first { it.id == "reward-tier" }.param!!
         assertEquals(listOf("Common", "Great", "Ultra", "Rogue", "Master"), p.labels)
     }
+
+    // ------------------------------------------------------------ 参数调整页（P3）
+
+    @Test
+    fun sliderStepsCountsGapsBetweenEndpoints() {
+        // Material3 的 steps 是端点之间的档位数：0..4 step1 → 3（五档）
+        val tier = CHEATS.first { it.id == "reward-tier" }.param!!
+        assertEquals(3, tier.sliderSteps())
+        // 1..100 step1 → 98（一百档）
+        val candy = CHEATS.first { it.id == "candy" }.param!!
+        assertEquals(98, candy.sliderSteps())
+    }
+
+    @Test
+    fun sliderStepsNeverNegative() {
+        // Slider 收到负数 steps 会直接崩，所以单档位 / step<=0 必须回退成连续滑块
+        assertEquals(0, CheatParam(id = "a", label = "a", min = 5.0, max = 5.0, defaultValue = 5.0).sliderSteps())
+        assertEquals(
+            0,
+            CheatParam(id = "b", label = "b", min = 0.0, max = 10.0, defaultValue = 0.0, step = 0.0).sliderSteps()
+        )
+    }
+
+    @Test
+    fun everyParamFitsSlider() {
+        // 参数调整页要渲染所有条目：min<max、默认值在区间内、档位换算非负
+        for (c in CHEATS) {
+            val p = c.param ?: continue
+            assertTrue("${c.id} min>=max", p.min < p.max)
+            assertTrue("${c.id} 默认值越界", p.defaultValue in p.min..p.max)
+            assertTrue("${c.id} steps 为负", p.sliderSteps() >= 0)
+            assertTrue("${c.id} 缺 label", p.label.isNotBlank())
+        }
+    }
 }

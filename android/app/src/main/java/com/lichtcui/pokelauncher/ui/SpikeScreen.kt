@@ -27,10 +27,15 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -49,9 +54,17 @@ import com.lichtcui.pokelauncher.web.PokeWebView
 @Composable
 fun PokeLauncherApp(controller: SpikeController) {
     PokeTheme {
-        // 系统返回键：游戏页 → 打靶页；打靶页由系统处理（退出）
+        // 打靶页 → 「参数调整」页。暂时用本地状态量做导航：P3 阶段只有三个页面，
+        // 引入 navigation-compose 反而多一层依赖（正式版首页/设置页落地时再评估）。
+        var showCheats by remember { mutableStateOf(false) }
+        // 系统返回键：游戏页 / 参数调整页 → 打靶页；打靶页由系统处理（退出）
         BackHandler(enabled = controller.showGame) { controller.exitGame() }
-        if (controller.showGame) GameScreen(controller) else SpikeScreen(controller)
+        BackHandler(enabled = showCheats) { showCheats = false }
+        when {
+            controller.showGame -> GameScreen(controller)
+            showCheats -> CheatScreen(onBack = { showCheats = false })
+            else -> SpikeScreen(controller, onOpenCheats = { showCheats = true })
+        }
     }
 }
 
@@ -59,7 +72,7 @@ fun PokeLauncherApp(controller: SpikeController) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun SpikeScreen(controller: SpikeController) {
+private fun SpikeScreen(controller: SpikeController, onOpenCheats: () -> Unit) {
     val pickZip = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         // zip 的 MIME 在不同文件管理器里可能是 application/zip / octet-stream / 空，
         // 所以选择器必须放开到 */*，只在回调里做校验
@@ -89,6 +102,9 @@ private fun SpikeScreen(controller: SpikeController) {
         topBar = {
             TopAppBar(
                 title = { Text("P1 打靶 · 下载 / 解压链路", fontSize = 18.sp) },
+                actions = {
+                    TextButton(onClick = onOpenCheats) { Text("参数调整") }
+                },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surface,
                     titleContentColor = MaterialTheme.colorScheme.primary

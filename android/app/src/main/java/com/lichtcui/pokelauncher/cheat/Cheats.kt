@@ -45,6 +45,19 @@ data class Cheat(
 /** 分组顺序即参数调整页的展示顺序 */
 val CHEAT_GROUPS: List<CheatGroup> = CheatGroup.entries.toList()
 
+/**
+ * 把参数映射成 Compose `Slider` 需要的档位数。
+ *
+ * ⚠️ Material3 的 `steps` 是「**端点之间**的档位数」，不是总档数：
+ * `0..4` 且 step 1 → `3`（也就是 0/1/2/3/4 五档）。算不出整数档位时返回 0（连续滑块），
+ * 免得给 Slider 传负数直接崩。
+ */
+fun CheatParam.sliderSteps(): Int {
+    if (step <= 0.0) return 0
+    val gaps = ((max - min) / step).toInt() - 1
+    return if (gaps > 0) gaps else 0
+}
+
 val CHEATS: List<Cheat> = listOf(
     Cheat(
         id = "candy",

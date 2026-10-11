@@ -136,10 +136,10 @@ android/                                   Gradle 8.14.3 / AGP 8.11.0 / Kotlin 2
 │  ├─ web/ PokeWebView.kt                  WebView 配置 + PokeNative JS 桥 + PokeSaveGuard 存档桥
 │  ├─ web/ SaveGuard.kt                    存档镜像（filesDir/saves/localstorage.json + .bak）+ 注入脚本
 │  ├─ web/ WebCache.kt                     clearCache 时机（活实例优先，否则临时实例；仅主线程）
-│  └─ ui/ Theme / SpikeController / SpikeScreen   打靶页（= P0–P2 的全部 UI）
-├─ app/src/test/java/.../                  **180 个 JVM 单测**（core 22：Paths 7 / Format 6 / Mime 5 / Version 4；
+│  └─ ui/ Theme / SpikeController / SpikeScreen / CheatScreen   打靶页 + 「参数调整」页（= P0–P3 第一块的全部 UI）
+├─ app/src/test/java/.../                  **183 个 JVM 单测**（core 22：Paths 7 / Format 6 / Mime 5 / Version 4；
 │                                          install 49：DownloadUrls 11 / DownloadState 16 / DownloadStatus 16 / ReleaseInfo 6；
-│                                          cheat 68：CheatFormat 27 / CheatScripts 14 / CheatState 13 / Cheats 14；
+│                                          cheat 71：CheatFormat 27 / CheatScripts 14 / CheatState 13 / Cheats 17；
 │                                          server 19：InjectScripts 9 / ServerDiag 10；web 22：SaveGuard 22）
 └─ app/src/main/res/                       图标（品牌红环）/ 通知图标 ic_download / 主题 / network_security_config
 ```
@@ -150,13 +150,17 @@ android/                                   Gradle 8.14.3 / AGP 8.11.0 / Kotlin 2
 | --- | --- |
 | `./gradlew assembleDebug` | ✅ `app-debug.apk` 9.8 MB |
 | `./gradlew assembleRelease`（R8 + 资源收缩） | ✅ `app-release-unsigned.apk` 1.1 MB（含 OkHttp/Okio） |
-| `./gradlew testDebugUnitTest` | ✅ **180 tests, 0 failures** |
+| `./gradlew testDebugUnitTest` | ✅ **183 tests, 0 failures** |
 | `./gradlew :app:lintDebug` | ✅ **0 errors**（24 warnings / 6 hints，均为依赖版本提示类，不阻塞） |
 | release 包 JS 桥是否存活 | ✅ 反编译 dex：`PokeNative` / `reportTiming` / `reportState` / **`PokeSaveGuard`** / **`load` / `save` / `notifyRestored`** 均在（`o1.g.load`：类名可混淆，方法名由 `-keepclassmembers @JavascriptInterface` 保住） |
 | release 包新链路常量是否存活 | ✅ dex 里仍有 `tag_name` / `browser_download_url` / `receivedBytes` / `bytes=0-` / `If-Range` / `Content-Range` / `game.zip.download.json` / `pokerogue-download` |
 | release 包注入链常量是否存活 | ✅ dex 里仍有 `__cheats__.js` ×4 / `__pk_boot.js` ×2 / `window.__pkGameHooks` ×3 / 7 条脚本标记（`__cheatCandy/Exp/Money/Luck/Catch/FreeEgg/Reward`）/ `cheatMaster`·`cheatEnabledIds`·`cheatParams` / `localstorage.json`·`localstorage.bak.json` / `SAVEGUARD` ×5 |
 | manifest 基线 | ✅ minSdk 26 / targetSdk 35 / INTERNET + ACCESS_NETWORK_STATE + FOREGROUND_SERVICE(+DATA_SYNC) + POST_NOTIFICATIONS + WAKE_LOCK / cleartext 全局 false + 回环白名单 |
 | 前台服务声明 | ✅ release 合并后 manifest 里 `com.lichtcui.pokelauncher.install.DownloadService` 未被混淆，`foregroundServiceType=0x1`（dataSync）、`exported=false`、`stopWithTask=false` |
+| release 包中文常量存活（P3 参数调整页） | ✅ 字节搜索 dex：`参数调整总开关` / 风险提示两行全文 / `强制奖励稀有度` / `100% 捕获率` / `倍率修改` 等均在 |
+
+> 验 dex 字符串时注意：**字符串池是 UTF-8**，`strings -a` 只能看到 ASCII，中文要用字节搜索：
+> `python3 -c "import sys;print(sys.stdin.buffer.read().count('参数调整'.encode()))" < classes.dex`。
 
 ### 4.2 怎么编译 / 怎么跑
 
@@ -201,6 +205,10 @@ adb logcat -s PokeLauncher          # 全部日志统一 tag
 - 引导脚本（`/__pk_boot.js`）：canvas 补丁 + 计时埋点 + `window.Phaser` 包装（唯一所有者），并把 Game 实例派发给 `window.__pkGameHooks` 上的场景捕获回调。
 - 日志关键字：`served patched index.html (canvasPatch=…, cheats=…, saveGuard=…)`、`served /__cheats__.js (N bytes)`、`已清除 WebView 缓存`、`SAVEGUARD restored N keys`、`TIMING {…}`。
 
+**P3 参数调整页（打靶页右上角「参数调整」进入）**
+
+顶部总开关 → 两个分组（倍率修改 / 其他）→ 每条一个开关；声明了 `param` 的条目多一个滑块（拖动实时改内存、松手才落盘）。改动需**重载游戏页**才生效（`__CHEAT_PARAMS__` 是页面加载时烘进脚本的，与鸿蒙口径一致）。页面完全由 `CHEATS` 驱动，**新增条目不需改 UI**。
+
 ### 4.3 与上面计划的差异（实现期决定）
 
 1. **NanoHTTPD 换成有界线程池**：默认 `DefaultAsyncRunner` 是「每连接一个线程」且无上限，而游戏冷启动会并发拉数百个资源。改用 16 槽位的 `PooledAsyncRunner`。
@@ -242,6 +250,18 @@ adb logcat -s PokeLauncher          # 全部日志统一 tag
 12. **JS 逐字保真**：7 条脚本的 body/name/desc/param 用脚本逐行比对过（与 `Cheats.ets` 全等），只有 `SCENE_RUNTIME` 末尾按第 1 条改。单测额外锁住两条易错约束：**脚本里不得出现 `$`**（Kotlin raw string 会当模板插值）、**声明了 param 就必须真的读 `__CHEAT_PARAMS__.<id>`**（否则是假旋钮）。
 13. **`PokeSaveGuard` 桥的混淆边界**：类名可以被 R8 改名（JS 侧用的是传给 `addJavascriptInterface` 的字符串），但方法名必须保留——靠既有的 `-keepclassmembers class * { @android.webkit.JavascriptInterface <methods>; }` 规则；release dex 已验 `load` / `save` / `notifyRestored` 未被改名。
 
+### 4.3.3 P3（UI）实现期决定
+
+> P3 分块推进：**第一块 = 参数调整页**（已落地），后续是首页四态/下载流/精灵球动画、设置页、游戏页、法律页。
+
+1. **参数调整页完全由 `CHEATS` 驱动**：分组、条目、参数范围、显示文本全部来自注册表，新增条目只改 `cheat/Cheats.kt`（与鸿蒙版「只改 `Cheats.ets`」同一条规则）。这也是为什么把 `CheatParam.sliderSteps()` 放在注册表旁边而不是 UI 文件里。
+2. **总开关放在参数调整页顶部**（鸿蒙版在「设置 → 运行设置」）：开关离条目越近越不容易误操作，也让本页自成一个可验证的闭环（P3 第一块不改设置页）。设置页落地后**只加入口链接**，不重复放开关，避免两处状态分叉。
+3. **不引 `navigation-compose`**：P3 全部页面加起来只有五个，根组件里的一个状态变量就够；多一层依赖还多一层混淆风险。等页面数量真的超了再换。
+4. **滑块档位换算放在 `cheat/Cheats.kt`**：Material3 的 `steps` 是「端点之间的档位数」（0..4 step1 → 3），传错就是崩溃或该滑不动；Compose 文件无法 JVM 单测，所以把它放在注册表旁边（`CheatsTest` 覆盖，含「不能为负」与「每个参数都适配」。基准值均来自注册表，新增参数越界会在单测里直接红）。
+5. **拖动中只改内存，松手才落盘**（与鸿蒙版一致）：SharedPreferences 是同步 `commit`，每次滑动都写盘会掉帧；拖动中只调 `setParamLive`，`onValueChangeFinished` 才 `setParam`。
+6. **改动需重载才生效**：`__CHEAT_PARAMS__` 是 `/__cheats__.js` 在被请求时烘进脚本的，所以页面上写「改动会在重载游戏页后生效」——不承诺「拖动即生效」（与鸿蒙行为一致）。
+7. **文案红线延伸到整页**：标题就叫「参数调整」，风险提示文案与鸿蒙版**逐字一致**（账号风险 + 兼容性风险两行）。日后加新文案先看 `AGENTS.md` §2 的命名约定。
+
 ### 4.4 实测记录（待真机，空着等数据）
 
 **P0（性能）**
@@ -279,6 +299,15 @@ adb logcat -s PokeLauncher          # 全部日志统一 tag
 | P2-7 | 版本变更清缓存 | 装完资源后日志有 `已清除 WebView 缓存`；杀掉 App → 换成另一个资源包再启动（或手改偏好里 `lastCachedGameVersion`）→ 冷启动日志再清一次 | |
 | P2-8 | 参数调整文案红线 | **P3 才能验**：参数调整页与任何用户可见文案不得出现「作弊」字样（审核风险） | |
 
+**P3（UI）——待真机项**
+
+| # | 项 | 判据（看界面/日志） | 结果 |
+| --- | --- | --- | --- |
+| P3-1 | 参数调整页可进入/可返回 | 打靶页右上角进入；系统返回键回到打靶页；总开关关闭时所有条目开关与滑块置灰 | |
+| P3-2 | 滑块档位正确 | 「强制奖励稀有度」只有 5 档（Common/Great/Ultra/Rogue/Master，不能停在中间值）；「糖果获取倍率」能拉到 1 与 100 | |
+| P3-3 | 状态持久化 | 改开关 + 拉滑块 → 杀进程重开 → 页面仍是改过的值；DevTools 里 `/__cheats__.js` 的 `__CHEAT_PARAMS__` 与新值一致 | |
+| P3-4 | 文案红线 | 整页（标题/提示/开关/滑块）无「作弊」字样 | |
+
 **P0 未通过时**的退路：改用 `androidx.webkit` 的 `WebViewAssetLoader`（`https://appassets.androidplatform.net`，免 socket 免 cleartext），代价是丢 HTTP 缓存与 Range。
 
 ## 5. 分期计划
@@ -288,7 +317,7 @@ adb logcat -s PokeLauncher          # 全部日志统一 tag
 | **P0 打靶** | 工程骨架（Kotlin + Compose, minSdk 26）+ NanoHTTPD + 注入 + 导入 zip + 进游戏计时 | 2–3 天 | ✅ 代码完成 + 本机编译/单测/release 混淆校验通过；**真机判据待跑（§4.4）** |
 | **P1 下载/解压** | Release 查询 → 镜像并发测速 → 断点续传 → 原子解压切换 → `recover()`；前台服务 + 通知进度；暂停/继续/取消；SAF 手动导入 | 4–6 天 | ✅ 代码完成（71 单测全绿，debug/release 均编译通过）；**真机判据待跑（§4.4）** |
 | **P2 服务与注入** | index.html 补丁、虚拟端点 `/__pk_boot.js` + `/__cheats__.js`、端口占用兜底、8001 stub、`clearCache` 时机、参数调整状态与存档镜像 | 3–4 天 | ✅ 代码完成（累计 180 单测全绿，debug/release 均编译通过，lint 0 error）；**真机判据待跑（§4.4）** |
-| **P3 UI** | Compose：首页四态 + 下载流 + 精灵球动画、设置页、参数调整页、游戏页（返回按钮淡出/错误浮层/方向/静音）、法律页 | 4–6 天 |
+| **P3 UI** | Compose：首页四态 + 下载流 + 精灵球动画、设置页、参数调整页、游戏页（返回按钮淡出/错误浮层/方向/静音）、法律页 | 4–6 天 | 🚧 进行中：**参数调整页已完成**（183 单测全绿）；首页/设置/游戏/法律页待做 |
 | **P4 平台特有** | 存档导出/导入、Auto Backup、应用内自更新（FileProvider + `REQUEST_INSTALL_PACKAGES`）、通知权限 | 3–4 天 |
 | **P5 打磨发布** | 真机矩阵（多 WebView 版本）、性能调优、GitHub Actions 出 APK、签名发版 | 3–5 天 |
 
