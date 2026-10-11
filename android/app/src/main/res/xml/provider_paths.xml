@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  FileProvider 的路径白名单：只暴露自更新下载目录（`ApkUpdater.apkDir`）。
+
+  `external-files-path` → `getExternalFilesDir(null)/apk/`（正常路径）；
+  `files-path` → `filesDir/apk/`（外部存储不可用时的退路，两者必须与 `ApkUpdater` 一致）。
+
+  ⚠️ 不要把整棵树暴露出去：FileProvider 的 URI 一旦外发，接收方在授权期内可以读该路径下
+  任何文件——游戏资源（1.5GB）与 `files/saves/`（存档）都不该出现在白名单里。
+-->
+<paths>
+    <external-files-path name="apk_external" path="apk/" />
+    <files-path name="apk_internal" path="apk/" />
+</paths>

@@ -18,6 +18,15 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
 
+    <!--
+      应用内自更新：下载 APK 后交给系统安装器。
+      这是一个**普通权限**（用户不可单独授权），真正把关的是系统设置里的「安装未知应用」
+      开关（运行时用 PackageManager.canRequestPackageInstalls() 查、用
+      Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES 引导）。
+      仅用于自更新，不装任何第三方包——上架时在隐私说明里写清楚这一点。
+    -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
     <application
         android:name=".App"
         android:allowBackup="true"
@@ -54,6 +63,21 @@
             android:exported="false"
             android:foregroundServiceType="dataSync"
             android:stopWithTask="false" />
+
+        <!--
+          自更新安装包的 FileProvider：把应用专属目录里的 .apk 以 content:// 形式
+          交给系统安装器（targetSdk 24+ 不允许直接 file:// 外发，会 FileUriExposedException）。
+          exported=false + grantUriPermissions=true：只有我们临时授权的接收方能读。
+        -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/provider_paths" />
+        </provider>
     </application>
 
 </manifest>

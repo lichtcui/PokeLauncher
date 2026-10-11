@@ -95,7 +95,7 @@ HDC=/Applications/DevEco-Studio.app/Contents/sdk/default/openharmony/toolchains/
 
 ## 4. 安卓版（`android/`）
 
-同一个仓库里的**第二个 App**：`android/` 是独立的 Gradle 工程（不在 HAP 编译范围内），bundle/applicationId 也叫 `com.lichtcui.pokelauncher`，目前在 **P0（打靶）+ P1（下载/解压链路）+ P2（注入链/端口兜底/缓存）+ P3（Compose UI：首页四态/下载流、设置页、法律页、参数调整页、游戏页）代码全部完成**；P4 已完成**存档导出/导入 + Auto Backup**（应用内自更新待做）；**都还没在真机上跑过判据**。完整方案、分期计划、关键坑见 [`docs/android-port.md`](./docs/android-port.md)。
+同一个仓库里的**第二个 App**：`android/` 是独立的 Gradle 工程（不在 HAP 编译范围内），bundle/applicationId 也叫 `com.lichtcui.pokelauncher`，目前在 **P0（打靶）+ P1（下载/解压链路）+ P2（注入链/端口兜底/缓存）+ P3（Compose UI：首页四态/下载流、设置页、法律页、参数调整页、游戏页）+ P4（平台特有：存档导出/导入 + Auto Backup + 应用内自更新 + 通知权限）代码全部完成**；**都还没在真机上跑过判据**（本机也无模拟器）。完整方案、分期计划、关键坑见 [`docs/android-port.md`](./docs/android-port.md)。
 
 ```bash
 export JAVA_HOME=/Library/Java/JavaVirtualMachines/temurin-17.jdk/Contents/Home
@@ -103,7 +103,7 @@ export ANDROID_HOME=/usr/local/share/android-commandlinetools
 export PATH="$JAVA_HOME/bin:$PATH"
 cd android
 ./gradlew assembleDebug        # → app/build/outputs/apk/debug/app-debug.apk
-./gradlew testDebugUnitTest    # JVM 纯函数单测 255 例（core / install / cheat / server / web / appupdate / ui）
+./gradlew testDebugUnitTest    # JVM 纯函数单测 270 例（core / install / cheat / server / web / appupdate / ui）
 ./gradlew :app:lintDebug       # 需 0 error（MissingPermission 等）
 ```
 
@@ -132,8 +132,11 @@ Android 侧的红线（改之前先读）：
 - **导出落盘零权限，且文件名/URL 都是不可信输入**：API 29+ 写 `MediaStore.Downloads`（`IS_PENDING` 两阶段、失败删半成品），API 26–28 写 `getExternalFilesDir(DIRECTORY_DOWNLOADS)`；**不申请 `WRITE_EXTERNAL_STORAGE` / `MANAGE_EXTERNAL_STORAGE`**（不要学参考 App，Play 会拒）。页面传来的名字一律过 `DownloadBridge.safeFileName`，拼进 JS 的字符串一律过 `jsStringLiteral`，别直接信 `download` 属性。`MediaStore` 那个分支要标 `@RequiresApi(Q)`，否则 lint 报 `NewApi` **error**。
 - **Auto Backup 规则是 include 白名单**（`res/xml/backup_rules.xml` + `data_extraction_rules.xml`）：只备 `sharedpref` + `file/saves`，**不要**加 `<exclude domain="external">`（写了 include 之后其余本来就不备，lint 会报 `is not in an included path`）。这里错一下的代价是整次备份失败捎带存档一起丢：游戏本体在外部存储有 1.5GB，而配额只有 25MB。
 - **`WebChromeClient.onShowFileChooser` 的 `callback` 必须恰好回一次值**：玩家取消、连点两次、页面被销毁时都要把上一份用 `null` 结掉（`FileChooserSlot.cancel()`），否则游戏里那次文件选择永久挂住（`ui/GameScreen.kt`）。
-- **无真机不下结论**：模拟器与真机的 WebView/Chromium 版本差异极大，P0 的七项判据、P1 的下载判据与 P2 的注入/端口/缓存判据、P3 的 UI 判据、P4 的存档导出/Auto Backup 判据（见 [`docs/android-port.md`](./docs/android-port.md) §4.4）必须在真机上跑（`adb install -r` → 打开 App → 截图读悬浮面板指标，日志 `-s PokeLauncher`）。
-- **应用自更新只认 `version.json` 的 `android*` 字段**（`androidVersionCode` / `androidVersionName` / `androidMinVersionCode` / `androidChangelog` / `apkUrl`；与鸿蒙字段同在一份清单里）：缺 `androidVersionCode` 时安卓端必须显示「安卓版暂未发布」，**绝不**拿鸿蒙的 `versionCode` 比（会永远显示「发现新版本」并指向 HAP 页）。发版对齐规则见 [`docs/android-port.md`](./docs/android-port.md) §8。
+- **应用内自更新（P4）：`apkUrl` 的 APK 落到 `getExternalFilesDir()/apk/`，交给系统安装器必须走 `FileProvider`**（`file://` 在 API 24+ 会 `FileUriExposedException`/被静默拒绝）；`res/xml/provider_paths.xml` **只放行 `apk/` 两个路径，且必须与 `ApkUpdater.apkDir` 一致**（FileProvider 授的是整条路径，放行整棵树 = 送出私有目录读权限；改目录不改 xml 会 `IllegalArgumentException`）。`REQUEST_INSTALL_PACKAGES` 只是常规权限，真正的门禁是 `ApkUpdater.canInstall()`（`canRequestPackageInstalls()`）+ `ACTION_MANAGE_UNKNOWN_APP_SOURCES` 精准跳转。
+- **APK 下载用 `.part` 两阶段写 + 魔数校验**：写 `.part` → `fd.sync()` → `renameTo`（否则被杀后剩下「长度对得上、内容不全」的包，安装器只会报「解析包时出现问题」）；下完必须 `size >= 64KB` + `PK\x03\x04`/`05 06`/`07 08`（国内镜像的 404 HTML 页 `Content-Length` 也是 200）。自更新**不开前台服务**（几 MB 的包 + 必须用户亲手点「安装」，套 `dataSync` 只会白吃 Android 15 的 6h/24h 配额），取消用 `@Volatile` 标志逐块检查。
+- **自更新的阶段判定与按钮文案必须是同一组纯函数**（`appupdate/ApkUpdate.kt` 的 `apkActionOf` / `apkRowLabel` / `apkRowValue`）：首页弹窗与设置页行两处各自写一份，很容易长歪成「一处可取消、一处重新下载」，点两下就双开下载（`ApkUpdateTest` 锁住）。安装器在**根组件**（`ui/RootScreen.kt`）按 `LaunchedEffect(phase, fileName)` 拉起，从安装器返回不重复弹（键不变）。
+- **无真机不下结论**：模拟器与真机的 WebView/Chromium 版本差异极大，P0 的七项判据、P1 的下载判据与 P2 的注入/端口/缓存判据、P3 的 UI 判据、P4 的存档导出/Auto Backup/应用内更新判据（见 [`docs/android-port.md`](./docs/android-port.md) §4.4）必须在真机上跑（`adb install -r` → 打开 App → 截图读悬浮面板指标，日志 `-s PokeLauncher`）。
+- **应用自更新只认 `version.json` 的 `android*` 字段**（`androidVersionCode` / `androidVersionName` / `androidMinVersionCode` / `androidChangelog` / `apkUrl`；与鸿蒙字段同在一份清单里）：缺 `androidVersionCode` 时安卓端必须显示「安卓版暂未发布」，**绝不**拿鸿蒙的 `versionCode` 比（会永远显示「发现新版本」并指向 HAP 页）；有 `apkUrl` 时走应用内下载（安卓能做到鸿蒙做不到的应用内更新），没 `apkUrl` 才退回浏览器打开 `pageUrl`。发版对齐规则见 [`docs/android-port.md`](./docs/android-port.md) §8。
 - **`ui/` 里不要写 `Modifier.then(...)`，也不要声明 `fun Modifier.xxx()` 扩展**：本机 lint 版本下这两者会让 compose 的 lint 检查器 `NoClassDefFoundError`，**直接弄挂 `:app:lintDebug`**（是任务失败，不是警告）。用 if/else 选 Modifier。
 - **真机验收的「屏幕方向」只在游戏页生效**：偏好存 `core/OrientationPref.kt`（键 `orientation`），由根组件的 `ApplyPageOrientation` 套用；启动器自己的页面在手机上恒竖屏、平板上跟随系统（与鸿蒙 `WindowHolder` 同口径）。
 - 日志统一 tag `PokeLauncher`（`adb logcat -s PokeLauncher`），与鸿蒙侧同 tag 便于对照。

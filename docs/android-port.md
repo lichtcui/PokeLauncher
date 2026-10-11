@@ -72,6 +72,7 @@
 | `WindowHolder.setOrientation` | `Activity.requestedOrientation` |
 | `apiAtLeast()` | `Build.VERSION.SDK_INT` |
 | `filesDir` | `getExternalFilesDir(null)`（507MB zip + ~1.5GB 解压，内部存储会爆） |
+| `AppUpdate.ets`（检测 + `Want` 打开浏览器，**无法应用内装 HAP**） | OkHttp 下 APK → **`FileProvider` + `ACTION_VIEW`** 交系统安装器（`REQUEST_INSTALL_PACKAGES` 只是常规权限，真正的门禁是 `canRequestPackageInstalls()` → `ACTION_MANAGE_UNKNOWN_APP_SOURCES`）（P4 已落地，见 §4.3.8） |
 
 ### 3.3 目录规划
 
@@ -83,8 +84,9 @@ android/
 │  ├─ cheat/      Cheats(注册表·JS 逐字保真) / CheatFormat(纯编解码) / CheatState(状态+持久化) / CheatScripts(生成 /__cheats__.js)
 │  ├─ install/    GameRepository(Release 查询·镜像测速·断点续传) / GameInstaller(原子解压切换·recover) / DownloadService(前台服务)
 │  ├─ web/        PokeWebView(JS 桥·文件选择转发) / SaveGuard(存档镜像·JS 桥) / DownloadBridge(存档导出拦截·落盘) / WebCache(clearCache 时机)
+│  ├─ appupdate/  AppUpdate(清单解析·版本比较·节流) / AppUpdateRepository(拉清单·开链接) / ApkUpdate(自更新纯逻辑) / ApkUpdater(下包·校验·安装 Intent)
 │  └─ ui/         Compose：首页四态 / 设置 / 参数调整 / 法律 / 游戏页 / 打靶页（P3 已全部落地，清单见 §4.1）
-└─ app/src/test/  JVM 纯函数单测（core / install / cheat / server / web）
+└─ app/src/test/  JVM 纯函数单测（core / install / cheat / server / web / appupdate）
 ```
 
 `core/` 不引 Android 依赖，未来要复用到 iOS/桌面时可直接搬。
@@ -119,6 +121,8 @@ android/                                   Gradle 8.14.3 / AGP 8.11.0 / Kotlin 2
 │  ├─ core/ Version.kt                     release-<commit> 归一化（与鸿蒙 normalizeVersion 一致）
 │  ├─ core/ Prefs.kt                       SharedPreferences 封装（库名 pokelauncher_settings）
 │  ├─ core/ OrientationPref.kt             屏幕方向偏好（portrait/landscape/system，**只作用于游戏页**）
+│  ├─ appupdate/ ApkUpdate.kt              应用内自更新纯逻辑：阶段/进度/文件名清洗/zip 魔数校验/按钮文案映射（**纯函数**）
+│  ├─ appupdate/ ApkUpdater.kt             更新包 IO：`apk/` 目录 + OkHttp 下载（`.part` → `fd.sync()` → 改名）+ 校验 + 清旧包 + FileProvider 安装 Intent
 │  ├─ appupdate/ AppUpdate.kt              应用自更新纯逻辑：清单解析（含 android* 字段）+ 版本比较 + 检查节流
 │  ├─ appupdate/ AppUpdateRepository.kt    清单拉取（OkHttp + 模块级 TTL 缓存）+ 打开链接
 │  ├─ server/ GameServer.kt                NanoHTTPD×2（18787 资源 / 8001 API stub）+ /__cheats__.js 端点 + 端口重试
@@ -141,9 +145,9 @@ android/                                   Gradle 8.14.3 / AGP 8.11.0 / Kotlin 2
 │  ├─ web/ SaveGuard.kt                    存档镜像（filesDir/saves/localstorage.json + .bak）+ 注入脚本
 │  ├─ web/ WebCache.kt                     clearCache 时机（活实例优先，否则临时实例；仅主线程）
 │  └─ ui/                                  首页 + 打靶页 + 设置页 + 参数调整页 + 法律页 + 游戏页（P3 全部落地）
-│     ├─ Theme.kt / Common.kt              主题色；页面外壳公共件（返回栏 / 分组标题 / 导航行 / 状态行 / formatMs）
+│     ├─ Theme.kt / Common.kt              主题色；页面外壳公共件（返回栏 / 分组标题 / 导航行 / 状态行 / formatMs / 自更新动作分发 / 进度条 / 拉起安装器）
 │     ├─ PageOrientation.kt                根组件套用屏幕方向（游戏页用偏好，其余页面手机竖屏/平板跟随系统）
-│     ├─ RootScreen.kt                     应用根：主题 + 路由（6 页布尔量）+ 单一 BackHandler + 方向
+│     ├─ RootScreen.kt                     应用根：主题 + 路由（6 页布尔量）+ 单一 BackHandler + 方向 + **自更新包就绪后拉起安装器**
 │     ├─ HomeState.kt                      首页四态 + 精灵球阶段 + 流程文案（**纯函数**，可 JVM 单测）
 │     ├─ HomeScreen.kt                     首页四态视图（对应鸿蒙 Index.ets + LauncherViews.ets）
 │     ├─ PokeballLoader.kt                 精灵球摇晃动画（±14° / 450ms，与鸿蒙同参数）
@@ -152,13 +156,14 @@ android/                                   Gradle 8.14.3 / AGP 8.11.0 / Kotlin 2
 │     ├─ SpikeController.kt                应用级控制器（首页 / 设置页 / 打靶页共用同一实例）
 │     ├─ SpikeScreen.kt / CheatScreen.kt   开发者诊断页；参数调整页（纯注册表驱动）
 │     └─ SettingsScreen.kt / LegalText.kt / LegalScreen.kt   设置页；法律正文（纯数据）；法律页
-├─ app/src/test/java/.../                  **255 个 JVM 单测**（core 31：Paths 7 / Format 6 / Mime 5 / Version 4 / OrientationPref 7 / Prefs 2；
+├─ app/src/test/java/.../                  **270 个 JVM 单测**（core 31：Paths 7 / Format 6 / Mime 5 / Version 4 / OrientationPref 7 / Prefs 2；
 │                                          install 50：DownloadUrls 12 / DownloadState 16 / DownloadStatus 16 / ReleaseInfo 6；
 │                                          cheat 71：CheatFormat 27 / CheatScripts 14 / CheatState 13 / Cheats 17；
 │                                          server 20：InjectScripts 10 / ServerDiag 10；web 36：SaveGuard 22 / DownloadBridge 14；
-│                                          appupdate 18：AppUpdate 18；ui 29：HomeState 13 / GameState 9 / LegalText 7）
+│                                          appupdate 33：AppUpdate 18 / ApkUpdate 15；ui 29：HomeState 13 / GameState 9 / LegalText 7）
 └─ app/src/main/res/                       图标（品牌红环）/ 通知图标 ic_download / 精灵球 ic_pokeball / 主题 / network_security_config
                                           / xml/backup_rules.xml + xml/data_extraction_rules.xml（Auto Backup：只备设置偏好 + files/saves）
+                                          / xml/provider_paths.xml（自更新：只放行 apk/ 两个路径）
 ```
 
 已实测通过（本机，**尚无真机**）：
@@ -166,9 +171,9 @@ android/                                   Gradle 8.14.3 / AGP 8.11.0 / Kotlin 2
 | 检查 | 结果 |
 | --- | --- |
 | `./gradlew assembleDebug` | ✅ `app-debug.apk` 10 MB |
-| `./gradlew assembleRelease`（R8 + 资源收缩） | ✅ `app-release-unsigned.apk` 1.2 MB（含 OkHttp/Okio） |
-| `./gradlew testDebugUnitTest` | ✅ **255 tests, 0 failures** |
-| `./gradlew :app:lintDebug` | ✅ **0 errors**（26 warnings / 11 hints，均为依赖版本提示与 autoboxing 建议类，不阻塞） |
+| `./gradlew assembleRelease`（R8 + 资源收缩） | ✅ `app-release-unsigned.apk` 1.3 MB（含 OkHttp/Okio） |
+| `./gradlew testDebugUnitTest` | ✅ **270 tests, 0 failures** |
+| `./gradlew :app:lintDebug` | ✅ **0 errors**（27 warnings / 11 hints，均为依赖版本提示与 autoboxing 建议类，不阻塞；新增 1 条 `UseKtx String.toUri`，与 `AppUpdateRepository` 同类） |
 | release 包 JS 桥是否存活 | ✅ 反编译 dex：`PokeNative` / `reportTiming` / `reportState` / **`PokeSaveGuard`** / **`load` / `save` / `notifyRestored`** 均在（`o1.g.load`：类名可混淆，方法名由 `-keepclassmembers @JavascriptInterface` 保住） |
 | release 包新链路常量是否存活 | ✅ dex 里仍有 `tag_name` / `browser_download_url` / `receivedBytes` / `bytes=0-` / `If-Range` / `Content-Range` / `game.zip.download.json` / `pokerogue-download` |
 | release 包注入链常量是否存活 | ✅ dex 里仍有 `__cheats__.js` ×4 / `__pk_boot.js` ×2 / `window.__pkGameHooks` ×3 / 7 条脚本标记（`__cheatCandy/Exp/Money/Luck/Catch/FreeEgg/Reward`）/ `cheatMaster`·`cheatEnabledIds`·`cheatParams` / `localstorage.json`·`localstorage.bak.json` / `SAVEGUARD` ×5 |
@@ -184,6 +189,9 @@ android/                                   Gradle 8.14.3 / AGP 8.11.0 / Kotlin 2
 | 存档导出（P4）纯逻辑 + JS | ✅ `DownloadBridgeTest` 14 条：文件名清洗（路径分隔符 / `..` / 前导点 / 超长 / 控制字符 / 中文）、`Content-Disposition` 解析（含 `filename*=`）、成功/失败文案、同名文件 `(1)` 后缀、**注入脚本与兜底脚本都不含 `$`**、桥方法名与脚本互相对齐 |
 | release 包存档导出常量存活（P4） | ✅ 字节搜索 dex：`已导出 ` / `导出失败` / `saveDownload` ×5 / `__pkDlInstalled` / `PKDL` ×15 / `URL.createObjectURL` / `XMLHttpRequest` / `data.prsv` 全部在（`proguard-rules.pro` 新增 `-keep class ...web.DownloadBridge`） |
 | Auto Backup 规则（P4） | ✅ release 合并 manifest：`allowBackup=true` + `fullBackupContent=@xml/backup_rules` + `dataExtractionRules=@xml/data_extraction_rules`；APK 资源表里两个 xml 都在（被资源收缩重命名为 `res/Qq.xml` / `res/4j.xml`）且 manifest 指向正确；规则**只 include `sharedpref` + `file/saves`**（lint 会报「include 之外都算排除」，正好锁住「不备份 1.5GB 游戏本体」） |
+| 应用内自更新（P4）纯逻辑 | ✅ `ApkUpdateTest` 15 条：文件名清洗（query/fragment/无扩展名/路径穿越/前导点/超长/中文与空格）、zip 魔数（`PK\x03\x04` / `05 06` / `07 08` / HTML / 短输入）、`MIN_APK_BYTES` 体积门槛、五阶段 → 按钮动作映射、各阶段文案与百分比（`total` 未知时退回绝对字节） |
+| release 包自更新常量存活（P4） | ✅ 字节搜索 dex：`正在下载更新包…` / `正在校验更新包…` / `安装更新` / `重试更新` / `已下载完成` / `更新失败：` / `更新包已下载` / `下载到的不是安装包` / `清单里没有可用的安装包地址` / `已取消更新下载` / `下载不完整` / `更新包不见了` / `无法打开安装器` / `pokerogue-` / `apk download: done` 全部在 |
+| 安装链路声明（P4） | ✅ release 合并 manifest：`REQUEST_INSTALL_PACKAGES` 在权限列表里（dex 里搜不到是正常的，它是 manifest-only）；`androidx.core.content.FileProvider` 未被混淆且 `exported=false` + `grantUriPermissions=true`、authority=`com.lichtcui.pokelauncher.fileprovider`、meta-data 指向 `@xml/provider_paths`（资源表 `0x7f0c0003` → `res/zz.xml`）；APK 里该 xml 只剩 `external-files-path apk/` + `files-path apk/`（**没放行整棵树**，见 §6-#38） |
 
 > ⚠️ **release 包不能靠类名取证**：R8 混淆后 `SettingsScreenKt` / `CommonKt` / `HomeScreenKt` / `RootScreenKt` / `GameScreenKt` / `SpikeController` 这些类名在 dex 里**根本不存在**（被改名或 class-merging 内联掉；`HomeStateKt` / `GameStateKt` / `DownloadUrls` 甚至直接是 `R8$$REMOVED$$CLASS$$<n>`——方法全被内联，如 `ui.GameStateKt.muteFallbackScript(boolean)` 只作为 member 行出现在 `PokeWebViewKt` 里）。查 release 只有两条可靠路径：① dex 字符串（中文常量用字节搜索）；② `app/build/outputs/mapping/release/mapping.txt`（看类被映射成什么、哪些名字被 keep 规则保住；被合并的类只在 member 行里出现，如 `ui.HomeStateKt.prepPhaseOf(...)`）。
 
@@ -257,7 +265,7 @@ adb logcat -s PokeLauncher          # 全部日志统一 tag
 **P3 设置页 / 法律页（首页右上角 `⚙` 进入；打靶页也能从设置页的「开发者诊断（打靶页）」进入）**
 
 - 运行设置：屏幕方向三段（竖屏 / 横屏 / 跟随系统，只影响游戏页）；「参数调整」入口行（显示已开启/已关闭，**开关本体在参数调整页**）。
-- 数据管理：`应用更新`（点一下强制检查；没有 `androidVersionCode` 时显示「安卓版暂未发布」，有更新时多出一行「去更新」+ 更新说明）；`离线资源更新`（对比本地资源版本，发现新版时多出一行「更新到新版本」→ 返回首页自动开始下载）；`删除本地数据`（确认弹窗 → 异步删除 → Toast + 返回首页）。
+- 数据管理：`应用更新`（点一下强制检查；没有 `androidVersionCode` 时显示「安卓版暂未发布」，有更新时多出一行「去更新」+ 更新说明，点是**应用内下载 APK**，见下面的 P4 小节）；`离线资源更新`（对比本地资源版本，发现新版时多出一行「更新到新版本」→ 返回首页自动开始下载）；`删除本地数据`（确认弹窗 → 异步删除 → Toast + 返回首页）。
 - 关于：应用版本（`BuildConfig`）/ 资源版本 / 资源来源 / 作者 / GitHub（浏览器打开）/ 法律与免责声明（进入法律页，10 个章节）/ **开发者诊断（打靶页）**（调试与发布包都常驻：真机判据要在「还没装资源」时就能跑）。
 
 **P3 游戏页（首页「开始运行」进入）**
@@ -276,6 +284,18 @@ adb logcat -s PokeLauncher          # 全部日志统一 tag
 - **浮层判定顺序是「错误 > 加载中」**（`gameOverlayOf`）：加载失败时 `pageLoaded` 永远是 false，顺序反了用户只会看到「正在载入…」。
 - 返回按钮放**左上角**（鸿蒙在右上角）：右上角被打靶指标面板占着，两个叠一起会互相吃点击；错误浮层也因此从右上角改成居中卡片。见 §4.3.6。
 - 打靶指标面板（`canvas 补丁` / `DOM 载入` / 计时点 / `gid` / 重载 / 退出）**仍是打靶期产物，发布前必须挪到 debug 开关后面**（见 §4.3.6-8）。
+
+**P4 应用内自更新（设置页 → 应用更新 / 首页「发现新版本」弹窗）**
+
+安卓侧比鸿蒙多做一步：鸿蒙只能「检测 + 打开浏览器」（普通应用装不了 HAP，见 [`app-update.md`](./app-update.md)），安卓可以直接下 APK 交给系统安装器。
+
+点「去更新」→ `ApkUpdater.downloadApk` 下到 `getExternalFilesDir()/apk/pokerogue-<版本>.apk`（先写 `.part`，`fd.sync()` 后改名）→ 校验体积 + zip 魔数 → `pruneOldApks` 清掉上一次的包 → 阶段置 `READY` → 根组件（`RootScreen`）的 `LaunchedEffect` 拉起系统安装器。
+
+- **下载不用前台服务**：安装包只有几 MB 且必须用户盯着点「安装」，套 `dataSync` 反而吃掉 Android 15 的 6h/24h 配额（507MB 资源包才需要那套）；代价见 §4.3.8-1。
+- 没有「安装未知应用」权限时：中文 Toast 说明 + 直接跳 `ACTION_MANAGE_UNKNOWN_APP_SOURCES`（本应用的开关项），回来再点一次即可。
+- 弹窗与设置页行共用同一套 `apkActionOf` / `apkRowLabel` / `apkRowValue`（纯函数，`ApkUpdateTest` 锁住）：**下载中两处都显示「取消」**，不然会双开下载。
+- 日志：`apk update: start file=… url=…`、`apk download: done url=… bytes=… dest=…`、`apk update: ready` / `invalid package` / `cancelled`。
+- 清单里没有 `apkUrl` 时不走这条链，退回浏览器打开 `pageUrl`（与鸿蒙一致）；`androidVersionCode` 缺失时整块不出现（显示「安卓版暂未发布」）。
 
 **P4 存档导出 / 导入 + Auto Backup（游戏页之上，不需要新页面）**
 
@@ -353,7 +373,7 @@ adb logcat -s PokeLauncher          # 全部日志统一 tag
 > P3 第二块：**设置页 + 法律页**（含屏幕方向偏好、应用自更新模块、参数调整入口、删除本地数据）。
 
 1. **共享 `version.json` 新增 5 个安卓字段**（本轮唯一跨端数据结构变更）：`androidVersionCode` / `androidVersionName` / `androidMinVersionCode`（0 = 未声明）/ `androidChangelog` / `apkUrl`。安卓**只认** `android*` 字段：没有 `androidVersionCode` 就判 `androidPublished=false`，界面显示「安卓版暂未发布」；**绝不**拿鸿蒙的 `versionCode`（当前 1001000）去比——安卓包号还很小，那会永远显示「发现新版本」，而且点进去是 HAP 下载页（判据见 §4.4 P3-7）。发版对齐规则写进了 §8。
-2. **应用内自更新不在本阶段**：与鸿蒙版行为一致（检测 + 浏览器打开 `apkUrl`，无 `apkUrl` 时打开 `pageUrl`）。应用内下载安装 APK 要 FileProvider + `REQUEST_INSTALL_PACKAGES`，属 P4。
+2. **应用内自更新不在本阶段**：与鸿蒙版行为一致（检测 + 浏览器打开 `apkUrl`，无 `apkUrl` 时打开 `pageUrl`）。应用内下载安装 APK 要 FileProvider + `REQUEST_INSTALL_PACKAGES`，属 P4——**已在 §4.3.8 落地**（安卓从此比鸿蒙多一步：鸿蒙装不了 HAP，只能开浏览器）。
 3. **「更新到新版本」用标记而不是直接开下载**：设置页只调 `controller.requestUpdate()`（置 `pendingUpdate`），回首页后由首页的 `LaunchedEffect` 消费标记并发起下载（等价于鸿蒙的 `AppStorage('pendingUpdate')`）。理由：申请通知权限要 Activity 的 launcher，「预检 → 启动前台服务」这条链只该有一份实现（首页），否则两个入口早晚分叉。（本块最初落在打靶页，§4.3.5-12 已搬到首页并删掉打靶页那份。）
 4. **参数调整总开关不放设置页**（§4.3.3-2 的落地）：设置页只有一行入口，开关本体在参数调整页顶部；开启前的风险确认弹窗也搬到了那边（文案逐字一致）。一个状态只配一个控件。
 5. **屏幕方向由根组件套用，且只对游戏页生效**：`ApplyPageOrientation(gamePageActive)`——游戏页用偏好（竖屏/横屏/跟随系统 → `PORTRAIT` / `SENSOR_LANDSCAPE` / `UNSPECIFIED`），其余页面手机恒竖屏、平板（`smallestScreenWidthDp ≥ 600`）跟随系统。放根组件而不是 `MainActivity`：进/出游戏页要**立即**生效，而 Activity 只创建一次；`configChanges` 已声明，改 `requestedOrientation` 不会重建 Activity。设置方向包了 `runCatching`（多窗口等场景会抛异常）。
@@ -409,6 +429,21 @@ adb logcat -s PokeLauncher          # 全部日志统一 tag
 9. **Auto Backup 不能代替「应用内导出存档」**：备份是系统行为（用户没开就什么也不发生），且只在换机/重装时生效；“把存档拷出来”这个显式需求必须靠 `saveDownload` 这条链。两者是互补，不是二选一。
 10. **API 29 的 `MediaStore.Downloads` 要 `@RequiresApi` 标注**：`saveViaMediaStore` 单独抽成方法后，外面那层 `if (SDK_INT >= Q)` 对 lint 不可见，会报 `NewApi` **error**（不是警告，会抦住 `lintDebug`）。
 
+### 4.3.8 P4（应用内自更新）实现期决定
+
+> P4 第二块：设置页 / 首页的「去更新」从「打开浏览器」升级为「应用内下载 + 交系统安装器」，对应 § 4.3.4-3 当初刻意留下的 `apkUrl` 字段。
+
+1. **APK 下载不开前台服务**：`dataSync` 前台服务是为了 507MB 资源包（用户会切后台），而安装包只有几 MB 且**必须用户亲手点「安装」**才能完成；用前台服务反而：① 吃掉 Android 15 的 6h/24h 配额（真在下载资源包时被推迟/杀）；② 还要给「后台静默下载完但用户没点安装」的多余状态兜底。所以下载跑在 `SpikeController` 的 application scope 里，用 `@Volatile` 取消标志逐块检查。代价：下载中切后台/被杀会断，回设置页重新点（文件名固定，会覆盖半截的 `.part`）。
+2. **装包目录 `getExternalFilesDir(null)/apk/`**（不是 `cacheDir`、也不是公共 Downloads）：安装器要能读到它（FileProvider 只放行这一处）；自动清理不会删它；Auto Backup 因为是 include 白名单，天然不会去搬它（§4.3.7-8）。
+3. **`.part` 两阶段写 + 魔数校验**：先写 `<name>.apk.part`，读完 `fd.sync()` 再 `renameTo`；中途被杀不会剩下一个「长度对得上、内容不全」的包（这种包安装器只会报「解析包时出现问题」）。下完用 `size >= 64KB` + `PK\x03\x04`/`05 06`/`07 08` 双条件判定——国内镜像返回 404 页面/HTML 时 `Content-Length` 也是 200 且非空，不给校验就会把一段 HTML 交给安装器。校验失败直接删包 + `FAILED`。
+4. **`REQUEST_INSTALL_PACKAGES` 是常规权限，真正的门禁是用户那个「安装未知应用」开关**：拉起安装器前必须 `canRequestPackageInstalls()`（包在 `runCatching` 里，部分 ROM 会抛）；没开就 `ACTION_MANAGE_UNKNOWN_APP_SOURCES` + `package:` 精确跳到本应用那一项，而不是让用户自己去设置里翻。
+5. **FileProvider 只放行 `apk/`**（`external-files-path` + `files-path` 两条，分别对应有无外部存储）：FileProvider 的授权是**整条路径**，放行整棵树等于给拿到该 URI 的应用读全部私有文件。`provider_paths.xml` 的 path 必须与 `ApkUpdater.apkDir` 保持一致（改目录不改 xml = 装包时 `IllegalArgumentException`）。
+6. **用户取消失终态用 `IDLE` 而不是 `FAILED`**：取消不是错误，弹回「重试更新」会让用户以为失败了；置 `IDLE` 并把「已取消更新下载」放在详情行（`ApkUpdateState.message`），行标题回到「去更新」。
+7. **安装器的拉起放在根组件**：`READY` 之后不管当前在哪个页面（首页弹窗 / 设置页 / 打靶页）都要弹安装界面，所以 `LaunchedEffect(phase, fileName)` 写在 `PokeLauncherApp` 里；键只用「阶段 + 文件名」——从安装器返回后阶段不变，不会重复弹（否则是死循环）。没权限时**不自动**跳设置页，先 Toast 说清楚原因。
+8. **两处 UI 的判定与文案必须是同一组纯函数**：`apkActionOf`（按阶段 → 开始/取消/安装）+ `apkRowLabel` / `apkRowValue`（标题与右侧文字）全部在 `appupdate/ApkUpdate.kt`，`ApkUpdateTest` 15 条锁住；否则很容易长歪成「一处可取消、一处重新下载」，点两下双开下载（同一目标文件互盖）。
+9. **成功装好后 `pruneOldApks` 只留最新那个包**：每版一个文件名（`pokerogue-<版本>.apk`）会无限堆积；清理时机放在「校验通过之后」（删早了会把刚下好的包也带走，删晚了失败包会残留）。
+10. **不做「静默安装 / 装完自动重启」**：`REQUEST_INSTALL_PACKAGES` 不允许静默安装，系统安装界面的「打开/完成」也拿不到可控回调；装完由系统接管（用户点「打开」即为新版本启动）。弹窗上的「安装更新」只是拉起界面，不要写成「已更新」。
+
 ### 4.4 实测记录（待真机，空着等数据）
 
 **P0（性能）**
@@ -456,7 +491,7 @@ adb logcat -s PokeLauncher          # 全部日志统一 tag
 | P3-4 | 文案红线 | 整页（标题/提示/开关/滑块）无「作弊」字样 | |
 | P3-5 | 设置页可进入/可返回 | 打靶页右上角「设置」进入；返回键回打靶页；「参数调整」行显示的已开启/已关闭与实际一致（开关状态在参数调整页改完返回后应刷新） | |
 | P3-6 | 屏幕方向 | 设置页选「横屏」→ 进入游戏页立即横屏、随传感器左右翻转；退出游戏立即回竖屏；选「跟随系统」后重启 App 仍生效（平板上启动器页面不强制竖屏） | |
-| P3-7 | 应用更新（跨端关键判据） | 清单里**没有** `androidVersionCode` 时显示「安卓版暂未发布」（**绝不能**显示「发现新版本」）；点一下状态变「检查中…」再回初值；有 `androidVersionCode > 本地` 时出现「去更新（版本号）」并用浏览器打开 `apkUrl`；清单 424/404（Gitee 挂了）显示「检查失败」而不是崩掉 | |
+| P3-7 | 应用更新（跨端关键判据） | 清单里**没有** `androidVersionCode` 时显示「安卓版暂未发布」（**绝不能**显示「发现新版本」）；点一下状态变「检查中…」再回初值；有 `androidVersionCode > 本地` 时出现「去更新（版本号）」并进入**应用内下载**（旧行为是用浏览器打开，已由 P4-8 取代）；清单 424/404（Gitee 挂了）显示「检查失败」而不是崩掉 | |
 | P3-8 | 离线资源更新 / 更新到新版本 | 本地资源版本与远端不一致时显示「发现新版本」+ 一行「更新到新版本」；点它 → 返回首页并自动开始下载（日志与 P1 链路一致，**不弹**二次确认）；未装资源时显示「未安装」+ 首页下载引导文案 | |
 | P3-9 | 删除本地数据 | 弹确认框（「本地存档不受影响」）→ 确认后行内显示「正在删除…」界面不卡死 → 完成 Toast + 回首页；回首页后「资源版本」= 未安装、能重新下载；日志有 `game deleted` 与 `已清除 WebView 缓存` | |
 | P3-10 | 法律页 | 从设置页「法律与免责声明」进入：顶部提示条 + 10 个章节 + 更新日期；**通篇无「作弊」字样**（P2-8 的判据在这里落地）；返回键回设置页 | |
@@ -464,7 +499,7 @@ adb logcat -s PokeLauncher          # 全部日志统一 tag
 | P3-12 | 下载流界面 | 进度条百分比与服务通知一致（±1%）；切后台再回来进度继续；「暂停」后按钮变「继续」且进度条保留；「取消下载」弹确认框（写清已下载多少、会全部丢失），取消后分片与状态文件都没了 | |
 | P3-13 | 精灵球动画 | 静止/暂停时球停在正中（不摇）；下载与解压时按 ±14°、每 450ms 换向摇晃；切后台再回来不闪不卡（后台不烧 CPU） | |
 | P3-14 | 未安装态的换源/直链/导入 | 「换源重试（丢弃已下载的分片）」只在失败后出现；点「复制镜像直链」→ Toast「直链已复制」；「上传资源」弹出 SAF 选择器 → 选一个 zip → 界面进入「正在解压…」且文件计数前进，完成后回就绪页并能进游戏 | |
-| P3-15 | 应用更新弹窗（冷启动） | 首次启动（或清偏好后）冷启动会自动检查一次（日志有请求）；有 `androidVersionCode > 本地` 且 `androidPublished=true` 时才弹「发现新版本」弹窗，`forceUpdate=true` 时无「稍后」；24h 内重启不重复请求；点「去更新」用浏览器打开 `apkUrl`（无 `apkUrl` 时 `pageUrl`） | |
+| P3-15 | 应用更新弹窗（冷启动） | 首次启动（或清偏好后）冷启动会自动检查一次（日志有请求）；有 `androidVersionCode > 本地` 且 `androidPublished=true` 时才弹「发现新版本」弹窗，`forceUpdate=true` 时无「稍后」；24h 内重启不重复请求；点「去更新」开始应用内下载（清单里没 `apkUrl` 时才退回浏览器打开 `pageUrl`） | |
 | P3-16 | 首页文案红线 | 首页/下载流/就绪页/弹窗逐字看一遍：无「作弊」字样（对应 P2-8 / P3-4 / P3-10） | |
 | P3-17 | 游戏页返回按钮淡出 | 进入游戏后 3 秒内「返回」是全亮（点一下直接回首页）；3 秒后淡到 0.2（仍可见）；此时点一下只把它**唤回全亮**、**不退出**，再点才回首页；「重载」后计时重新开始 | |
 | P3-18 | 游戏页加载 / 错误浮层 | ① 进游戏瞬间是暗底 + 精灵球 + 「正在载入游戏…」，首帧画出来后自动消失（**不能**闪一下惨白）；② 先 `stopServer`（或把 `gameDir` 改坏）再进游戏 → 出现居中「游戏加载失败」卡片 + `加载出错: …` + 「重试」，点「重试」能重新加载（**不能**一直停在「正在载入…」） | |
@@ -482,6 +517,12 @@ adb logcat -s PokeLauncher          # 全部日志统一 tag
 | P4-5 | 旧机型路径（API 26–28 真机/模拟器） | 导出后 Toast 里是真实路径（含包名的应用专属目录）；用 `adb shell ls` 能在 `Android/data/com.lichtcui.pokelauncher/files/Download/` 下看到文件；全程**没有**弹存储权限请求 | |
 | P4-6 | Auto Backup 不搬 1.5GB | `adb shell bmgr backupnow com.lichtcui.pokelauncher`（或 Android Studio 的 Back up 面板）→ 日志显示备份完成（不报 quota 超标）；备份包里只有偏好与 `saves/`（用 `bmgr list` + 解包看），没有 `game/` 目录 | |
 | P4-7 | 清数据后恢复存档 | 备份一次 → `adb shell pm clear com.lichtcui.pokelauncher` → `bmgr restore` → 打开游戏：偏好回来了（方向/参数调整）且 `files/saves/localstorage.json` 在位（P2-2 的备份侧判据） | |
+| P4-8 | 应用内更新下载（关键判据） | 清单填上有效的 `androidVersionCode` + `apkUrl` → 点「去更新」：行标题变「正在下载更新包…」且百分比前进；下载完变「安装更新」并**自动**弹系统安装界面；日志有 `apk update: start` / `apk download: done` / `apk update: ready` | |
+| P4-9 | 装包校验挡住假包 | `apkUrl` 指向一个 HTML 页（或 404）→ 阶段到 `FAILED` + 「下载到的不是安装包（可能被网络劫持或链接失效）」，且 `apk/` 目录里**没有**残留文件 | |
+| P4-10 | 未知来源门禁 | 先关掉系统的「安装未知应用」→ 点「安装更新」：Toast 中文说明 + 跳到**本应用**的开关项（不是静默失败、不是 crash）；打开开关回来再点 → 正常进安装界面 | |
+| P4-11 | 取消与旧包清理 | 下载中点「取消下载」→ 行回到「去更新」且详情显示「已取消更新下载」，`apk/` 里没有 `.part`；再更新一次成功 → `apk/` 里只剩最新那一个包（旧包被 `pruneOldApks` 删掉） | |
+| P4-12 | 弹窗与设置页进度同源 | 首页弹窗点「去更新」后就地变进度（此时只能「取消下载」，点外面关不掉）；关掉弹窗后设置页那行显示同一个百分比；下载完两处都变「安装更新」 | |
+| P4-13 | 真机安装闭环（最终判据） | 用**够老**的一版包 + 清单指向新包 → 应用内更新 → 系统安装器装完点「打开」→ 「应用版本」显示新版本号，且**存档还在**（存档在 `getExternalFilesDir()/game` 与 `localStorage`，升级不清） | |
 
 **P0 未通过时**的退路：改用 `androidx.webkit` 的 `WebViewAssetLoader`（`https://appassets.androidplatform.net`，免 socket 免 cleartext），代价是丢 HTTP 缓存与 Range。
 
@@ -493,7 +534,7 @@ adb logcat -s PokeLauncher          # 全部日志统一 tag
 | **P1 下载/解压** | Release 查询 → 镜像并发测速 → 断点续传 → 原子解压切换 → `recover()`；前台服务 + 通知进度；暂停/继续/取消；SAF 手动导入 | 4–6 天 | ✅ 代码完成（71 单测全绿，debug/release 均编译通过）；**真机判据待跑（§4.4）** |
 | **P2 服务与注入** | index.html 补丁、虚拟端点 `/__pk_boot.js` + `/__cheats__.js`、端口占用兜底、8001 stub、`clearCache` 时机、参数调整状态与存档镜像 | 3–4 天 | ✅ 代码完成（累计 180 单测全绿，debug/release 均编译通过，lint 0 error）；**真机判据待跑（§4.4）** |
 | **P3 UI** | Compose：首页四态 + 下载流 + 精灵球动画、设置页、参数调整页、游戏页（返回按钮淡出/错误浮层/方向/静音）、法律页 | 4–6 天 | ✅ 代码完成（参数调整页 / 设置页 / 法律页 / 首页四态 + 下载流 + 精灵球 / 游戏页全部落地；累计 240 单测全绿，debug/release 均编译通过，lint 0 error）；**真机判据待跑（§4.4 P3 全部）** |
-| **P4 平台特有** | 存档导出/导入、Auto Backup、应用内自更新（FileProvider + `REQUEST_INSTALL_PACKAGES`）、通知权限 | 3–4 天 | ⏳ 进行中：**存档导出/导入 + Auto Backup 已完成**（累计 255 单测全绿，debug/release 均编译通过，lint 0 error）；**应用内自更新待做**（通知权限 P1 已完成）；**真机判据待跑（§4.4 P4）** |
+| **P4 平台特有** | 存档导出/导入、Auto Backup、应用内自更新（FileProvider + `REQUEST_INSTALL_PACKAGES`）、通知权限 | 3–4 天 | ✅ 代码完成（存档导出/导入 + Auto Backup + 应用内自更新 + 通知权限全部落地；累计 270 单测全绿，debug/release 均编译通过，lint 0 error）；**真机判据待跑（§4.4 P4 全部）** |
 | **P5 打磨发布** | 真机矩阵（多 WebView 版本）、性能调优、GitHub Actions 出 APK、签名发版 | 3–5 天 |
 
 **完整对等移植 ≈ 3–4 周；MVP（P0–P2 + 极简 UI）≈ 1.5 周。**
@@ -552,6 +593,10 @@ P4 新增：
 35. **Auto Backup 的 25MB 配额会被 1.5GB 游戏本体直接抦爆**：规则必须是 **include 白名单**（只放 `sharedpref` + `file/saves`），而且不要画蛇添足写 `<exclude domain="external">`——lint 的 `FullBackupContent` 会报「`.` is not in an included path」（写了 include 之后其余本来就都不备）。
 36. **`MediaStore.Downloads` 这类 API 29 接口要标 `@RequiresApi`**：把分区存储分支抽成 `saveViaMediaStore()` 后，外层的 `SDK_INT >= Q` 判定对 lint 不可见，会报 `NewApi` **error** 而不是警告（`lintDebug` 直接失败）。
 37. **`onShowFileChooser` 的 `callback` 必须恰好回一次值**：玩家取消选择、连点两次「导入」、或页面在被选文件期间销毁时，都得把上一份 callback 用 `null` 结掉（`FileChooserSlot.cancel()`）；漏了就是 WebView 里那次文件选择永久挂住（游戏后续再也弹不出选择器）。
+38. **更新包必须用 `FileProvider` 交给安装器**：`ACTION_VIEW` 的 `data` 给 `file://` 在 API 24+ 非 `FileUriExposedException` 就是被安装器静默拒绝，必须是 `FileProvider.getUriForFile` + `FLAG_GRANT_READ_URI_PERMISSION`；`provider_paths.xml` **只放行 `apk/`**——FileProvider 授的是整条路径，放行整棵树等于把私有目录里所有文件读权限送出去（Auto Backup 的 `backup_rules.xml` 是同一个道理）。
+39. **`REQUEST_INSTALL_PACKAGES` 只是常规权限，真正的门禁是用户的「安装未知应用」开关**：不检查 `canRequestPackageInstalls()` 就 `startActivity`，症状是「点了没反应」（有的 ROM 报错、有的静默忽略、有的把你带到设置页列表）。必须在拉起安装器前判断并给出中文说明，用 `ACTION_MANAGE_UNKNOWN_APP_SOURCES` + `package:` 精确跳到本应用那一项。
+40. **APK 下载必须 `.part` + `fd.sync()` + 改名，下完必须验魔数**：直接写目标文件，中途被杀会留下一个「长度对得上但内容不全」的包，安装器只会报一句语焉不详的「解析包时出现问题」；不校验 zip 魔数/最小体积，国内镜像的 404 页（`Content-Length` 也是 200）会被当成安装包交给安装器。
+41. **自更新弹窗与设置页行的状态必须同源**：两处各自写「下载中怎么办」很容易长歪成「一处可取消、一处重新下载」，点两下就双开下载（同一个目标文件互相覆盖，进度还会来回跳）。判定与文案统一走 `apkActionOf` / `apkRowLabel` / `apkRowValue` 三个纯函数（`ApkUpdateTest` 锁住）。
 
 ## 7. 风险
 
@@ -560,13 +605,14 @@ P4 新增：
 | Dart/第三方库里没有的 WebView 老版本跑不动游戏 | 中 | P0 判据 4；启动版本门禁 + 引导升级 |
 | 国产 ROM 后台杀进程导致 507MB 下载中断 | 高 | 前台服务 + 断点续传 + 通知；引导用户加白名单 |
 | 国内网络下 Gradle 拉依赖慢 | 低 | Aliyun 镜像仓库兜底（已实测 0.1s） |
-| 直发 APK 需用户允许「安装未知来源」 | 中 | 首次自更新时给图文引导 |
+| 直发 APK 需用户允许「安装未知来源」 | 中 | 已落地：`canRequestPackageInstalls()` 门禁 + `ACTION_MANAGE_UNKNOWN_APP_SOURCES` 精准跳转 + 中文 Toast（§4.3.8-4 / §6-#39） |
 | 游戏更新导致「参数调整」hook 失效 | 低 | 与鸿蒙同源，关闭开关即恢复纯净 |
 
 ## 8. 发布
 
 - 出包：`cd android && ./gradlew assembleRelease`（keystore 不入库，走 `~/.gradle/gradle.properties` 或本地 `keystore.properties`，对齐 [`AGENTS.md`](../AGENTS.md) 的签名边界约定）。
 - 版本清单：仓库根 [`version.json`](../version.json) 是**两个平台共用**的一份清单。安卓发版时要写这 5 个字段：`androidVersionCode` / `androidVersionName` / `androidMinVersionCode`（可选，低于它强制更新）/ `androidChangelog` / `apkUrl`（留空则「去更新」打开 `pageUrl`）。
+  - `apkUrl` 指向 APK 直链（Gitee / GitHub Release 附件皆可）：安卓端会**应用内下载并交系统安装器**；文件名从 URL 末段取，所以别指向目录（否则文件名会取成目录名）。
   - `androidVersionCode` / `androidVersionName` 必须与 `android/app/build.gradle.kts` 的 `versionCode` / `versionName` 完全一致（现在还是 P0 占位值 `1` / `0.1.0-p0`）。
   - **只写鸿蒙字段而不写 `androidVersionCode` 时，安卓端会显示「安卓版暂未发布」**：这是刻意设计（宁可说「未发布」也不能把用户引到 HAP 页），但也意味着缺字段时安卓用户收不到任何更新提示。
 - 发版同时推 `origin`(Gitee) 与 `github` 两个远端（见 AGENTS.md §2）。

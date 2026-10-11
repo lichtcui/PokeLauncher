@@ -1,11 +1,19 @@
 package com.lichtcui.pokelauncher.ui
 
+import android.util.Log
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalContext
+import com.lichtcui.pokelauncher.appupdate.ApkUpdatePhase
+import com.lichtcui.pokelauncher.appupdate.ApkUpdater
+import com.lichtcui.pokelauncher.appupdate.UNKNOWN_SOURCES_TEXT
+import com.lichtcui.pokelauncher.core.Const
 
 /**
  * 应用根：主题 + 页面路由 + 屏幕方向 + 返回键。
@@ -36,6 +44,21 @@ fun PokeLauncherApp(controller: SpikeController) {
         var showSpike by remember { mutableStateOf(false) }
 
         ApplyPageOrientation(gamePageActive = controller.showGame)
+
+        // 自更新包下载完就交给系统安装器（与当前在哪个页面无关，所以放在根组件）。
+        // 键是「阶段 + 文件名」：从安装器返回后阶段不变，不会重复弹安装器（否则会变成死循环）。
+        val context = LocalContext.current
+        LaunchedEffect(controller.apkState.phase, controller.apkState.fileName) {
+            val state = controller.apkState
+            if (state.phase != ApkUpdatePhase.READY || state.fileName.isEmpty()) return@LaunchedEffect
+            if (ApkUpdater.canInstall(context)) {
+                launchApkInstaller(context, state.fileName)
+            } else {
+                // 没权限时不自动跳设置页：先告诉用户为什么，再由他点一下（避免莫名被带走）
+                Toast.makeText(context, UNKNOWN_SOURCES_TEXT, Toast.LENGTH_LONG).show()
+                Log.i(Const.TAG, "apk update: install permission missing，file=${state.fileName}")
+            }
+        }
 
         BackHandler(
             enabled = controller.showGame || showLegal || showCheats || showSettings || showSpike

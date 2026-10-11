@@ -35,8 +35,12 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.lichtcui.pokelauncher.BuildConfig
+import com.lichtcui.pokelauncher.appupdate.ApkUpdatePhase
 import com.lichtcui.pokelauncher.appupdate.AppUpdateRepository
 import com.lichtcui.pokelauncher.appupdate.AppUpdateResult
+import com.lichtcui.pokelauncher.appupdate.apkActionOf
+import com.lichtcui.pokelauncher.appupdate.apkRowLabel
+import com.lichtcui.pokelauncher.appupdate.apkRowValue
 import com.lichtcui.pokelauncher.cheat.CheatState
 import com.lichtcui.pokelauncher.core.Const
 import com.lichtcui.pokelauncher.core.OrientationPref
@@ -141,15 +145,36 @@ fun SettingsScreen(
             val result = appResult
             if (result != null && result.hasUpdate) {
                 RowDivider()
+                // 应用内自更新（P4）：同一个入口在「去更新 / 取消 / 安装更新」之间切换，
+                // 文案与动作都由 appupdate 层的纯函数决定（首页弹窗用同一套）
+                val apk = spike.apkState
+                val action = apkActionOf(apk.phase)
                 NavRow(
-                    label = "去更新" + result.remote.displayVersionName.let { if (it.isEmpty()) "" else "（$it）" },
-                    value = if (result.forceUpdate) "必须更新" else "",
+                    label = apkRowLabel(apk, result.remote.displayVersionName),
+                    value = apkRowValue(apk, result.forceUpdate),
                     showArrow = true,
-                    valueColor = MaterialTheme.colorScheme.primary,
-                    onClick = {
-                        AppUpdateRepository.openUrl(context, result.remote.updateUrl)
-                    }
+                    valueColor = when (apk.phase) {
+                        ApkUpdatePhase.FAILED -> MaterialTheme.colorScheme.error
+                        else -> MaterialTheme.colorScheme.primary
+                    },
+                    onClick = { runApkUpdateAction(spike, context, result, action) }
                 )
+                if (apk.phase == ApkUpdatePhase.DOWNLOADING) {
+                    ApkProgressBar(apk.progressPercent)
+                }
+                val apkDetail = apk.detailText()
+                if (apkDetail.isNotEmpty()) {
+                    Text(
+                        apkDetail,
+                        fontSize = 12.sp,
+                        color = if (apk.phase == ApkUpdatePhase.FAILED) {
+                            MaterialTheme.colorScheme.error
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                        modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp)
+                    )
+                }
                 val changelog = result.remote.androidChangelog
                 if (changelog.isNotEmpty()) {
                     Text(

@@ -57,8 +57,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import com.lichtcui.pokelauncher.appupdate.ApkUpdateAction
+import com.lichtcui.pokelauncher.appupdate.ApkUpdatePhase
 import com.lichtcui.pokelauncher.appupdate.AppUpdateRepository
 import com.lichtcui.pokelauncher.appupdate.AppUpdateResult
+import com.lichtcui.pokelauncher.appupdate.apkActionOf
 import com.lichtcui.pokelauncher.cheat.CheatState
 import com.lichtcui.pokelauncher.core.Const
 import com.lichtcui.pokelauncher.core.Format
@@ -236,7 +239,11 @@ fun HomeScreen(
     }
 
     updateResult?.let { result ->
-        AppUpdateDialog(result = result, onDismiss = { updateResult = null })
+        AppUpdateDialog(
+            result = result,
+            controller = controller,
+            onDismiss = { updateResult = null }
+        )
     }
 }
 
@@ -628,9 +635,14 @@ private fun enterGameBlockReason(controller: SpikeController): String = when {
 
 // ─────────────────────────── 应用更新弹窗 ───────────────────────────
 
-/** 发现新版本：普通更新可稍后，强制更新只有「去更新」且不可关闭（与鸿蒙版 `showAppUpdateDialog` 一致） */
+/**
+ * 发现新版本：普通更新可稍后，强制更新只有「去更新」且不可关闭（与鸿蒙版 `showAppUpdateDialog` 一致）。
+ *
+ * 安卓侧多一层（P4）：按下去就地开始应用内下载，弹窗自己变成进度界面，
+ * 下载完按钮变「安装更新」（真正拉起系统安装器的是根组件的监听，见 `RootScreen.kt`）。
+ */
 @Composable
-private fun AppUpdateDialog(result: AppUpdateResult, onDismiss: () -> Unit) {
+private fun AppUpdateDialog(result: AppUpdateResult, controller: SpikeController, onDismiss: () -> Unit) {
     val context = LocalContext.current
     val remote = result.remote
     val name = remote.displayVersionName.ifEmpty { remote.androidVersionCode.toString() }
@@ -640,20 +652,61 @@ private fun AppUpdateDialog(result: AppUpdateResult, onDismiss: () -> Unit) {
     } else {
         "发现新版本 $name"
     }
+    val apk = controller.apkState
+    val action = apkActionOf(apk.phase)
+    val downloading = action == ApkUpdateAction.CANCEL
+    // 下载中 / 已就绪 / 强制更新都不允许关：关掉的话用户会以为更新取消了（其实还在下）
+    val dismissible = !result.forceUpdate && !downloading && action != ApkUpdateAction.INSTALL
+    val detail = apk.detailText()
     AlertDialog(
-        onDismissRequest = { if (!result.forceUpdate) onDismiss() },
+        onDismissRequest = { if (dismissible) onDismiss() },
         title = { Text(if (result.forceUpdate) "需要更新" else "发现新版本") },
-        text = { Text(message) },
-        confirmButton = {
-            TextButton(onClick = {
-                AppUpdateRepository.openUrl(context, remote.updateUrl)
-                onDismiss()
-            }) { Text("去更新") }
+        text = {
+            Column {
+                Text(message)
+                if (apk.phase != ApkUpdatePhase.IDLE || downloading) {
+                    if (downloading || apk.phase == ApkUpdatePhase.VERIFYING) {
+                        Spacer(Modifier.height(12.dp))
+                    }
+                    if (downloading) {
+                        ApkProgressBar(apk.progressPercent)
+                    }
+                    if (detail.isNotEmpty()) {
+                        Text(
+                            detail,
+                            fontSize = 13.sp,
+                            color = if (apk.phase == ApkUpdatePhase.FAILED) {
+                                MaterialTheme.colorScheme.error
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            },
+                            modifier = Modifier.padding(top = 10.dp)
+                        )
+                    }
+                }
+            }
         },
-        dismissButton = if (result.forceUpdate) {
-            null
-        } else {
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    runApkUpdateAction(controller, context, result, action)
+                    // 普通更新按下去就关弹窗（进度会在设置页的「应用更新」行继续显示）
+                    if (dismissible) onDismiss()
+                }
+            ) {
+                Text(
+                    when (action) {
+                        ApkUpdateAction.CANCEL -> "取消下载"
+                        ApkUpdateAction.INSTALL -> "安装更新"
+                        ApkUpdateAction.START -> if (apk.phase == ApkUpdatePhase.FAILED) "重试" else "去更新"
+                    }
+                )
+            }
+        },
+        dismissButton = if (dismissible) {
             { TextButton(onClick = onDismiss) { Text("稍后") } }
+        } else {
+            null
         }
     )
 }

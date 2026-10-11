@@ -10,6 +10,13 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
+import com.lichtcui.pokelauncher.appupdate.ApkUpdateCancelled
+import com.lichtcui.pokelauncher.appupdate.ApkUpdatePhase
+import com.lichtcui.pokelauncher.appupdate.ApkUpdateState
+import com.lichtcui.pokelauncher.appupdate.ApkUpdater
+import com.lichtcui.pokelauncher.appupdate.INVALID_APK_TEXT
+import com.lichtcui.pokelauncher.appupdate.NO_APK_URL_TEXT
+import com.lichtcui.pokelauncher.appupdate.apkFileName
 import com.lichtcui.pokelauncher.core.Const
 import com.lichtcui.pokelauncher.core.Format
 import com.lichtcui.pokelauncher.core.Prefs
@@ -591,6 +598,100 @@ class SpikeController(private val app: Context) {
             saveExportText = text
             saveExportSeq++
         }
+    }
+
+    // ------------------------------------------------------------ 应用内自更新
+
+    /**
+     * 自更新下载状态（P4）。下载跑在 [scope] 里而不是前台服务：安装包只有几 MB、
+     * 而且必须用户盯着才能点「安装」，用 `dataSync` 前台服务反而会把 App 拖进
+     * Android 15 的 6h/24h 配额（资源包的 507MB 才需要那套）。代价：下载中切后台/被杀
+     * 会断，重进设置页得重新点（文件名固定，会覆盖掉半截的 `.part`）。
+     */
+    var apkState by mutableStateOf(ApkUpdateState())
+        private set
+
+    @Volatile
+    private var apkCancelRequested = false
+
+    /**
+     * 开始应用内更新：下载 [url] 到 `apk/` 目录 → 校验是不是真安装包 → 置 [ApkUpdatePhase.READY]。
+     *
+     * 到 READY 为止不碰系统安装器（那一步需要 Activity/Ctx 与「安装未知应用」开关，由 UI 层发起）。
+     * 重复点击是幂等的：已在下载中就直接忽略。
+     */
+    fun startApkUpdate(url: String, versionName: String = "") {
+        if (apkState.downloading || apkState.phase == ApkUpdatePhase.VERIFYING) return
+        if (url.isBlank()) {
+            apkState = ApkUpdateState(
+                phase = ApkUpdatePhase.FAILED,
+                versionName = versionName,
+                message = NO_APK_URL_TEXT
+            )
+            return
+        }
+        val name = apkFileName(url, versionName)
+        apkCancelRequested = false
+        apkState = ApkUpdateState(
+            phase = ApkUpdatePhase.DOWNLOADING,
+            fileName = name,
+            versionName = versionName
+        )
+        Log.i(Const.TAG, "apk update: start file=$name version=$versionName url=$url")
+        scope.launch {
+            try {
+                val dest = ApkUpdater.targetFile(app, name)
+                val size = withContext(Dispatchers.IO) {
+                    ApkUpdater.downloadApk(
+                        url = url,
+                        dest = dest,
+                        onProgress = { done, total ->
+                            apkState = apkState.copy(doneBytes = done, totalBytes = total)
+                        },
+                        isCancelled = { apkCancelRequested }
+                    )
+                }
+                apkState = apkState.copy(phase = ApkUpdatePhase.VERIFYING, doneBytes = size, totalBytes = size)
+                val ok = withContext(Dispatchers.IO) {
+                    val verified = ApkUpdater.verify(dest)
+                    val pruned = if (verified) ApkUpdater.pruneOldApks(ApkUpdater.apkDir(app), name) else 0
+                    if (pruned > 0) Log.i(Const.TAG, "apk update: pruned $pruned old files")
+                    verified
+                }
+                apkState = if (ok) {
+                    Log.i(Const.TAG, "apk update: ready file=$name bytes=$size")
+                    apkState.copy(phase = ApkUpdatePhase.READY, message = "")
+                } else {
+                    Log.w(Const.TAG, "apk update: invalid package bytes=$size")
+                    runCatching { dest.delete() }
+                    apkState.copy(phase = ApkUpdatePhase.FAILED, message = INVALID_APK_TEXT)
+                }
+            } catch (c: ApkUpdateCancelled) {
+                Log.i(Const.TAG, "apk update: cancelled")
+                apkState = ApkUpdateState(
+                    phase = ApkUpdatePhase.IDLE,
+                    versionName = versionName,
+                    message = c.message ?: ""
+                )
+            } catch (t: Throwable) {
+                Log.w(Const.TAG, "apk update failed: ${t.message}")
+                apkState = apkState.copy(
+                    phase = ApkUpdatePhase.FAILED,
+                    message = t.message ?: t.javaClass.simpleName
+                )
+            }
+        }
+    }
+
+    /** 取消自更新下载（下载循环每块检查一次，最多 64KB 后生效） */
+    fun cancelApkUpdate() {
+        if (apkState.downloading) apkCancelRequested = true
+    }
+
+    /** 清理状态（安装器已接手 / 用户返回时调用，避免界面停在「已下载完成」） */
+    fun resetApkUpdate() {
+        apkCancelRequested = true
+        apkState = ApkUpdateState()
     }
 
     // ------------------------------------------------------------ 注入脚本回传

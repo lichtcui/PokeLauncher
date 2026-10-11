@@ -1,13 +1,18 @@
 package com.lichtcui.pokelauncher.ui
 
+import android.content.Context
+import android.util.Log
+import android.widget.Toast
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -18,6 +23,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.lichtcui.pokelauncher.appupdate.ApkUpdateAction
+import com.lichtcui.pokelauncher.appupdate.ApkUpdater
+import com.lichtcui.pokelauncher.appupdate.AppUpdateResult
+import com.lichtcui.pokelauncher.appupdate.UNKNOWN_SOURCES_TEXT
+import com.lichtcui.pokelauncher.appupdate.AppUpdateRepository
+import com.lichtcui.pokelauncher.core.Const
 
 /**
  * 页面外壳的公共件（设置页 / 法律页 / 参数调整页共用）。
@@ -151,4 +162,78 @@ internal fun StatusRow(
         )
         Text(status, fontSize = 14.sp, color = statusColor)
     }
+}
+
+// ─────────────────────────── 应用内自更新（P4） ───────────────────────────
+
+/**
+ * 把已下载好的更新包交给系统安装器 —— 自更新的最后一步（首页弹窗与设置页共用）。
+ *
+ * 两种「没开权限」都要在这里给出去路，否则用户点了没反应：
+ * 1. 系统级「安装未知应用」没开 → 直接把用户送到本应用的那个开关页（带包名）；
+ * 2. 文件不见了（被清理工具删了 / 换了设备）→ 提示重新下载（会重新走一遍下载）。
+ *
+ * @return true 表示已经拉起安装界面
+ */
+fun launchApkInstaller(context: Context, fileName: String): Boolean {
+    if (fileName.isEmpty()) return false
+    val file = ApkUpdater.targetFile(context, fileName)
+    if (!file.isFile) {
+        Toast.makeText(context, "更新包不见了，请重新下载", Toast.LENGTH_SHORT).show()
+        return false
+    }
+    if (!ApkUpdater.canInstall(context)) {
+        Toast.makeText(context, UNKNOWN_SOURCES_TEXT, Toast.LENGTH_LONG).show()
+        runCatching { context.startActivity(ApkUpdater.unknownSourcesIntent(context)) }
+            .onFailure { Log.w(Const.TAG, "打开「安装未知应用」设置失败：${it.message}") }
+        return false
+    }
+    return runCatching {
+        context.startActivity(ApkUpdater.installIntent(context, file))
+        true
+    }.getOrElse {
+        Log.w(Const.TAG, "拉起安装器失败：${it.message}")
+        Toast.makeText(context, "无法打开安装器：${it.message}", Toast.LENGTH_LONG).show()
+        false
+    }
+}
+
+/**
+ * 自更新动作分发（首页弹窗 / 设置页共用）。
+ *
+ * 第三个分支是端到端兼容：清单里没填 `apkUrl` 时安卓端做不了应用内下载，
+ * 只能退回浏览器（与鸿蒙版行为一致），顺手 `openUrl` 会拿 `pageUrl`。
+ */
+fun runApkUpdateAction(
+    controller: SpikeController,
+    context: Context,
+    result: AppUpdateResult,
+    action: ApkUpdateAction
+) {
+    when (action) {
+        ApkUpdateAction.CANCEL -> controller.cancelApkUpdate()
+        ApkUpdateAction.INSTALL -> launchApkInstaller(context, controller.apkState.fileName)
+        ApkUpdateAction.START -> {
+            val remote = result.remote
+            if (remote.apkUrl.isNotEmpty()) {
+                controller.startApkUpdate(remote.apkUrl, remote.displayVersionName)
+            } else {
+                AppUpdateRepository.openUrl(context, remote.updateUrl)
+            }
+        }
+    }
+}
+
+/**
+ * 自更新进度条（下载/校验中才出现）。用 `progress = { ... }` 的 lambda 形式
+ * （M3 1.3 起非 lambda 版本已废弃，仓库里首页也是这个写法）。
+ */
+@Composable
+internal fun ApkProgressBar(percent: Int) {
+    LinearProgressIndicator(
+        progress = { percent / 100f },
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(6.dp)
+    )
 }
