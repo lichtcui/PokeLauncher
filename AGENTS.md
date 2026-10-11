@@ -95,7 +95,7 @@ HDC=/Applications/DevEco-Studio.app/Contents/sdk/default/openharmony/toolchains/
 
 ## 4. 安卓版（`android/`）
 
-同一个仓库里的**第二个 App**：`android/` 是独立的 Gradle 工程（不在 HAP 编译范围内），bundle/applicationId 也叫 `com.lichtcui.pokelauncher`，目前在 **P0（打靶）+ P1（下载/解压链路）+ P2（注入链/端口兜底/缓存）+ P3（Compose UI：首页四态/下载流、设置页、法律页、参数调整页、游戏页）代码全部完成**；**都还没在真机上跑过判据**。完整方案、分期计划、关键坑见 [`docs/android-port.md`](./docs/android-port.md)。
+同一个仓库里的**第二个 App**：`android/` 是独立的 Gradle 工程（不在 HAP 编译范围内），bundle/applicationId 也叫 `com.lichtcui.pokelauncher`，目前在 **P0（打靶）+ P1（下载/解压链路）+ P2（注入链/端口兜底/缓存）+ P3（Compose UI：首页四态/下载流、设置页、法律页、参数调整页、游戏页）代码全部完成**；P4 已完成**存档导出/导入 + Auto Backup**（应用内自更新待做）；**都还没在真机上跑过判据**。完整方案、分期计划、关键坑见 [`docs/android-port.md`](./docs/android-port.md)。
 
 ```bash
 export JAVA_HOME=/Library/Java/JavaVirtualMachines/temurin-17.jdk/Contents/Home
@@ -103,7 +103,7 @@ export ANDROID_HOME=/usr/local/share/android-commandlinetools
 export PATH="$JAVA_HOME/bin:$PATH"
 cd android
 ./gradlew assembleDebug        # → app/build/outputs/apk/debug/app-debug.apk
-./gradlew testDebugUnitTest    # JVM 纯函数单测 240 例（core / install / cheat / server / web / appupdate / ui）
+./gradlew testDebugUnitTest    # JVM 纯函数单测 255 例（core / install / cheat / server / web / appupdate / ui）
 ./gradlew :app:lintDebug       # 需 0 error（MissingPermission 等）
 ```
 
@@ -128,7 +128,11 @@ Android 侧的红线（改之前先读）：
 - **游戏页浮层/返回按钮的判定写在 `ui/GameState.kt` 的纯函数里**（`gameOverlayOf`），**判定顺序必须是「错误 > 加载中」**：加载失败时 `pageLoaded` 永远是 false，写反了用户只会看到「正在载入游戏…」而看不到任何错误（`GameStateTest` 锁住）。返回按钮的 `BACK_FADE_MS = 3000` / `BACK_FADED_ALPHA = 0.2f` 与鸿蒙 `GamePage.ets` 同值；淡出状态下点一下只把按钮唤回、**不退出**（两次点击才返回）。
 - **游戏页切后台只静音，不加 `WebView.onPause()`**：`onPause()` 会冻住 Phaser 的计时器，回前台追帧/卡顿（鸿蒙同样只静音、保留游戏进程）。静音优先 `WebViewCompat.setAudioMuted`，但 `WebViewFeature.isFeatureSupported(WebViewFeature.MUTE_AUDIO)` **必须写在 `if` 条件里**（写成局部变量会被 lint `RequiresFeature` 报警告），并且**必须保留 `window.__pkGame.sound.mute` 降级分支**（旧 WebView 没有这个特性）；销毁 WebView 前也先静音一次。
 - **游戏页右上角的打靶指标面板（`canvas 补丁` / `DOM 载入` / 计时 / `重载` / `退出`）是 P0–P2 判据的产物，发布前必须挪到 debug 开关后面**（现在 debug/release 都常驻）。返回按钮因此放在左上角，别为了「对齐鸿蒙」把它搬回右上角（两个浮控件会互相吃点击）。
-- **无真机不下结论**：模拟器与真机的 WebView/Chromium 版本差异极大，P0 的七项判据、P1 的下载判据与 P2 的注入/端口/缓存判据、P3 的 UI 判据（见 [`docs/android-port.md`](./docs/android-port.md) §4.4）必须在真机上跑（`adb install -r` → 打开 App → 截图读悬浮面板指标，日志 `-s PokeLauncher`）。
+- **存档导出（游戏内「导出数据」）的主路径是「在页面里拦下载」，不是 `DownloadListener`**：游戏用 `URL.createObjectURL` + `<a download>`，部分 WebView 不回调 `onDownloadStart`（症状：点了没反应、日志也没有）。拦到就 `preventDefault`，`DownloadListener` 只作 `blob:` 兜底（`web/DownloadBridge.kt`，两条路径不能双发）。
+- **导出落盘零权限，且文件名/URL 都是不可信输入**：API 29+ 写 `MediaStore.Downloads`（`IS_PENDING` 两阶段、失败删半成品），API 26–28 写 `getExternalFilesDir(DIRECTORY_DOWNLOADS)`；**不申请 `WRITE_EXTERNAL_STORAGE` / `MANAGE_EXTERNAL_STORAGE`**（不要学参考 App，Play 会拒）。页面传来的名字一律过 `DownloadBridge.safeFileName`，拼进 JS 的字符串一律过 `jsStringLiteral`，别直接信 `download` 属性。`MediaStore` 那个分支要标 `@RequiresApi(Q)`，否则 lint 报 `NewApi` **error**。
+- **Auto Backup 规则是 include 白名单**（`res/xml/backup_rules.xml` + `data_extraction_rules.xml`）：只备 `sharedpref` + `file/saves`，**不要**加 `<exclude domain="external">`（写了 include 之后其余本来就不备，lint 会报 `is not in an included path`）。这里错一下的代价是整次备份失败捎带存档一起丢：游戏本体在外部存储有 1.5GB，而配额只有 25MB。
+- **`WebChromeClient.onShowFileChooser` 的 `callback` 必须恰好回一次值**：玩家取消、连点两次、页面被销毁时都要把上一份用 `null` 结掉（`FileChooserSlot.cancel()`），否则游戏里那次文件选择永久挂住（`ui/GameScreen.kt`）。
+- **无真机不下结论**：模拟器与真机的 WebView/Chromium 版本差异极大，P0 的七项判据、P1 的下载判据与 P2 的注入/端口/缓存判据、P3 的 UI 判据、P4 的存档导出/Auto Backup 判据（见 [`docs/android-port.md`](./docs/android-port.md) §4.4）必须在真机上跑（`adb install -r` → 打开 App → 截图读悬浮面板指标，日志 `-s PokeLauncher`）。
 - **应用自更新只认 `version.json` 的 `android*` 字段**（`androidVersionCode` / `androidVersionName` / `androidMinVersionCode` / `androidChangelog` / `apkUrl`；与鸿蒙字段同在一份清单里）：缺 `androidVersionCode` 时安卓端必须显示「安卓版暂未发布」，**绝不**拿鸿蒙的 `versionCode` 比（会永远显示「发现新版本」并指向 HAP 页）。发版对齐规则见 [`docs/android-port.md`](./docs/android-port.md) §8。
 - **`ui/` 里不要写 `Modifier.then(...)`，也不要声明 `fun Modifier.xxx()` 扩展**：本机 lint 版本下这两者会让 compose 的 lint 检查器 `NoClassDefFoundError`，**直接弄挂 `:app:lintDebug`**（是任务失败，不是警告）。用 if/else 选 Modifier。
 - **真机验收的「屏幕方向」只在游戏页生效**：偏好存 `core/OrientationPref.kt`（键 `orientation`），由根组件的 `ApplyPageOrientation` 套用；启动器自己的页面在手机上恒竖屏、平板上跟随系统（与鸿蒙 `WindowHolder` 同口径）。

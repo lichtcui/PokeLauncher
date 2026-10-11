@@ -3,6 +3,9 @@
 -keep class com.lichtcui.pokelauncher.cheat.CheatScripts { *; }
 -keep class com.lichtcui.pokelauncher.cheat.Cheats { *; }
 -keep class com.lichtcui.pokelauncher.web.SaveGuard { *; }
+# 存档导出：桥方法名 saveDownload 由上面的 @JavascriptInterface 规则保留，
+# 这里再锁住类本身，保证注入脚本与文案常量在 release 包里原样存在（P4）
+-keep class com.lichtcui.pokelauncher.web.DownloadBridge { *; }
 -keep class com.lichtcui.pokelauncher.core.Const { *; }
 
 # ---------------------------------------------------------------------------

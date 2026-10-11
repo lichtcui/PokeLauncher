@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  数据提取规则（API 31+ / Android 12 起；API 30 及以下走 backup_rules.xml）。
+
+  `cloud-backup` 与 `device-transfer` 都只放行「设置偏好 + 存档快照」，
+  其余（含外部存储里的游戏本体）一律不备份，理由见 backup_rules.xml 的注释：
+  游戏本体约 1.5GB，云备份有 25MB 配额，换机传输也没必要搬一份能重新下载的资源包。
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <include domain="sharedpref" path="." />
+        <include domain="file" path="saves" />
+    </cloud-backup>
+    <device-transfer>
+        <include domain="sharedpref" path="." />
+        <include domain="file" path="saves" />
+    </device-transfer>
+</data-extraction-rules>

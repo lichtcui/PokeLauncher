@@ -22,6 +22,7 @@ import com.lichtcui.pokelauncher.install.GameRepository
 import com.lichtcui.pokelauncher.install.PendingDownload
 import com.lichtcui.pokelauncher.install.ReleaseInfo
 import com.lichtcui.pokelauncher.server.GameServer
+import com.lichtcui.pokelauncher.web.DownloadBridge
 import com.lichtcui.pokelauncher.web.WebCache
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -124,6 +125,14 @@ class SpikeController(private val app: Context) {
      * `LaunchedEffect(count)` 就不会重跑，用户会看不到第二次提示。
      */
     var saveRestoredSeq by mutableStateOf(0)
+        private set
+
+    /** 最近一次存档导出的结果文案（空串 = 还没导出过） */
+    var saveExportText by mutableStateOf("")
+        private set
+
+    /** 导出事件自增序号（与 [saveRestoredSeq] 同理：两次导出文案可能一样） */
+    var saveExportSeq by mutableStateOf(0)
         private set
 
     /** P0 判据 7：注入补丁是否真的生效（getImageData 次数应远小于 2 万） */
@@ -561,6 +570,26 @@ class SpikeController(private val app: Context) {
         mainHandler.post {
             saveRestoredCount = count
             saveRestoredSeq++
+        }
+    }
+
+    /**
+     * 游戏内「导出数据」（`PokeNative.saveDownload`，对应鸿蒙 `WebDownloadDelegate`）。
+     *
+     * 调用方在 **WebView 的 JS 线程**，且 base64 解码 + MediaStore 写入都是阻塞 IO，
+     * 所以先切 IO 线程写文件，再回主线程发布给游戏页弹 Toast。
+     */
+    fun onSaveExport(name: String, mime: String, base64: String) {
+        scope.launch {
+            val text = withContext(Dispatchers.IO) {
+                runCatching { DownloadBridge.saveToDownloads(app, name, base64, mime) }
+                    .getOrElse { t ->
+                        Log.w(Const.TAG, "export failed: ${t.message}")
+                        DownloadBridge.exportFailText(t.message ?: t.javaClass.simpleName)
+                    }
+            }
+            saveExportText = text
+            saveExportSeq++
         }
     }
 

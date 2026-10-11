@@ -64,10 +64,10 @@
 | `@ohos.router` + `pages/` | Compose Navigation |
 | `Web` 组件 | `android.webkit.WebView`（后台静音用 `MUTE_AUDIO`，不支持时降级到 `game.sound.mute`，见 §4.3.6-5） |
 | `javaScriptProxy` | `addJavascriptInterface` |
-| `WebDownloadDelegate` | `DownloadListener` + **blob→base64 JS 桥**（Android 不触发 `blob:` 下载，必须做桥）（**P4**，见 §4.3.6-10） |
-| `DocumentViewPicker`（保存） | `MediaStore.Downloads`（API 29+ 零权限） |
+| `WebDownloadDelegate` | **JS 拦截 + `PokeNative.saveDownload`**（游戏「导出数据」是 `Blob` + `<a download>`，`blob:` 不一定会走 `DownloadListener`），残留的 `blob:` 用 `DownloadListener` + XHR 兜底（见 §4.3.7-1，P4 已落地） |
+| `DocumentViewPicker`（保存） | `MediaStore.Downloads`（API 29+ 零权限；API 26–28 落应用专属下载目录，**不申请存储权限**） |
 | `DocumentViewPicker`（选 zip） | SAF `ACTION_OPEN_DOCUMENT` |
-| 游戏内 `<input type=file>` 导入存档 | `WebChromeClient.onShowFileChooser` |
+| 游戏内 `<input type=file>` 导入存档 | `WebChromeClient.onShowFileChooser` + SAF（Compose 层 `rememberLauncherForActivityResult`）（P4 已落地） |
 | `hilog` | `Log`（tag 统一 `PokeLauncher`，见 [`device-cli.md`](./device-cli.md) 的 tag 约定） |
 | `WindowHolder.setOrientation` | `Activity.requestedOrientation` |
 | `apiAtLeast()` | `Build.VERSION.SDK_INT` |
@@ -82,7 +82,7 @@ android/
 │  ├─ server/     GameServer(NanoHTTPD×2) / InjectScripts(canvas 补丁 + Phaser 包装) / ServerDiag(端口占用诊断)
 │  ├─ cheat/      Cheats(注册表·JS 逐字保真) / CheatFormat(纯编解码) / CheatState(状态+持久化) / CheatScripts(生成 /__cheats__.js)
 │  ├─ install/    GameRepository(Release 查询·镜像测速·断点续传) / GameInstaller(原子解压切换·recover) / DownloadService(前台服务)
-│  ├─ web/        PokeWebView(JS 桥) / SaveGuard(存档镜像·JS 桥) / WebCache(clearCache 时机)
+│  ├─ web/        PokeWebView(JS 桥·文件选择转发) / SaveGuard(存档镜像·JS 桥) / DownloadBridge(存档导出拦截·落盘) / WebCache(clearCache 时机)
 │  └─ ui/         Compose：首页四态 / 设置 / 参数调整 / 法律 / 游戏页 / 打靶页（P3 已全部落地，清单见 §4.1）
 └─ app/src/test/  JVM 纯函数单测（core / install / cheat / server / web）
 ```
@@ -105,7 +105,7 @@ android/
 | 6 | 存档落点正确 | 游戏内存档 → 重启 App 仍在；点系统「清除缓存」后仍在 | 手动验证 |
 | 7 | 音频 | BGM 能自动播放（`mediaPlaybackRequiresUserGesture=false` 生效） | 听 |
 
-### 4.1 已落地代码（P0–P3 已实现部分，可编译可装机）
+### 4.1 已落地代码（P0–P4 已实现部分，可编译可装机）
 
 ```
 android/                                   Gradle 8.14.3 / AGP 8.11.0 / Kotlin 2.0.21 / Compose BOM 2024.12.01
@@ -136,7 +136,8 @@ android/                                   Gradle 8.14.3 / AGP 8.11.0 / Kotlin 2
 │  ├─ cheat/ CheatFormat.kt                ids/params 编解码 + 夹紧 + JS 数字字面量（纯函数）
 │  ├─ cheat/ CheatState.kt                 总开关/启用项/参数 + SharedPreferences 持久化
 │  ├─ cheat/ CheatScripts.kt               SCENE_RUNTIME + buildBootScript()（/__cheats__.js 的内容）
-│  ├─ web/ PokeWebView.kt                  WebView 配置 + PokeNative JS 桥 + PokeSaveGuard 存档桥 + 切后台静音
+│  ├─ web/ PokeWebView.kt                  WebView 配置 + PokeNative JS 桥（含存档导出）+ PokeSaveGuard 存档桥 + 切后台静音 + 文件选择器转发
+│  ├─ web/ DownloadBridge.kt               存档导出：JS 拦截脚本 + 文件名清洗 + MediaStore/应用目录落盘 + 兜底脚本（纯部分可单测）
 │  ├─ web/ SaveGuard.kt                    存档镜像（filesDir/saves/localstorage.json + .bak）+ 注入脚本
 │  ├─ web/ WebCache.kt                     clearCache 时机（活实例优先，否则临时实例；仅主线程）
 │  └─ ui/                                  首页 + 打靶页 + 设置页 + 参数调整页 + 法律页 + 游戏页（P3 全部落地）
@@ -151,12 +152,13 @@ android/                                   Gradle 8.14.3 / AGP 8.11.0 / Kotlin 2
 │     ├─ SpikeController.kt                应用级控制器（首页 / 设置页 / 打靶页共用同一实例）
 │     ├─ SpikeScreen.kt / CheatScreen.kt   开发者诊断页；参数调整页（纯注册表驱动）
 │     └─ SettingsScreen.kt / LegalText.kt / LegalScreen.kt   设置页；法律正文（纯数据）；法律页
-├─ app/src/test/java/.../                  **240 个 JVM 单测**（core 31：Paths 7 / Format 6 / Mime 5 / Version 4 / OrientationPref 7 / Prefs 2；
+├─ app/src/test/java/.../                  **255 个 JVM 单测**（core 31：Paths 7 / Format 6 / Mime 5 / Version 4 / OrientationPref 7 / Prefs 2；
 │                                          install 50：DownloadUrls 12 / DownloadState 16 / DownloadStatus 16 / ReleaseInfo 6；
 │                                          cheat 71：CheatFormat 27 / CheatScripts 14 / CheatState 13 / Cheats 17；
-│                                          server 19：InjectScripts 9 / ServerDiag 10；web 22：SaveGuard 22；
+│                                          server 20：InjectScripts 10 / ServerDiag 10；web 36：SaveGuard 22 / DownloadBridge 14；
 │                                          appupdate 18：AppUpdate 18；ui 29：HomeState 13 / GameState 9 / LegalText 7）
 └─ app/src/main/res/                       图标（品牌红环）/ 通知图标 ic_download / 精灵球 ic_pokeball / 主题 / network_security_config
+                                          / xml/backup_rules.xml + xml/data_extraction_rules.xml（Auto Backup：只备设置偏好 + files/saves）
 ```
 
 已实测通过（本机，**尚无真机**）：
@@ -165,8 +167,8 @@ android/                                   Gradle 8.14.3 / AGP 8.11.0 / Kotlin 2
 | --- | --- |
 | `./gradlew assembleDebug` | ✅ `app-debug.apk` 10 MB |
 | `./gradlew assembleRelease`（R8 + 资源收缩） | ✅ `app-release-unsigned.apk` 1.2 MB（含 OkHttp/Okio） |
-| `./gradlew testDebugUnitTest` | ✅ **240 tests, 0 failures** |
-| `./gradlew :app:lintDebug` | ✅ **0 errors**（26 warnings / 10 hints，均为依赖版本提示与 autoboxing 建议类，不阻塞） |
+| `./gradlew testDebugUnitTest` | ✅ **255 tests, 0 failures** |
+| `./gradlew :app:lintDebug` | ✅ **0 errors**（26 warnings / 11 hints，均为依赖版本提示与 autoboxing 建议类，不阻塞） |
 | release 包 JS 桥是否存活 | ✅ 反编译 dex：`PokeNative` / `reportTiming` / `reportState` / **`PokeSaveGuard`** / **`load` / `save` / `notifyRestored`** 均在（`o1.g.load`：类名可混淆，方法名由 `-keepclassmembers @JavascriptInterface` 保住） |
 | release 包新链路常量是否存活 | ✅ dex 里仍有 `tag_name` / `browser_download_url` / `receivedBytes` / `bytes=0-` / `If-Range` / `Content-Range` / `game.zip.download.json` / `pokerogue-download` |
 | release 包注入链常量是否存活 | ✅ dex 里仍有 `__cheats__.js` ×4 / `__pk_boot.js` ×2 / `window.__pkGameHooks` ×3 / 7 条脚本标记（`__cheatCandy/Exp/Money/Luck/Catch/FreeEgg/Reward`）/ `cheatMaster`·`cheatEnabledIds`·`cheatParams` / `localstorage.json`·`localstorage.bak.json` / `SAVEGUARD` ×5 |
@@ -179,6 +181,9 @@ android/                                   Gradle 8.14.3 / AGP 8.11.0 / Kotlin 2
 | 游戏页浮层 / 返回按钮 / 静音 | ✅ 纯逻辑已由单测覆盖（`GameStateTest` 9：**错误浮层优先于加载浮层**、`loadErrorText` 前缀、存档回填提示只在 count>0 时出、`BACK_FADE_MS=3000` / `0.2f` 与鸿蒙同值、兜底脚本读 `window.__pkGame.sound.mute` 且不含 `$`） |
 | release 包中文常量存活（P3 首页） | ✅ 字节搜索 dex：`正在检查本地资源…` / `PokeRogue 离线资源未安装` / `本应用是 PokeRogue 的离线安卓版，安装资源后即可断网游玩` / `需要存储` / `可用空间` / `· 需要开启通知权限` / `继续下载` / `换源重试（丢弃已下载的分片）` / `下载太慢？复制下方直链自行下载资源包，再用「上传资源」导入` / `上传资源` / `直链已复制` / `取消下载` / `确定取消下载吗？已下载的` / `将全部丢失。` / `请勿关闭应用` / `正在解压 PokeRogue 资源…` / `PokeRogue 资源准备就绪` / `离线资源已就绪` / `开始运行` / `开发者诊断（打靶页）` 全部在（48/48） |
 | release 包中文常量存活（P3 游戏页） | ✅ 字节搜索 dex：`返回` / `正在载入游戏…` / `游戏加载失败` / `加载出错: ` / `重试` / `本地资源服务可能没起来` / `检测到本地存档缺失，已从快照恢复` / `项数据` / `页面有报错` / 指标面板 `canvas 补丁` / `DOM 载入` 全部在；静音兜底脚本的 `__pkGame` / `sound.mute` 也在 |
+| 存档导出（P4）纯逻辑 + JS | ✅ `DownloadBridgeTest` 14 条：文件名清洗（路径分隔符 / `..` / 前导点 / 超长 / 控制字符 / 中文）、`Content-Disposition` 解析（含 `filename*=`）、成功/失败文案、同名文件 `(1)` 后缀、**注入脚本与兜底脚本都不含 `$`**、桥方法名与脚本互相对齐 |
+| release 包存档导出常量存活（P4） | ✅ 字节搜索 dex：`已导出 ` / `导出失败` / `saveDownload` ×5 / `__pkDlInstalled` / `PKDL` ×15 / `URL.createObjectURL` / `XMLHttpRequest` / `data.prsv` 全部在（`proguard-rules.pro` 新增 `-keep class ...web.DownloadBridge`） |
+| Auto Backup 规则（P4） | ✅ release 合并 manifest：`allowBackup=true` + `fullBackupContent=@xml/backup_rules` + `dataExtractionRules=@xml/data_extraction_rules`；APK 资源表里两个 xml 都在（被资源收缩重命名为 `res/Qq.xml` / `res/4j.xml`）且 manifest 指向正确；规则**只 include `sharedpref` + `file/saves`**（lint 会报「include 之外都算排除」，正好锁住「不备份 1.5GB 游戏本体」） |
 
 > ⚠️ **release 包不能靠类名取证**：R8 混淆后 `SettingsScreenKt` / `CommonKt` / `HomeScreenKt` / `RootScreenKt` / `GameScreenKt` / `SpikeController` 这些类名在 dex 里**根本不存在**（被改名或 class-merging 内联掉；`HomeStateKt` / `GameStateKt` / `DownloadUrls` 甚至直接是 `R8$$REMOVED$$CLASS$$<n>`——方法全被内联，如 `ui.GameStateKt.muteFallbackScript(boolean)` 只作为 member 行出现在 `PokeWebViewKt` 里）。查 release 只有两条可靠路径：① dex 字符串（中文常量用字节搜索）；② `app/build/outputs/mapping/release/mapping.txt`（看类被映射成什么、哪些名字被 keep 规则保住；被合并的类只在 member 行里出现，如 `ui.HomeStateKt.prepPhaseOf(...)`）。
 
@@ -271,6 +276,24 @@ adb logcat -s PokeLauncher          # 全部日志统一 tag
 - **浮层判定顺序是「错误 > 加载中」**（`gameOverlayOf`）：加载失败时 `pageLoaded` 永远是 false，顺序反了用户只会看到「正在载入…」。
 - 返回按钮放**左上角**（鸿蒙在右上角）：右上角被打靶指标面板占着，两个叠一起会互相吃点击；错误浮层也因此从右上角改成居中卡片。见 §4.3.6。
 - 打靶指标面板（`canvas 补丁` / `DOM 载入` / 计时点 / `gid` / 重载 / 退出）**仍是打靶期产物，发布前必须挪到 debug 开关后面**（见 §4.3.6-8）。
+
+**P4 存档导出 / 导入 + Auto Backup（游戏页之上，不需要新页面）**
+
+游戏内的「导出数据」是一个 `Blob` + `<a download>`，安卓侧 `blob:` 不一定会走到 `DownloadListener`，所以主路径是**在页面里拦住下载**：
+
+| 环节 | 实现 | 与鸿蒙的对应 |
+| --- | --- | --- |
+| 导出拦截（主路径） | `/__pk_boot.js` 之前再插一段脚本：补 `URL.createObjectURL` / `HTMLAnchorElement.prototype.click` + 捕获阶段 `click`，拿到 Blob 后 `FileReader.readAsDataURL` → `PokeNative.saveDownload(name, mime, b64)` | 鸿蒙 `onBeforeDownload` 拦到请求后自己写沙箱 |
+| 导出兜底 | 真的漏到 `DownloadListener` 且是 `blob:` → 注入 XHR 脚本（`blobFallbackScript`）把同一份数据再走一次桥 | 同上（鸿蒙没有这条，因为 Web 组件不触发下载就不会漏） |
+| 落盘位置 | API 29+ → `MediaStore.Downloads`（`IS_PENDING` 保证要么完整要么没有）；API 26–28 → `getExternalFilesDir(DIRECTORY_DOWNLOADS)` + 同名 `(1)` 后缀 | 鸿蒙 `DocumentViewPicker`（用户选目录）+ `item.start(target)` |
+| 文件名 | 页面传上来的名字一律过 `safeFileName`（去路径分隔符 / `..` / 控制字符 / 前导点 / 超长截断） | 鸿蒙直接拼 `pathOfUri(result[0]) + '/' + fileName`（没有清洗，路径穿越风险靠系统 picker 兑现） |
+| 结果反馈 | `SpikeController.onSaveExport` 切 IO 落盘，回到主线程弹 Toast：「已导出 <name> 到「下载」」/「导出失败：<detail>」 | 鸿蒙无提示（写成功与否用户自己看文件管理器） |
+| 导入（游戏内选文件） | `WebChromeClient.onShowFileChooser` → `params.createIntent()` → Compose `rememberLauncherForActivityResult` → `FileChooserParams.parseResult` 回给 WebView | 鸿蒙 `onShowFileSelector` + `DocumentViewPicker` |
+| Auto Backup | `res/xml/backup_rules.xml`（≤ API 30）+ `res/xml/data_extraction_rules.xml`（API 31+）：只备 `sharedpref` + `file/saves` | 鸿蒙 `SaveGuard` 把 `localStorage` 镜像到 `files/saves`，安卓额外把它交给系统备份 |
+
+- **导出/导入都不申请任何存储权限**：`MediaStore.Downloads` 与 SAF 都是零权限通道（刻意对齐 §6-#8，不学参考 App 的 `WRITE_EXTERNAL_STORAGE` 路线）。
+- **`onShowFileChooser` 必须恰好回一次值**：用户取消 / 页面提前销毁 / 连续两次请求都得把上一次的 `callback` 用 `null` 结掉（`FileChooserSlot.cancel()`），否则 WebView 里那次文件选择永久挂住。
+- Auto Backup 是**配置项**，没有任何可单测的代码；取证方式是 release 合并 manifest + APK 资源表（见 §4.1）。
 
 ### 4.3 与上面计划的差异（实现期决定）
 
@@ -369,7 +392,22 @@ adb logcat -s PokeLauncher          # 全部日志统一 tag
 7. **存档回填提示用自增序号而不是条数**：`SpikeController.saveRestoredSeq` 每回填一次加一，游戏页 `LaunchedEffect(seq)` 弹一次 toast。用条数的话，两次回填条数恰好一样时状态值不变，第二次提示就不会弹。桥回调在 JS 线程，写状态前先切主线程。
 8. **打靶指标面板本块保留原样，但必须在发布前挪到 debug 开关后面**：P0–P3 每条真机判据都要在截图里同时拍到游戏画面与计时，所以现在不能关；线上包带着它既丑又泄露实现细节。P5 清单里记一条。
 9. **方向本块没写新代码**：§4.3.4-5 的 `ApplyPageOrientation(gamePageActive = controller.showGame)` 已经盖住游戏页，本块只确认它挂在了根组件（而不是 `MainActivity`）。切后台静音也走的是 Activity 生命周期（`LocalLifecycleOwner`），不另开一套。
-10. **两项鸿蒙游戏页能力本块不做**：① `WebDownloadDelegate`（游戏内导出存档/下载文件 → 鸿蒙写进沙箱）→ P4（安卓要 `WebView.setDownloadListener` + MediaStore/SAF，且要区分「存档导出」与「资源包下载」）；② `mediaOptions.audioSessionType`（鸿蒙把 Web 音频映射到 GAME 流，避免被其它音频压低）→ 安卓没有对应 API，只能靠第 5 条的两条路径。
+10. **两项鸿蒙游戏页能力本块不做**：① `mediaOptions.audioSessionType`（鸿蒙把 Web 音频映射到 GAME 流，避免被其它音频压低）→ 安卓没有对应 API，只能靠第 5 条的两条路径；② `WebDownloadDelegate`（游戏内导出存档/下载文件）→ 当时判给 P4，**已在 §4.3.7 落地**。
+
+### 4.3.7 P4（存档导出/导入 + Auto Backup）实现期决定
+
+> P4 第一块：游戏内「导出数据」与存档导入，对应鸿蒙 `pages/GamePage.ets` 的 `WebDownloadDelegate` + `onShowFileSelector`。
+
+1. **主路径是「在页面里拦下载」，而不是 `DownloadListener`**：参考实现（`Admiral-Billy/PokeRogue-App-Android`）走的是「`DownloadListener` 收到 `blob:` → 注入 XHR 拿 base64」，但 `blob:` 下载在部分 WebView 上根本不回调 `onDownloadStart`（游戏用的是 `URL.createObjectURL` + `<a download>`），失败模式是「点了没反应，也没有日志」。所以先把 `URL.createObjectURL` / `HTMLAnchorElement.prototype.click` / 捕获阶段 `click` 补上，自己拿到 Blob；`DownloadListener` 只保留成兜底（真漏下来了再用 XHR 过一遍桥），两条路径不会双发——JS 拦到就 `preventDefault`，原生下载根本不会启动。
+2. **桥对象就用已有的 `PokeNative`**（不新建 `addJavascriptInterface`）：桥方法越多，release 包要保住的字符串就越多；`saveDownload` 由 `-keepclassmembers @JavascriptInterface` 规则自动保住，另外顺手把 `DownloadBridge` 整个类 keep 住（里面全是 JS 与中文文案常量）。
+3. **零存储权限**：API 29+ 走 `MediaStore.Downloads`（`RELATIVE_PATH=Downloads`，不建子目录），API 26–28 走 `getExternalFilesDir(DIRECTORY_DOWNLOADS)`。两者都不需要 `WRITE_EXTERNAL_STORAGE` —— **故意不学参考实现**（它申请了存储权限往公共 `Downloads/` 写，Play 会挑刺）。代价：老机型上导出文件落在应用专属目录（卸载会删），Toast 里把真实路径写清楚。
+4. **文件名、URL 都是不可信输入**：页面可能传来 `../../etc/passwd`、`..`、`/`、控制字符、超长名字。统一过 `safeFileName`（去非法字符 + 去前导点 + `trimEnd('.')` + 拒绝 `.`/`..` + >120 字符保扩展名截断）；写进 JS 的字符串再过 `jsStringLiteral`（转义 `\` `"` 换行制表 + `<` → `\u003c`，防提前关掉 `<script>`）。
+5. **`IS_PENDING` 两阶段写入**：MediaStore 里先 `IS_PENDING=1` 插入 → 写完置 0；写中途失败就 `delete` 掉半成品（否则下载目录里会出现一个 0 字节的 `data.prsv`，用户以为导出成功了）。
+6. **导入用 `WebChromeClient.onShowFileChooser` + Compose launcher 转发**：WebView 需要的是「一次回调」，而 Compose 的 `rememberLauncherForActivityResult` 是异步的，所以用非 Compose 的 `FileChooserSlot` 存住 callback（不放 state，避免重组），并且在 `onDispose` / 新请求到来时 `cancel()`（回 `null`）——不回值的话 WebView 里那次选择会永久挂住。
+7. **导出结果回主线程弹 Toast**：`saveToDownloads` 是磁盘 IO，放 `Dispatchers.IO`；`saveExportSeq`（自增序号）触发 `LaunchedEffect`，不用字符串做状态（同名连续导出两次也会弹）。
+8. **Auto Backup 只备「设置偏好 + `files/saves`」，而且必须是 include 白名单**：写了 `<include>` 之后其余全部不备，lint（`FullBackupContent`）也按这个语义校验（写 `<exclude domain="external">` 反而会被报「`.` is not in an included path」）。这一条很关键：游戏本体在 `getExternalFilesDir()/game`（约 1.5GB），而 Auto Backup 有 25MB 配额，一旦把外部存储估进去，**整次备份会失败，连存档一起丢**。
+9. **Auto Backup 不能代替「应用内导出存档」**：备份是系统行为（用户没开就什么也不发生），且只在换机/重装时生效；“把存档拷出来”这个显式需求必须靠 `saveDownload` 这条链。两者是互补，不是二选一。
+10. **API 29 的 `MediaStore.Downloads` 要 `@RequiresApi` 标注**：`saveViaMediaStore` 单独抽成方法后，外面那层 `if (SDK_INT >= Q)` 对 lint 不可见，会报 `NewApi` **error**（不是警告，会抦住 `lintDebug`）。
 
 ### 4.4 实测记录（待真机，空着等数据）
 
@@ -433,6 +471,18 @@ adb logcat -s PokeLauncher          # 全部日志统一 tag
 | P3-19 | 游戏页静音 | 进游戏听 BGM → 按 Home 退到后台：BGM 立即停（日志 `web audio muted=true`）；回前台恢复（`muted=false`）；点「返回」退出游戏页 BGM 也停；拿一台不支持 `MUTE_AUDIO` 的老机型验证 `game.sound.mute` 兜底同样生效 | |
 | P3-20 | 存档回填提示 | 抹掉游戏 `localStorage`（DevTools）但保留 `files/saves/localstorage.json` → 重进游戏 → 弹「检测到本地存档缺失，已从快照恢复 N 项数据」，且游戏内进度确实是快照那份（P2-2 的 UI 侧判据） | |
 
+**P4（平台特有）——待真机项**
+
+| # | 项 | 判据（看界面/日志/文件） | 结果 |
+| --- | --- | --- | --- |
+| P4-1 | 游戏内导出存档（关键判据） | 游戏里点「导出数据」→ 弹 Toast「已导出 data.prsv 到「下载」」；开发者控制台有 `PKDL saved <name> <bytes>`；系统「文件/下载」里能看到 `data.prsv` 且大小与游戏内存档相当（不能是 0 字节） | |
+| P4-2 | 导出文件能回导 | 把 `data.prsv` 拷回手机 → 游戏内「导入数据」→ 出现系统文件选择器 → 选该文件 → 存档真的回来了（P4-1 的闭环） | |
+| P4-3 | 重复导出不产生垃圾 | 连点两次「导出数据」→ Toast 正常，控制台出现 `PKDL duplicate skipped`（5s 内相同内容不重复写）；手动导两次不同名字也不报错 | |
+| P4-4 | 文件名不可信不加路 | 导出成功后看下载目录：文件名无 `/` `\` `..` 前导点；手动用 DevTools 把 `download` 属性改成 `../../x.prsv` 再导 → 仍然落在下载目录里（不能跑到别处） | |
+| P4-5 | 旧机型路径（API 26–28 真机/模拟器） | 导出后 Toast 里是真实路径（含包名的应用专属目录）；用 `adb shell ls` 能在 `Android/data/com.lichtcui.pokelauncher/files/Download/` 下看到文件；全程**没有**弹存储权限请求 | |
+| P4-6 | Auto Backup 不搬 1.5GB | `adb shell bmgr backupnow com.lichtcui.pokelauncher`（或 Android Studio 的 Back up 面板）→ 日志显示备份完成（不报 quota 超标）；备份包里只有偏好与 `saves/`（用 `bmgr list` + 解包看），没有 `game/` 目录 | |
+| P4-7 | 清数据后恢复存档 | 备份一次 → `adb shell pm clear com.lichtcui.pokelauncher` → `bmgr restore` → 打开游戏：偏好回来了（方向/参数调整）且 `files/saves/localstorage.json` 在位（P2-2 的备份侧判据） | |
+
 **P0 未通过时**的退路：改用 `androidx.webkit` 的 `WebViewAssetLoader`（`https://appassets.androidplatform.net`，免 socket 免 cleartext），代价是丢 HTTP 缓存与 Range。
 
 ## 5. 分期计划
@@ -443,7 +493,7 @@ adb logcat -s PokeLauncher          # 全部日志统一 tag
 | **P1 下载/解压** | Release 查询 → 镜像并发测速 → 断点续传 → 原子解压切换 → `recover()`；前台服务 + 通知进度；暂停/继续/取消；SAF 手动导入 | 4–6 天 | ✅ 代码完成（71 单测全绿，debug/release 均编译通过）；**真机判据待跑（§4.4）** |
 | **P2 服务与注入** | index.html 补丁、虚拟端点 `/__pk_boot.js` + `/__cheats__.js`、端口占用兜底、8001 stub、`clearCache` 时机、参数调整状态与存档镜像 | 3–4 天 | ✅ 代码完成（累计 180 单测全绿，debug/release 均编译通过，lint 0 error）；**真机判据待跑（§4.4）** |
 | **P3 UI** | Compose：首页四态 + 下载流 + 精灵球动画、设置页、参数调整页、游戏页（返回按钮淡出/错误浮层/方向/静音）、法律页 | 4–6 天 | ✅ 代码完成（参数调整页 / 设置页 / 法律页 / 首页四态 + 下载流 + 精灵球 / 游戏页全部落地；累计 240 单测全绿，debug/release 均编译通过，lint 0 error）；**真机判据待跑（§4.4 P3 全部）** |
-| **P4 平台特有** | 存档导出/导入、Auto Backup、应用内自更新（FileProvider + `REQUEST_INSTALL_PACKAGES`）、通知权限 | 3–4 天 |
+| **P4 平台特有** | 存档导出/导入、Auto Backup、应用内自更新（FileProvider + `REQUEST_INSTALL_PACKAGES`）、通知权限 | 3–4 天 | ⏳ 进行中：**存档导出/导入 + Auto Backup 已完成**（累计 255 单测全绿，debug/release 均编译通过，lint 0 error）；**应用内自更新待做**（通知权限 P1 已完成）；**真机判据待跑（§4.4 P4）** |
 | **P5 打磨发布** | 真机矩阵（多 WebView 版本）、性能调优、GitHub Actions 出 APK、签名发版 | 3–5 天 |
 
 **完整对等移植 ≈ 3–4 周；MVP（P0–P2 + 极简 UI）≈ 1.5 周。**
@@ -495,6 +545,13 @@ P3 游戏页新增：
 31. **游戏页浮层的判定顺序必须是「错误 > 加载中」**：加载失败时 `pageLoaded` 永远是 false，顺序反了就永远停在「正在载入游戏…」，用户看不到任何错误。`gameOverlayOf` 已按此写、`GameStateTest` 锁住（与坑 #25 同一类：判定顺序错了编译器不会报错）。
 32. **`RequiresFeature` 检查必须写在 `if` 条件里**：写成 `val ok = WebViewFeature.isFeatureSupported(...)` 再 `if (ok)` 会被 lint 报 `setAudioMuted should only be called if the feature MUTE_AUDIO is present`（当前基线 0 error / 26 warning，别再加回去）；同时**降级分支不能省**——`MUTE_AUDIO` 在旧 WebView 上不存在，只写 `setAudioMuted` 就是一台机器静音、另一台报错。
 33. **切后台静音不能顺手加 `WebView.onPause()`**：会把 Phaser 的计时器一起冻住，回前台容易追帧/卡顿（鸿蒙同样只静音、保留游戏进程）。要省电另开一个开关，别塞进静音这条路径里。
+
+P4 新增：
+
+34. **`blob:` 下载不一定走 `DownloadListener`**：游戏用 `URL.createObjectURL` + `<a download download>` 导出存档，部分 WebView 根本不回调 `onDownloadStart`（症状是「点了没反应、日志也没有」）。可靠做法是在页面里拦（补 `createObjectURL` / `HTMLAnchorElement.prototype.click` / 捕获阶段 `click`），`DownloadListener` 只当兜底；两条路要避免双发（拦到就 `preventDefault`）。
+35. **Auto Backup 的 25MB 配额会被 1.5GB 游戏本体直接抦爆**：规则必须是 **include 白名单**（只放 `sharedpref` + `file/saves`），而且不要画蛇添足写 `<exclude domain="external">`——lint 的 `FullBackupContent` 会报「`.` is not in an included path」（写了 include 之后其余本来就都不备）。
+36. **`MediaStore.Downloads` 这类 API 29 接口要标 `@RequiresApi`**：把分区存储分支抽成 `saveViaMediaStore()` 后，外层的 `SDK_INT >= Q` 判定对 lint 不可见，会报 `NewApi` **error** 而不是警告（`lintDebug` 直接失败）。
+37. **`onShowFileChooser` 的 `callback` 必须恰好回一次值**：玩家取消选择、连点两次「导入」、或页面在被选文件期间销毁时，都得把上一份 callback 用 `null` 结掉（`FileChooserSlot.cancel()`）；漏了就是 WebView 里那次文件选择永久挂住（游戏后续再也弹不出选择器）。
 
 ## 7. 风险
 

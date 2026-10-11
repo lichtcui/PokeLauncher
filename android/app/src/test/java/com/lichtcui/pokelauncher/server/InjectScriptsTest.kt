@@ -6,9 +6,11 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * 注入链的顺序契约（`<head>` 之后的三个 script 标签）。
+ * 注入链的顺序契约（`<head>` 之后的四个 script 标签）。
  *
  * 顺序错了不会报错，但会静默失效：
+ * - 存档导出拦截晚于游戏脚本 → 游戏的 `URL.createObjectURL` / `<a download>` 已经拿到原函数，
+ *   导出的存档直接落进 WebView 的下载流程（或者什么都没发生）；
  * - 存档守卫晚于游戏脚本 → 回填的存档来不及被读取；
  * - `/__cheats__.js` 晚于引导脚本 → 场景捕获钩子注册不上（`window.__pkGameHooks` 已错过派发）；
  * - 引导脚本不是最后一个 → 它持有的 `window.Phaser` 属性描述符会被后来的 `defineProperty` 覆盖，
@@ -18,14 +20,33 @@ class InjectScriptsTest {
 
     private val saveGuard = "<script id=\"sg\"></script>"
 
+    private val downloadBridge = "<script id=\"dl\"></script>"
+
     @Test
-    fun orderIsSaveGuardCheatsBoot() {
-        val html = InjectScripts.indexInjections(patchCanvas = true, saveGuardScript = saveGuard, cheatsEnabled = true)
+    fun orderIsDownloadSaveGuardCheatsBoot() {
+        val html = InjectScripts.indexInjections(
+            patchCanvas = true,
+            saveGuardScript = saveGuard,
+            cheatsEnabled = true,
+            downloadScript = downloadBridge
+        )
+        val iDl = html.indexOf("id=\"dl\"")
         val iSave = html.indexOf("id=\"sg\"")
         val iCheat = html.indexOf("/__cheats__.js")
         val iBoot = html.indexOf("/__pk_boot.js")
+        assertTrue(iDl in 0..<iSave)
         assertTrue(iSave in 0..<iCheat)
         assertTrue(iCheat < iBoot)
+    }
+
+    @Test
+    fun emptyDownloadScriptIsAllowed() {
+        val html = InjectScripts.indexInjections(
+            patchCanvas = true,
+            saveGuardScript = saveGuard,
+            cheatsEnabled = false
+        )
+        assertTrue(html.startsWith(saveGuard))
     }
 
     @Test

@@ -1,6 +1,12 @@
 package com.lichtcui.pokelauncher.ui
 
+import android.net.Uri
+import android.util.Log
+import android.webkit.ValueCallback
+import android.webkit.WebChromeClient
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -18,6 +24,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -31,8 +38,30 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.lichtcui.pokelauncher.core.Const
 import com.lichtcui.pokelauncher.web.PokeWebView
 import kotlinx.coroutines.delay
+
+/**
+ * `<input type=file>` 的待回调槽位。
+ *
+ * 用普通可空字段（而不是 Compose state）：回调对象既不参与渲染，也不应该引起重组。
+ */
+private class FileChooserSlot {
+    var callback: ValueCallback<Array<Uri>>? = null
+
+    fun take(): ValueCallback<Array<Uri>>? {
+        val cb = callback
+        callback = null
+        return cb
+    }
+
+    /** 必须回一次 `null`，否则 WebView 会一直等这次文件选择（后续选择器再也弹不出来） */
+    fun cancel() {
+        callback?.onReceiveValue(null)
+        callback = null
+    }
+}
 
 /**
  * 游戏页：全屏 WebView + 返回按钮（自动淡出）+ 加载/错误浮层 + 打靶指标面板。
@@ -48,6 +77,10 @@ import kotlinx.coroutines.delay
  * 两处有意偏离鸿蒙：
  * 1. 返回按钮放**左上角**（鸿蒙在右上角）——右上角被指标面板占了，两者叠在一起会互相吃掉点击；
  * 2. 错误提示做成居中卡片（鸿蒙是右上角一行 12sp 小字），并多一个「重试」按钮。
+ *
+ * 存档导入/导出（P4，对应鸿蒙 `WebDownloadDelegate` + `Web` 组件自带的选择器）：
+ * - 导出：JS 拦截 → `PokeNative.saveDownload` → `SpikeController.onSaveExport` → 这里弹结果 Toast；
+ * - 导入：`onShowFileChooser` → SAF 选择器 → 把选中的 `content://` 交回 WebView。
  */
 @Composable
 internal fun GameScreen(controller: SpikeController) {
@@ -71,6 +104,31 @@ internal fun GameScreen(controller: SpikeController) {
         }
     }
 
+    // 存档导出结果（鸿蒙在 onDownloadFinish / onDownloadFailed 里提示）
+    LaunchedEffect(controller.saveExportSeq) {
+        if (controller.saveExportSeq > 0 && controller.saveExportText.isNotEmpty()) {
+            Toast.makeText(context, controller.saveExportText, Toast.LENGTH_LONG).show()
+        }
+    }
+
+    // 游戏内「导入数据」的 `<input type=file>`：鸿蒙由 Web 组件自行弹选择器，
+    // 安卓必须走 onShowFileChooser + SAF（游戏给什么 accept 就用它给的 intent）
+    val slot = remember { FileChooserSlot() }
+    val chooser = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val cb = slot.take() ?: return@rememberLauncherForActivityResult
+        val uris = WebChromeClient.FileChooserParams.parseResult(result.resultCode, result.data)
+        Log.i(Const.TAG, "file chosen: " + (uris?.size ?: 0))
+        cb.onReceiveValue(uris)
+    }
+    DisposableEffect(Unit) {
+        onDispose {
+            // 离开游戏页时把悬着的回调弃掉：否则选择器回来后 WebView 会操作已销毁的实例
+            slot.cancel()
+        }
+    }
+
     val overlay = gameOverlayOf(controller.pageLoaded, controller.fatalPageError)
 
     Box(
@@ -89,7 +147,22 @@ internal fun GameScreen(controller: SpikeController) {
                 onState = { controller.onState(it) },
                 onPageFinished = { controller.onPageFinished(it) },
                 onError = { controller.onPageError(it) },
-                onSaveRestored = { controller.onSaveRestored(it) }
+                onSaveRestored = { controller.onSaveRestored(it) },
+                onSaveExport = { name, mime, base64 -> controller.onSaveExport(name, mime, base64) },
+                onShowFileChooser = { params, callback ->
+                    // 上一次没回掉的先取消（游戏里连续点两次「导入数据」时会出现）
+                    slot.cancel()
+                    slot.callback = callback
+                    try {
+                        chooser.launch(params.createIntent())
+                        true
+                    } catch (t: Throwable) {
+                        // 设备上没有能处理这个 intent 的选择器（极简 ROM / 未装文件管理器）
+                        Log.w(Const.TAG, "file chooser unavailable: ${t.message}")
+                        slot.cancel()
+                        false
+                    }
+                }
             )
         }
 

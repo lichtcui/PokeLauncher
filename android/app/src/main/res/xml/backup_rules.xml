@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Auto Backup 规则（API 30 及以下用这个文件；API 31+ 见 data_extraction_rules.xml）。
+
+  只备份两样东西：
+  - SharedPreferences：设置页偏好、参数调整、资源版本号等；
+  - `filesDir/saves/`：Web localStorage 的存档快照（`SaveGuard` 的镜像）。
+
+  ⚠️ 写了 `<include>` 之后**其余一律不备份**（lint 也这么认定）：这一条特别重要，
+  因为游戏本体在 `getExternalFilesDir()/game`（约 1.5GB），而 Auto Backup 有 25MB 配额
+  ——一旦把外部存储算进去，整次备份会直接失败（连带存档一起丢）。
+  下载临时文件（`.part` / `state.json` / `apk/`）同理，没有任何备份价值。
+-->
+<full-backup-content>
+    <include domain="sharedpref" path="." />
+    <include domain="file" path="saves" />
+</full-backup-content>

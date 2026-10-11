@@ -5,6 +5,7 @@ import com.lichtcui.pokelauncher.cheat.CheatState
 import com.lichtcui.pokelauncher.core.Const
 import com.lichtcui.pokelauncher.core.Mime
 import com.lichtcui.pokelauncher.core.Paths
+import com.lichtcui.pokelauncher.web.DownloadBridge
 import com.lichtcui.pokelauncher.web.SaveGuard
 import fi.iki.elonen.NanoHTTPD
 import java.io.File
@@ -172,7 +173,7 @@ class GameServer(private val gameDirProvider: () -> File) {
         }
 
         /**
-         * 读出 index.html，在 `<head>` 之后注入「存档守卫 + 参数调整 + 引导脚本」。
+         * 读出 index.html，在 `<head>` 之后注入「存档导出拦截 + 存档守卫 + 参数调整 + 引导脚本」。
          * 注入顺序见 [InjectScripts.indexInjections]。
          */
         private fun servePatchedIndex(): Response {
@@ -184,7 +185,8 @@ class GameServer(private val gameDirProvider: () -> File) {
             val inject = InjectScripts.indexInjections(
                 patchCanvas = patchCanvas,
                 saveGuardScript = SaveGuard.buildScript(),
-                cheatsEnabled = cheatsEnabled
+                cheatsEnabled = cheatsEnabled,
+                downloadScript = DownloadBridge.buildScript()
             )
             val headIdx = html.indexOf("<head>")
             val patched = if (headIdx >= 0) {

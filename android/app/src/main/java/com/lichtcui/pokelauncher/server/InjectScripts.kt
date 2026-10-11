@@ -15,19 +15,24 @@ object InjectScripts {
     /**
      * 插到 `index.html` 的 `<head>` 之后的注入链。
      *
-     * ⚠️ **顺序不能变**（三者都是同步的 classic script，按出现顺序执行）：
-     * 1. 存档守卫：必须最早，localStorage 为空时要先把快照回填，游戏才能读到存档；
-     * 2. 参数调整（对应鸿蒙版 `/__cheats__.js`）：要在游戏自身脚本之前拿到场景捕获钩子；
-     * 3. 引导脚本：**必须最后**——它是 `window.Phaser` 属性描述符的唯一所有者（见 [bootScript]）。
+     * ⚠️ **顺序不能变**（四者都是同步的 classic script，按出现顺序执行）：
+     * 1. 存档导出拦截（`DownloadBridge.buildScript()`）：要最早，游戏的下载是
+     *    `Blob` + `<a download>`，必须在游戏代码之前就把 `URL.createObjectURL` /
+     *    `HTMLAnchorElement.prototype.click` 换掉；
+     * 2. 存档守卫：localStorage 为空时要先把快照回填，游戏才能读到存档；
+     * 3. 参数调整（对应鸿蒙版 `/__cheats__.js`）：要在游戏自身脚本之前拿到场景捕获钩子；
+     * 4. 引导脚本：**必须最后**——它是 `window.Phaser` 属性描述符的唯一所有者（见 [bootScript]）。
      *
      * @param patchCanvas canvas `willReadFrequently` 补丁开关（P0 的 A/B 开关）
      * @param saveGuardScript 存档守卫脚本（`SaveGuard.buildScript()`；空串则跳过）
+     * @param downloadScript 存档导出拦截脚本（`DownloadBridge.buildScript()`；空串则跳过）
      * @param cheatsEnabled 是否有启用中的参数调整条目（对应鸿蒙版 `hasAnyEnabled()`）
      */
     fun indexInjections(
         patchCanvas: Boolean,
         saveGuardScript: String,
-        cheatsEnabled: Boolean
+        cheatsEnabled: Boolean,
+        downloadScript: String = ""
     ): String {
         val canvasFlag = if (patchCanvas) "1" else "0"
         val cheatsTag = if (cheatsEnabled) {
@@ -35,7 +40,7 @@ object InjectScripts {
         } else {
             ""
         }
-        return saveGuardScript + cheatsTag +
+        return downloadScript + saveGuardScript + cheatsTag +
             "<script src=\"${Const.BOOT_SCRIPT_PATH}?canvas=$canvasFlag\"></script>"
     }
 

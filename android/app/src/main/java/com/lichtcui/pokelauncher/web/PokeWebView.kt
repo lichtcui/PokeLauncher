@@ -2,11 +2,14 @@ package com.lichtcui.pokelauncher.web
 
 import android.annotation.SuppressLint
 import android.graphics.Bitmap
+import android.net.Uri
 import android.os.SystemClock
 import android.util.Log
 import android.view.ViewGroup
 import android.webkit.ConsoleMessage
+import android.webkit.DownloadListener
 import android.webkit.JavascriptInterface
+import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
@@ -41,13 +44,23 @@ import com.lichtcui.pokelauncher.ui.muteFallbackScript
  */
 private class NativeBridge(
     private val onTiming: (String) -> Unit,
-    private val onState: (String) -> Unit
+    private val onState: (String) -> Unit,
+    private val onSaveExport: (String, String, String) -> Unit
 ) {
     @JavascriptInterface
     fun reportTiming(json: String) = onTiming(json)
 
     @JavascriptInterface
     fun reportState(json: String) = onState(json)
+
+    /**
+     * 游戏内「导出数据」走到了（`DownloadBridge` 的拦截脚本或兜底脚本）。
+     *
+     * `base64` / `name` 都来自页面，**不可信**，落盘前统一过 `DownloadBridge.saveToDownloads`；
+     * 写盘是阻塞 IO，调用方（`SpikeController`）负责切到 IO 线程后再回调 UI。
+     */
+    @JavascriptInterface
+    fun saveDownload(name: String, mime: String, base64: String) = onSaveExport(name, mime, base64)
 }
 
 /**
@@ -83,6 +96,11 @@ private class SaveGuardBridge(private val onRestored: (Int) -> Unit) {
  *    否则 Phaser 的计时器会冻结，回前台会出现追帧/卡顿；代价是后台仍占 CPU，留 P5 再评估。
  * 2. **优先用 `MUTE_AUDIO` 特性**（`WebViewCompat.setAudioMuted`，对应鸿蒙 `setAudioMuted`），
  *    不支持时降级注入 `game.sound.mute`（鸿蒙低版本也拿不到音频会话能力，两边都只能降级）。
+ *
+ * 存档导入/导出（对应鸿蒙 `WebDownloadDelegate` + `Web` 组件的文件选择）：
+ * - 导出主路径是 [DownloadBridge.buildScript] 的 JS 拦截，残留的 `blob:` 下载交给
+ *   `setDownloadListener` + [DownloadBridge.blobFallbackScript]（见前者的类注释）；
+ * - 导入通过 [onShowFileChooser] 交给 Compose 层的 SAF 选择器（鸿蒙由 `Web` 组件自行弹选择器）。
  */
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
@@ -94,7 +112,9 @@ fun PokeWebView(
     onState: (String) -> Unit,
     onPageFinished: (Long) -> Unit,
     onError: (String) -> Unit,
-    onSaveRestored: (Int) -> Unit
+    onSaveRestored: (Int) -> Unit,
+    onSaveExport: (String, String, String) -> Unit,
+    onShowFileChooser: (WebChromeClient.FileChooserParams, ValueCallback<Array<Uri>>) -> Boolean
 ) {
     // 回调放进 rememberUpdatedState：否则 AndroidView 的 factory 会捕获首次组合的旧闭包
     val currentLog by rememberUpdatedState(onLog)
@@ -103,6 +123,8 @@ fun PokeWebView(
     val currentFinished by rememberUpdatedState(onPageFinished)
     val currentError by rememberUpdatedState(onError)
     val currentRestored by rememberUpdatedState(onSaveRestored)
+    val currentSaveExport by rememberUpdatedState(onSaveExport)
+    val currentFileChooser by rememberUpdatedState(onShowFileChooser)
 
     var webView by remember { mutableStateOf<WebView?>(null) }
     var pageStart by remember { mutableStateOf(0L) }
@@ -164,7 +186,11 @@ fun PokeWebView(
                     addJavascriptInterface(
                         NativeBridge(
                             onTiming = { json -> Log.i(Const.TAG, "TIMING $json"); currentTiming(json) },
-                            onState = { json -> Log.i(Const.TAG, "STATE $json"); currentState(json) }
+                            onState = { json -> Log.i(Const.TAG, "STATE $json"); currentState(json) },
+                            onSaveExport = { name, mime, base64 ->
+                                Log.i(Const.TAG, "export request: name=$name mime=$mime bytes=${base64.length}")
+                                currentSaveExport(name, mime, base64)
+                            }
                         ),
                         "PokeNative"
                     )
@@ -175,6 +201,10 @@ fun PokeWebView(
                     )
                     // 登记给 WebCache：资源更新后需要清掉这个实例的 HTTP 缓存
                     WebCache.attach(this)
+                    // 存档导出的残留路径：blob: 不走 JS 拦截时（如 window.open）用 XHR 兜底
+                    setDownloadListener(DownloadListener { downloadUrl, _, contentDisposition, mimeType, _ ->
+                        handleDownloadStart(this, downloadUrl, contentDisposition, mimeType)
+                    })
                     webViewClient = object : WebViewClient() {
                         override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                             super.onPageStarted(view, url, favicon)
@@ -207,12 +237,51 @@ fun PokeWebView(
                             currentLog(line)
                             return true
                         }
+
+                        /**
+                         * 游戏内「导入数据」的 `<input type=file>`。
+                         * 真正的选择器在 Compose 层（SAF + `rememberLauncherForActivityResult`），
+                         * 这里只把请求转出去；对方返回 false 表示没接住，交回系统默认行为。
+                         */
+                        override fun onShowFileChooser(
+                            view: WebView?,
+                            filePathCallback: ValueCallback<Array<Uri>>?,
+                            fileChooserParams: FileChooserParams?
+                        ): Boolean {
+                            val cb = filePathCallback ?: return false
+                            val params = fileChooserParams ?: return false
+                            Log.i(Const.TAG, "file chooser requested: mode=${params.mode} accept=${params.acceptTypes.joinToString(",")}")
+                            return currentFileChooser(params, cb)
+                        }
                     }
                     loadUrl(url)
                 }.also { webView = it }
             }
         )
     }
+}
+
+/**
+ * `DownloadListener` 的落地逻辑：只负责 `blob:` 的兜底（主路径是 JS 拦截，见 [DownloadBridge]）。
+ *
+ * http(s) 直链不在这里下载：游戏资源全部走本地 HTTP 服务，网页侧不需要自己下载文件；
+ * 真的出现这种情况也只记日志，避免引入一条绕过下载服务/断点续传的旁路。
+ */
+private fun handleDownloadStart(
+    webView: WebView,
+    url: String?,
+    contentDisposition: String?,
+    mimeType: String?
+) {
+    val target = url ?: return
+    if (!target.startsWith("blob:")) {
+        Log.w(Const.TAG, "web download ignored (not blob): $target")
+        return
+    }
+    val name = DownloadBridge.fileNameFromDisposition(contentDisposition)
+    val script = DownloadBridge.blobFallbackScript(target, name, mimeType ?: "")
+    Log.i(Const.TAG, "blob download fallback: $target")
+    webView.evaluateJavascript(script, null)
 }
 
 /**
