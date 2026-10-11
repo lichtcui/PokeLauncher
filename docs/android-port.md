@@ -450,7 +450,7 @@ adb logcat -s PokeLauncher          # 全部日志统一 tag
 
 取证手段：`uiautomator dump` 读界面文本、`logcat -s PokeLauncher` 读日志、DevTools 协议读页面内部（这台机器上跑不了模拟器、截图也看不了，所以下面每条结论都有文本/日志证据）。
 
-**本机不可测的条目**（设备/系统版本限制，不是代码问题）：P1-7（需 API 33+）、P1-9（需 API 35）、P4-5（需 API 26–28 设备）、P4-6/P4-7（华为无 GMS，`bmgr backupnow` 报 `Transport error`）。表格「结果」列见每张表后的 **实测结论**。
+**本机不可测的条目**（设备/系统版本限制，不是代码问题）：P1-7（需 API 33+）、P1-9（需 API 35）、P2-6（设备上没有 `nc`/`netcat`/`busybox`，造不出外部进程占端口）、P4-5（需 API 26–28 设备）、P4-6/P4-7（华为无 GMS，`bmgr backupnow` 报 `Transport error`）。表格「结果」列见每张表后的 **实测结论**。
 
 **P0（性能）**
 
@@ -510,10 +510,10 @@ adb logcat -s PokeLauncher          # 全部日志统一 tag
 
 - **P2-1 ✅**：`served patched index.html (canvasPatch=true, cheats=true, saveGuard=true)`；页面脚本顺序 = `inline, inline, __cheats__.js, __pk_boot.js?canvas=1, inline, index-*.js`（注入链顺序正确）。
 - **P2-2 ✅**：`files/saves/localstorage.json` = `{"prLang":"zh-Hans"}`，与页面 `localStorage` 逐字节一致；冷启动日志 `saveSnapshot=20 chars`（= 该串长度）。**「抹掉 localStorage 后回填」未测**（见 P3-20）。
-- **P2-3 ⏭️ 未测**：架构上 Android 的 `localStorage` 落在 `app_webview/`（**不在 `cacheDir`**），系统「清除缓存」按设计碰不到它——这与鸿蒙侧（`cache/web/`，会被清）正好相反，所以 `SaveGuard` 在安卓侧是「Auto Backup + 导出镜像」而不是救命绳。
+- **P2-3 ✅**：用 `run-as rm -rf cache/*` 模拟系统「清除缓存」（设备的 `cache/` 里只有 `WebView` 一项）→ `files/saves/localstorage.json` 与页面 `localStorage` 都在。**架构证据**：华为 WebView 的 localStorage 落在 `app_hws_webview/Default/Local Storage`（**不在 `cacheDir`**），系统清缓存按设计碰不到它 —— 这与鸿蒙侧（`cache/web/`，会被清）正好相反，所以 `SaveGuard` 在安卓侧是「Auto Backup + 导出镜像」而不是救命绳。
 - **P2-4 部分 ✅**：`cheatMaster=true` + `cheatEnabledIds=candy` 时 CDP 实测 `window.__pkGameHooks.length = 1`、`typeof window.__cheatScene = object`、`/__cheats__.js` len=3195（含 `candy` 与 `10`）→ 脚本确实注入且钩子挂上；「糖果真的 ×10」需游戏内打到糖果，未验。
 - **P2-5 ✅**：关掉总开关后 `window.__pkGameHooks` 不存在（`hasAnyEnabled()=false` → 不注入 `/__cheats__.js`，与鸿蒙同口径）。
-- **P2-6 ⏭️ 未测**：需先用别的进程占住 18787。
+- **P2-6 ⚠️ 本机不可测**：设备上没有 `nc`/`netcat`/`busybox`/`socat`（`toybox` 只有 `netstat`），造不出「外部进程占住 18787」；自己占自己那种残留场景也没法自然构造。该路径由 `ServerDiagTest` 单测覆盖。
 - **P2-7 ✅**：装完资源 `webcache cleared (temp webview): install from download`；冷启动对账 `webcache cleared (temp webview): game version -> e4e9b53` + `资源版本为 e4e9b53，已清除 WebView 缓存`。
 - **P2-8 ✅**：见 P3-4 / P3-10 / P3-16。
 - 另三条 P2 决策也在真机上确认：`typeof window.Phaser = object` 且描述符是 `get,set,enumerable,configurable`（wrapper 归 `/__pk_boot.js` 所有）、`window.PokeNative = object`、`window.PokeSaveGuard = object`。
@@ -550,9 +550,9 @@ adb logcat -s PokeLauncher          # 全部日志统一 tag
 - **P3-3 ✅**：`shared_prefs/pokelauncher_settings.xml` = `cheatMaster=true` / `cheatEnabledIds=candy`；杀进程冷启动 → `init done: cheats=true (1 项)` + CDP `hooks=1`（持久化闭环）。
 - **P3-4 ✅ / P3-10 ✅ / P3-16 ✅**：页面逐字 dump 无「作弊」字样（法律页首屏 14 个文本块全部核对）。
 - **P3-5 ✅**：设置页进入/返回正常，「参数调整」行状态与实际一致。
-- **P3-6 ⏭️ 未测**：方向（横屏/竖屏/跟随系统）未在真机上切换验证。
+- **P3-6 ✅**：设置页选「横屏」→ `shared_prefs` 写 `orientation=landscape` → 进游戏页 `SurfaceOrientation: 1`（横屏），退出游戏页回到 `0`（竖屏），选择已还原为默认 `portrait`。代码侧 `LANDSCAPE → SCREEN_ORIENTATION_SENSOR_LANDSCAPE`（对齐鸿蒙 `AUTO_ROTATION_LANDSCAPE`，允许随传感器左右翻转）；**翻转本身未验**（要用到旋转传感器）。
 - **P3-7 ✅**：`app update: local=1(0.1.0-p0) android=0 published=false` → 界面「安卓版暂未发布」（**没有**误报「发现新版本」）。
-- **P3-8 ⏭️ 未测**：需构造「本地资源版本 ≠ 远端」。
+- **P3-8 部分 ✅**：本地 `e4e9b53` 与远端一致时「离线资源更新」行显示 **「已是最新」**（没有误报「发现新版本」）；「更新到新版本」分支需构造版本不一致，未测。
 - **P3-9 ✅**：确认框「将删除已下载的离线资源，本地存档不受影响。确定删除吗？」→ 确认后日志 `game data deleted` + `webcache cleared (temp webview): game deleted` + `game ready=false`，`files/game` 目录消失、首页回未安装态、可重新下载。
 - **P3-11 ✅**：① 未安装态（来源 / 体积 507.1 MB / 需要存储 1.6 GB / 可用空间 / 三条提示 / 镜像+GitHub 直链 / 「上传资源」）② 下载流 ④ **暂停后回首页仍是下载流（`已暂停 15%` + 「继续」），不是未安装页** ⑤ 删除后回未安装页；③「资源准备就绪」停留 ~1s 未单独取证。
 - **P3-12 ✅**：`0% → 5% → 15%` 与服务通知一致，`624 KB/s · 约 14 分钟 → 4.8 MB/s · 约 2 分钟`（速度/ETA 实时刷新），「暂停」→「继续」且进度条保留；「取消下载」未测。
@@ -562,7 +562,7 @@ adb logcat -s PokeLauncher          # 全部日志统一 tag
 - **P3-17 ✅**：进游戏 3 秒内「返回」全亮、点一下直接回首页；淡出后再点只唤回全亮不退出（`BACK_FADE_MS=3000`）。返回按钮位置 `[68,178][136,233]` = 左上角（符合 §4.3.6 的决定）。
 - **P3-18 部分 ✅**：加载浮层（暗底 + 精灵球 + 「正在载入游戏…」）在首帧后自动消失；**错误卡片（「游戏加载失败」/「重试」）未构造失败场景验证**。
 - **P3-19 ✅**：本机 WebView 不支持 `MUTE_AUDIO`（`MUTE_AUDIO supported=false`）→ 走 `game.sound.mute` 兜底：切后台 `web audio muted=true`（CDP `mute=true`），回前台 `muted=false`，且 `window.__pkGame.loop.running=true` 证明**没有**调 `WebView.onPause()`。
-- **P3-20 ⏭️ 未测**：需抹掉游戏 `localStorage` 后重进。
+- **P3-20 ✅**：CDP `localStorage.clear()` → 退出游戏页 → 重进 → 日志 `SAVEGUARD restored 1 keys`，页面 `prLang=zh-Hans` 回来了（快照 `files/saves/localstorage.json` = `{"prLang":"zh-Hans"}`）。
 
 **P4（平台特有）——逐条取证**
 
@@ -586,7 +586,8 @@ adb logcat -s PokeLauncher          # 全部日志统一 tag
 
 - **P4-1 ✅（端到端）**：游戏内触发导出 → `PKDL saved data.prsv #1` → `export request: name=data.prsv mime=application/octet-stream bytes=96` → `exported save to Downloads: data.prsv (72 bytes)` → 文件系统 `/storage/emulated/0/Download/data.prsv`（72 B，非 0 字节）→ **MediaStore 查询** `_display_name=data.prsv, _size=72, relative_path=Download/, mime_type=application/octet-stream`。`window.__pkDlInstalled=true`。
 - **P4-2 ✅**：游戏内「导入数据」→ 系统选择器启动（`mResumedActivity: com.android.documentsui/.picker.PickActivity`），即 `onShowFileChooser` + `params.createIntent()` 真的生效；**选回来后内容是否正确未验**（`data.prsv` 不在系统「最近」里，那是媒体库视图）。
-- **P4-3 / P4-4 ⏭️ 未测**：重复导出去重、恶意文件名（`../../x.prsv`）未构造。
+- **P4-3 ✅**：同内容连导两次 `data.prsv` → 第二次控制台 `PKDL duplicate skipped data.prsv`，只落盘一次（`exported save to Downloads: data.prsv (8 bytes)`）。
+- **P4-4 ✅**：`a.download='../../../evil.prsv'` → 日志 `export request: name=../../../evil.prsv`，实际写入 **`evil.prsv`**（`/storage/emulated/0/Download/evil.prsv` 8 B，MediaStore `relative_path=Download/`）→ `safeFileName` 把路径分量剥掉了。测试文件已删。
 - **P4-5 ⚠️ 本机不可测**：需 API 26–28 设备（本机 API 31 走 `MediaStore.Downloads` 分支）。
 - **P4-6 / P4-7 ⚠️ 本机不可测**：华为无 GMS，`bmgr enabled` 能打开，但 `bmgr backupnow` 直接 `Backup finished with result: Transport error` → Auto Backup 规则（只备 `sharedpref` + `file/saves`）**只能靠 lint 的 `FullBackupContent` 检查 + 规则文件本身保证**（对应 §6-#35）。
 - **P4-8 – P4-13 ⏭️ 未测**：需要一份带 `androidVersionCode` + `apkUrl` 的 `version.json`（当前清单安卓字段为 0），P4-13 还需要「够老的一版包」。
