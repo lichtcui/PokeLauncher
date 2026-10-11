@@ -45,6 +45,30 @@ private class NativeBridge(
 }
 
 /**
+ * 存档守卫桥（对应鸿蒙版 `GamePage` 的 `javaScriptProxy`，对象名 `PokeSaveGuard`）。
+ *
+ * ⚠️ 方法名与 `SaveGuard.buildScript()` 里调用的名字一一对应，改动要同步
+ * `app/proguard-rules.pro`（`@JavascriptInterface` 方法名由混淆规则保留）。
+ * `load()` / `save()` 都是同步返回的：JS 侧在 localStorage 为空时必须能**同步**拿到
+ * 快照再回填，异步化会让游戏读到空存档。
+ */
+private class SaveGuardBridge {
+    @JavascriptInterface
+    fun load(): String = SaveGuard.loadSnapshot()
+
+    @JavascriptInterface
+    fun save(data: String) {
+        SaveGuard.submit(data)
+    }
+
+    @JavascriptInterface
+    fun notifyRestored(count: Int) {
+        SaveGuard.notifyRestored(count)
+        Log.i(Const.TAG, "SAVEGUARD restored $count keys")
+    }
+}
+
+/**
  * 游戏 WebView。对应鸿蒙版 `pages/GamePage.ets`（P0 阶段只保留「能加载 + 可观测」的部分，
  * 下载代理 / 静音 / 方向 / 返回按钮在 P3 补齐）。
  */
@@ -73,6 +97,7 @@ fun PokeWebView(
         onDispose {
             // 必须显式销毁：WebView 持有 native 资源，且会被主线程全局列表引用
             webView?.let { wv ->
+                WebCache.detach(wv)
                 runCatching {
                     wv.stopLoading()
                     wv.loadUrl("about:blank")
@@ -113,6 +138,10 @@ fun PokeWebView(
                         ),
                         "PokeNative"
                     )
+                    // 存档镜像：localStorage ⇄ filesDir/saves/localstorage.json
+                    addJavascriptInterface(SaveGuardBridge(), SaveGuard.BRIDGE_NAME)
+                    // 登记给 WebCache：资源更新后需要清掉这个实例的 HTTP 缓存
+                    WebCache.attach(this)
                     webViewClient = object : WebViewClient() {
                         override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                             super.onPageStarted(view, url, favicon)

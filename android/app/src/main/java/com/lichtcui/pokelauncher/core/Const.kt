@@ -83,6 +83,21 @@ object Const {
     /** 注入脚本的虚拟端点（不存在于磁盘，请求时动态生成） */
     const val BOOT_SCRIPT_PATH = "/__pk_boot.js"
 
+    /**
+     * 「参数调整」注入脚本的虚拟端点（与鸿蒙版 `/__cheats__.js` 同名）。
+     * ⚠️ UI 上叫「参数调整」：`作弊` 字样会触发应用商店审核风险，代码/文档沿用 cheat 命名。
+     */
+    const val CHEAT_SCRIPT_PATH = "/__cheats__.js"
+
+    /**
+     * 存档快照目录（`filesDir/saves/`）。
+     * 用途是 Auto Backup / 存档导出兜底，**不**是 localstorage 的本体
+     * （Android 的 localStorage 本来就在应用数据目录，不在 cacheDir）。
+     */
+    const val SAVE_DIR_NAME = "saves"
+    const val SAVE_FILE_NAME = "localstorage.json"
+    const val SAVE_BAK_NAME = "localstorage.bak.json"
+
     /** 本地服务供 WebView 加载的入口页 */
     const val INDEX_FILE = "index.html"
 }

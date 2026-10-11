@@ -13,21 +13,43 @@ import com.lichtcui.pokelauncher.core.Const
 object InjectScripts {
 
     /**
-     * 插到 `index.html` 的 `<head>` 之后的标签。
-     * 作弊脚本（对应鸿蒙版 `/__cheats__.js`）在 P2 接入，此处先只注入引导脚本。
+     * 插到 `index.html` 的 `<head>` 之后的注入链。
+     *
+     * ⚠️ **顺序不能变**（三者都是同步的 classic script，按出现顺序执行）：
+     * 1. 存档守卫：必须最早，localStorage 为空时要先把快照回填，游戏才能读到存档；
+     * 2. 参数调整（对应鸿蒙版 `/__cheats__.js`）：要在游戏自身脚本之前拿到场景捕获钩子；
+     * 3. 引导脚本：**必须最后**——它是 `window.Phaser` 属性描述符的唯一所有者（见 [bootScript]）。
+     *
+     * @param patchCanvas canvas `willReadFrequently` 补丁开关（P0 的 A/B 开关）
+     * @param saveGuardScript 存档守卫脚本（`SaveGuard.buildScript()`；空串则跳过）
+     * @param cheatsEnabled 是否有启用中的参数调整条目（对应鸿蒙版 `hasAnyEnabled()`）
      */
-    fun indexInjections(patchCanvas: Boolean): String {
+    fun indexInjections(
+        patchCanvas: Boolean,
+        saveGuardScript: String,
+        cheatsEnabled: Boolean
+    ): String {
         val canvasFlag = if (patchCanvas) "1" else "0"
-        return "<script src=\"${Const.BOOT_SCRIPT_PATH}?canvas=$canvasFlag\"></script>"
+        val cheatsTag = if (cheatsEnabled) {
+            "<script src=\"${Const.CHEAT_SCRIPT_PATH}\"></script>"
+        } else {
+            ""
+        }
+        return saveGuardScript + cheatsTag +
+            "<script src=\"${Const.BOOT_SCRIPT_PATH}?canvas=$canvasFlag\"></script>"
     }
 
     /**
      * `/__pk_boot.js` 的内容。
      *
-     * P0 阶段职责有二：
+     * 职责有三：
      * 1. canvas `willReadFrequently` 补丁（可 A/B 关闭，验证收益是否真实存在）；
      * 2. **计时埋点**：`head → phaser → game → ready` 各阶段耗时回传原生，
-     *    这是 P0 判据 2 / 3 的唯一数据来源。
+     *    这是 P0 判据 2 / 3 的唯一数据来源；
+     * 3. **`window.Phaser` 包装的唯一所有者**：参数调整脚本（`/__cheats__.js`）不再自己
+     *    `defineProperty`，而是把回调压进 `window.__pkGameHooks`，由这里在 Game 实例构造完成后
+     *    统一派发。两个脚本各定义一次同名属性时后者会覆盖前者（setter 永远不触发），
+     *    这是必须在 JS 侧消除的隐性 bug（详见 `cheat/CheatScripts.kt` 的类注释）。
      */
     fun bootScript(patchCanvas: Boolean): String {
         val canvasJs = if (patchCanvas) {
@@ -84,40 +106,49 @@ object InjectScripts {
               // 2) canvas 补丁（鸿蒙版同款：强制 2D canvas 走 CPU 后备，消除 GPU 读回开销）
               $canvasJs
 
-              // 3) Phaser 计时：包装 Game 构造函数，拿实例并等 'ready'
-              //    与鸿蒙版 cheats 的场景捕获同源技术，P2 会在此基础上扩展
+              // 3) Phaser 计时 + Game 实例派发：
+              //    - 计时：head → phaser → game → ready（P0 判据 2 / 3 的数据来源）
+              //    - 派发：把实例交给 window.__pkGameHooks（参数调整脚本注册的场景捕获回调）
+              //    复用而非重定数组：/__cheats__.js 先于本脚本执行并 push 了自己的回调
+              window.__pkGameHooks=window.__pkGameHooks||[];
+              function patchPhaser(v){
+                try{
+                  if(v&&v.Game&&!v.Game.__pkWrapped){
+                    var OG=v.Game;
+                    var WG=function(){
+                      var inst=Reflect.construct(OG,arguments,new.target||OG);
+                      try{
+                        window.__pkGame=inst;
+                        report('game');
+                        if(inst&&inst.events&&inst.events.once){
+                          inst.events.once('ready',function(){window.__pkReady=true;report('ready');});
+                        }
+                        var raf=window.requestAnimationFrame?window.requestAnimationFrame.bind(window):function(f){setTimeout(f,16);};
+                        var n=0;
+                        (function poll(){
+                          if(!window.__pkReady&&inst&&inst.isBooted){window.__pkReady=true;report('ready');return;}
+                          if(++n<1800){raf(poll);}
+                        })();
+                      }catch(e){log('game wrap err '+e)}
+                      try{
+                        var hks=window.__pkGameHooks||[];
+                        for(var i=0;i<hks.length;i++){try{hks[i](inst);}catch(e){log('game hook err '+e);}}
+                      }catch(e){log('game hook err '+e)}
+                      return inst;
+                    };
+                    WG.prototype=OG.prototype;WG.__pkWrapped=true;v.Game=WG;
+                    report('phaser');
+                    log('phaser Game wrapped');
+                  }
+                }catch(e){log('phaser patch err '+e)}
+              }
               try{
                 var _P;
                 Object.defineProperty(window,'Phaser',{configurable:true,
                   get:function(){return _P;},
-                  set:function(v){
-                    _P=v;
-                    try{
-                      if(v&&v.Game&&!v.Game.__pkWrapped){
-                        var OG=v.Game;
-                        var WG=function(){
-                          var inst=Reflect.construct(OG,arguments,new.target||OG);
-                          try{
-                            window.__pkGame=inst;
-                            report('game');
-                            if(inst&&inst.events&&inst.events.once){
-                              inst.events.once('ready',function(){window.__pkReady=true;report('ready');});
-                            }
-                            var raf=window.requestAnimationFrame?window.requestAnimationFrame.bind(window):function(f){setTimeout(f,16);};
-                            var n=0;
-                            (function poll(){
-                              if(!window.__pkReady&&inst&&inst.isBooted){window.__pkReady=true;report('ready');return;}
-                              if(++n<1800){raf(poll);}
-                            })();
-                          }catch(e){log('game wrap err '+e)}
-                          return inst;
-                        };
-                        WG.prototype=OG.prototype;WG.__pkWrapped=true;v.Game=WG;
-                        report('phaser');
-                        log('phaser Game wrapped');
-                      }
-                    }catch(e){log('phaser patch err '+e)}
-                  }});
+                  set:function(v){_P=v;patchPhaser(v);}});
+                // 兜底：万一 Phaser 在本脚本之前就被赋值（正常注入顺序下不会发生）
+                if(window.Phaser){patchPhaser(window.Phaser);}
               }catch(e){log('defineProperty err '+e)}
 
               // 4) JS 错误一律打到 console，原生 onConsoleMessage 会落 logcat，避免静默白屏

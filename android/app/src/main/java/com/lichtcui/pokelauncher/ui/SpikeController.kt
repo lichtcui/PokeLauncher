@@ -12,6 +12,7 @@ import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
 import com.lichtcui.pokelauncher.core.Const
 import com.lichtcui.pokelauncher.core.Format
+import com.lichtcui.pokelauncher.core.Prefs
 import com.lichtcui.pokelauncher.install.DownloadBus
 import com.lichtcui.pokelauncher.install.DownloadPhase
 import com.lichtcui.pokelauncher.install.DownloadService
@@ -21,6 +22,7 @@ import com.lichtcui.pokelauncher.install.GameRepository
 import com.lichtcui.pokelauncher.install.PendingDownload
 import com.lichtcui.pokelauncher.install.ReleaseInfo
 import com.lichtcui.pokelauncher.server.GameServer
+import com.lichtcui.pokelauncher.web.WebCache
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -124,7 +126,6 @@ class SpikeController(private val app: Context) {
         private set
 
     val gameUrl: String get() = server.indexUrl
-
     /** 进游戏的门禁：游戏就绪 + 服务器在跑 + Chromium 版本达标 */
     val canEnterGame: Boolean
         get() = gameReady && serverState == GameServer.State.RUNNING && chromiumMajor >= Const.MIN_CHROMIUM_MAJOR
@@ -159,12 +160,32 @@ class SpikeController(private val app: Context) {
                 if (status.phase == DownloadPhase.DONE && previous != DownloadPhase.DONE) {
                     log("下载并安装完成")
                     refreshDownloadState()
+                    // 服务端刚换了资源包：WebView 磁盘缓存里的旧 index.html / 旧 bundle 必须清掉，
+                    // 否则重进游戏拿到的还是上一版（与鸿蒙版 LauncherSession.enterReady 同位置）
+                    if (WebCache.clear("install from download")) log("已清除 WebView 缓存")
                     if (serverState == GameServer.State.RUNNING) restartServer()
                 }
                 if (status.phase == DownloadPhase.FAILED || status.phase == DownloadPhase.CANCELLED) {
                     refreshDownloadState()
                 }
             }
+        }
+    }
+
+    /**
+     * 资源包版本变了就清一次 WebView 缓存。
+     *
+     * 为啥不只靠「安装完成」那一次清（鸿蒙版只有那一次）：资源包的 JS bundle 走的是
+     * `max-age=31536000` 长缓存，而下载可以在后台服务里装完——那时游戏页可能根本没开过，
+     * 「装完就清」的时机就错过了，下次进游戏会吃到上一版的 bundle（表现为「改了没生效」）。
+     * 这里把「已清缓存的版本」记在偏好里，冷启动时对一下，两种时机都能覆盖。
+     */
+    private fun maybeClearCacheAfterUpgrade(version: String) {
+        if (version.isEmpty()) return
+        if (Prefs.getString(KEY_LAST_CACHED_VERSION) == version) return
+        Prefs.putString(KEY_LAST_CACHED_VERSION, version)
+        if (WebCache.clear("game version -> $version")) {
+            log("资源版本为 $version，已清除 WebView 缓存")
         }
     }
 
@@ -177,6 +198,7 @@ class SpikeController(private val app: Context) {
             pendingDownload = pending
             installedVersion = version
             gameReady = ready
+            maybeClearCacheAfterUpgrade(version)
             pending?.let {
                 log(
                     "发现未完成的下载：${it.tag} 已完成 " +
@@ -347,6 +369,8 @@ class SpikeController(private val app: Context) {
                 gameReady = installer.isReady()
                 log("install done: $label, ready=$gameReady")
                 refreshDownloadState()
+                // 同上：资源换过就必须清 WebView 缓存
+                if (WebCache.clear("install: $label")) log("已清除 WebView 缓存")
                 // 资源换了，必须重启服务让 index.html 重新注入
                 if (serverState == GameServer.State.RUNNING) restartServer()
             } catch (e: Throwable) {
@@ -363,6 +387,8 @@ class SpikeController(private val app: Context) {
         gameReady = false
         installedVersion = ""
         clearDownloadFiles()
+        // 与鸿蒙版 Settings 的「删除本地数据」一致：数据删了就顺手把缓存也清掉
+        if (WebCache.clear("game deleted")) log("已清除 WebView 缓存")
         log("game deleted")
     }
 
@@ -437,5 +463,10 @@ class SpikeController(private val app: Context) {
         canvasCount = obj.optInt("canvasCount")
         val ready = obj.optBoolean("ready")
         stateSnapshots = (stateSnapshots + "gid=$getImageDataCount canvas=$canvasCount ready=$ready").takeLast(20)
+    }
+
+    private companion object {
+        /** 已为其清过 WebView 缓存的资源包版本（见 [maybeClearCacheAfterUpgrade]） */
+        const val KEY_LAST_CACHED_VERSION = "lastCachedGameVersion"
     }
 }

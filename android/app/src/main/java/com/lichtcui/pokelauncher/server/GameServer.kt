@@ -1,9 +1,11 @@
 package com.lichtcui.pokelauncher.server
 
 import android.util.Log
+import com.lichtcui.pokelauncher.cheat.CheatState
 import com.lichtcui.pokelauncher.core.Const
 import com.lichtcui.pokelauncher.core.Mime
 import com.lichtcui.pokelauncher.core.Paths
+import com.lichtcui.pokelauncher.web.SaveGuard
 import fi.iki.elonen.NanoHTTPD
 import java.io.File
 import java.io.FileInputStream
@@ -21,7 +23,9 @@ import java.util.concurrent.atomic.AtomicLong
  * 真实 HTTP 并发更高、延迟更低，并且内核会正常做 HTTP 缓存。
  *
  * **端口必须固定**：localStorage 以 origin 为键，换端口等于丢存档。
- * 因此不做多端口回退——18787 被占用时宁可启动失败并明确报错。
+ * 因此不做多端口回退——18787 被占用时宁可启动失败并明确报错（[ServerDiag] 给中文提示）。
+ * 唯一的例外是**同进程内的残留实例**：`start()` 会先 `stop()`，再重试一次；
+ * 第二次仍失败就认定为真·端口占用。
  */
 class GameServer(private val gameDirProvider: () -> File) {
 
@@ -60,41 +64,62 @@ class GameServer(private val gameDirProvider: () -> File) {
     fun start(): Boolean {
         if (state == State.RUNNING) return true
         stop()
-        return try {
-            val http = GameHttpServer()
-            http.start(NanoHTTPD.SOCKET_READ_TIMEOUT, true)
-            server = http
-
-            // 游戏内 API 地址是 http://localhost:8001：不监听会让客户端连不上而等待超时，
-            // 未知路径一律 404，游戏按离线逻辑处理（与鸿蒙版一致）。
-            try {
-                val stub = ApiStubServer()
-                stub.start(NanoHTTPD.SOCKET_READ_TIMEOUT, true)
-                apiStub = stub
-            } catch (e: Exception) {
-                Log.w(Const.TAG, "listen ${Const.API_STUB_PORT} failed: ${e.message}")
+        var failure: Throwable? = null
+        for (attempt in 1..2) {
+            failure = bindAll()
+            if (failure == null) {
+                state = State.RUNNING
+                errorText = ""
+                Log.i(Const.TAG, "local http server on $baseUrl (canvasPatch=$patchCanvas)")
+                return true
             }
-
-            state = State.RUNNING
-            errorText = ""
-            Log.i(Const.TAG, "local http server on $baseUrl (canvasPatch=$patchCanvas)")
-            true
-        } catch (e: Exception) {
-            server = null
-            apiStub = null
-            state = State.FAILED
-            errorText = "本地服务启动失败（端口 ${Const.GAME_PORT}）：${e.message ?: e.javaClass.simpleName}"
-            Log.e(Const.TAG, errorText, e)
-            false
+            Log.w(Const.TAG, "第 $attempt 次启动本地服务失败：${failure.message}")
+            if (attempt == 1) {
+                // 最常见的原因是「上一次的实例还占着端口」（进程内重进游戏页、上次 stop 未回收），
+                // 所以先彻底关掉再试一次；真被别的 App 占用时第二次仍会失败。
+                stopQuietly()
+                runCatching { Thread.sleep(RETRY_DELAY_MS) }
+            }
         }
+        state = State.FAILED
+        errorText = ServerDiag.describe(Const.GAME_PORT, failure)
+        Log.e(Const.TAG, errorText, failure)
+        return false
+    }
+
+    /** 绑定两个端口；成功返回 null，失败返回原因（不写 [state] / [errorText]，由 [start] 统一决定） */
+    private fun bindAll(): Throwable? {
+        val http = GameHttpServer()
+        try {
+            http.start(NanoHTTPD.SOCKET_READ_TIMEOUT, true)
+        } catch (e: Throwable) {
+            runCatching { http.stop() }
+            return e
+        }
+        server = http
+
+        // 游戏内 API 地址是 http://localhost:8001：不监听会让客户端连不上而等待超时，
+        // 未知路径一律 404，游戏按离线逻辑处理（与鸿蒙版一致）。
+        try {
+            val stub = ApiStubServer()
+            stub.start(NanoHTTPD.SOCKET_READ_TIMEOUT, true)
+            apiStub = stub
+        } catch (e: Throwable) {
+            Log.w(Const.TAG, "listen ${Const.API_STUB_PORT} failed: ${e.message}")
+        }
+        return null
     }
 
     fun stop() {
+        stopQuietly()
+        state = State.STOPPED
+    }
+
+    private fun stopQuietly() {
         runCatching { server?.stop() }
         runCatching { apiStub?.stop() }
         server = null
         apiStub = null
-        state = State.STOPPED
     }
 
     // ---------------------------------------------------------------- 资源服务
@@ -115,6 +140,7 @@ class GameServer(private val gameDirProvider: () -> File) {
             return try {
                 when {
                     path == Const.BOOT_SCRIPT_PATH -> serveBootScript()
+                    path == Const.CHEAT_SCRIPT_PATH -> serveCheatScript()
                     path == "/${Const.INDEX_FILE}" -> servePatchedIndex()
                     else -> serveFile(path)
                 }
@@ -134,13 +160,32 @@ class GameServer(private val gameDirProvider: () -> File) {
             return res
         }
 
-        /** 读出 index.html，在 `<head>` 之后注入引导脚本（必须早于游戏自身脚本） */
+        /** 虚拟端点：「参数调整」运行时（对应鸿蒙版 `/__cheats__.js`） */
+        private fun serveCheatScript(): Response {
+            val body = CheatState.buildBootScript()
+            Log.i(Const.TAG, "served ${Const.CHEAT_SCRIPT_PATH} (${body.length} bytes)")
+            val res = NanoHTTPD.newFixedLengthResponse(
+                Response.Status.OK, "application/javascript; charset=utf-8", body
+            )
+            res.addHeader("Cache-Control", "no-cache")
+            return res
+        }
+
+        /**
+         * 读出 index.html，在 `<head>` 之后注入「存档守卫 + 参数调整 + 引导脚本」。
+         * 注入顺序见 [InjectScripts.indexInjections]。
+         */
         private fun servePatchedIndex(): Response {
             val file = File(gameDirProvider(), Const.INDEX_FILE)
             if (!file.isFile) return text(Response.Status.NOT_FOUND, "Not Found")
 
+            val cheatsEnabled = CheatState.hasAnyEnabled()
             val html = file.readText(Charsets.UTF_8)
-            val inject = InjectScripts.indexInjections(patchCanvas)
+            val inject = InjectScripts.indexInjections(
+                patchCanvas = patchCanvas,
+                saveGuardScript = SaveGuard.buildScript(),
+                cheatsEnabled = cheatsEnabled
+            )
             val headIdx = html.indexOf("<head>")
             val patched = if (headIdx >= 0) {
                 html.substring(0, headIdx + 6) + inject + html.substring(headIdx + 6)
@@ -148,7 +193,11 @@ class GameServer(private val gameDirProvider: () -> File) {
                 inject + html
             }
 
-            Log.i(Const.TAG, "served patched index.html (canvasPatch=$patchCanvas)")
+            Log.i(
+                Const.TAG,
+                "served patched index.html (canvasPatch=$patchCanvas, cheats=$cheatsEnabled, " +
+                    "saveGuard=${SaveGuard.isReady()})"
+            )
             val res = NanoHTTPD.newFixedLengthResponse(
                 Response.Status.OK, "text/html; charset=utf-8", patched
             )
@@ -244,6 +293,11 @@ class GameServer(private val gameDirProvider: () -> File) {
 
     @Volatile
     private var lastStatAt: Long = 0L
+
+    private companion object {
+        /** 端口被占用时「关掉自己的残留实例 → 重试」之间的等待 */
+        const val RETRY_DELAY_MS = 150L
+    }
 
     /** 与鸿蒙版 `cacheControl()` 一致：HTML / manifest / SW 不缓存，其余长缓存 */
     private fun cacheControl(path: String): String {

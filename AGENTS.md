@@ -95,7 +95,7 @@ HDC=/Applications/DevEco-Studio.app/Contents/sdk/default/openharmony/toolchains/
 
 ## 4. 安卓版（`android/`）
 
-同一个仓库里的**第二个 App**：`android/` 是独立的 Gradle 工程（不在 HAP 编译范围内），bundle/applicationId 也叫 `com.lichtcui.pokelauncher`，目前 **P0（打靶）+ P1（下载/解压链路）代码已完成，但都还没在真机上跑过判据**。完整方案、分期计划、关键坑见 [`docs/android-port.md`](./docs/android-port.md)。
+同一个仓库里的**第二个 App**：`android/` 是独立的 Gradle 工程（不在 HAP 编译范围内），bundle/applicationId 也叫 `com.lichtcui.pokelauncher`，目前在 **P0（打靶）+ P1（下载/解压链路）+ P2（注入链/端口兜底/缓存）代码已完成，但都还没在真机上跑过判据**，下一阶段是 P3（Compose UI）。完整方案、分期计划、关键坑见 [`docs/android-port.md`](./docs/android-port.md)。
 
 ```bash
 export JAVA_HOME=/Library/Java/JavaVirtualMachines/temurin-17.jdk/Contents/Home
@@ -103,7 +103,7 @@ export ANDROID_HOME=/usr/local/share/android-commandlinetools
 export PATH="$JAVA_HOME/bin:$PATH"
 cd android
 ./gradlew assembleDebug        # → app/build/outputs/apk/debug/app-debug.apk
-./gradlew testDebugUnitTest    # JVM 纯函数单测（core：Paths/Format/Mime/Version；install：下载地址/续传策略/状态文案/Release 解析）
+./gradlew testDebugUnitTest    # JVM 纯函数单测 180 例（core / install / cheat / server / web）
 ./gradlew :app:lintDebug       # 需 0 error（MissingPermission 等）
 ```
 
@@ -116,5 +116,9 @@ Android 侧的红线（改之前先读）：
 - **release 已开 R8**：新增 JS 桥方法名（`@JavascriptInterface`）或 `JSONObject` 解析的字段名时，要同步 `app/proguard-rules.pro`；写完后用 `./gradlew assembleRelease` 验证，并确认 debug/release 的 dex 行为一致（`PokeNative` 等字符串两边都要在）。注：下载链路的 JSON 全部用**字符串字面量**（`optString("tag_name")`）解析，不要改成反射式/序列化框架式的“属性名当 key”。
 - **断点续传不能拼坏包**：服务端忽略 `Range` 返回 200 时必须 `setLength(0)` 从头重下；只有**下载失败**才换源，解压失败不换源（重下 507MB 白亏）。
 - **通用代码对齐两套实现**：`core/Const.kt` 与 `common/Const.ets`（端口、镜像列表、资源来源）必须同步修改，否则两端行为分叉。
-- **无真机不下结论**：模拟器与真机的 WebView/Chromium 版本差异极大，P0 的七项判据与 P1 的下载判据（见 [`docs/android-port.md`](./docs/android-port.md) §4.4）必须在真机上跑（`adb install -r` → 打开 App → 截图读悬浮面板指标，日志 `-s PokeLauncher`）。
+- **`window.Phaser` 的属性描述符只能由 `/__pk_boot.js` 持有**：「参数调整」运行时（`cheat/CheatScripts.kt`）只往 `window.__pkGameHooks` 里压回调，**不得**再 `Object.defineProperty(window,'Phaser',…)`（写两次会静默覆盖，先注册的一方 setter 永不触发）；两边都用 `x = x || []` 复用数组。注入顺序固定为 **存档守卫 → 参数调整 → 引导脚本**（`server/InjectScripts.kt`，`InjectScriptsTest` 锁住）。
+- **WebView 缓存只用 `clearCache(true)`，**绝不能**用 `clearStorage`/`deleteAllData()`**（会连 localStorage 存档一起干掉）；`clearCache` 必须主线程（统一走 `web/WebCache.kt`）。资源包版本变了要清一次（偏好键 `lastCachedGameVersion`，覆盖「后台服务里装完时游戏页从未打开」的时机）。
+- **参数调整（cheat）**：UI 文案一律叫「**参数调整**」（不得出现「作弊」字样，审核风险）；`cheat/Cheats.kt` 的 7 条 JS 必须与 `entry/src/main/ets/model/Cheats.ets` **逐字同步**（改一边就得改另一边），且**不得出现 `$`**（Kotlin raw string 会当模板插值，单测有断言）；声明了 `param` 就必须真的读 `__CHEAT_PARAMS__`。开关是「总开关 && 至少一条启用」才注入 `/__cheats__.js`。
+- **状态持久化用 `core/Prefs.kt`（SharedPreferences，库名 `pokelauncher_settings` 与鸿蒙一致），不用 DataStore**：本地 HTTP 服务要在处理 `/index.html` 时**同步**读 `hasAnyEnabled()`。存档镜像落 `filesDir/saves/`（对应鸿蒙的 SaveGuard，只为 Auto Backup/导出兜底），同样不得放 `cacheDir`。
+- **无真机不下结论**：模拟器与真机的 WebView/Chromium 版本差异极大，P0 的七项判据、P1 的下载判据与 P2 的注入/端口/缓存判据（见 [`docs/android-port.md`](./docs/android-port.md) §4.4）必须在真机上跑（`adb install -r` → 打开 App → 截图读悬浮面板指标，日志 `-s PokeLauncher`）。
 - 日志统一 tag `PokeLauncher`（`adb logcat -s PokeLauncher`），与鸿蒙侧同 tag 便于对照。
