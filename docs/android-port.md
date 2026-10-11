@@ -444,7 +444,13 @@ adb logcat -s PokeLauncher          # 全部日志统一 tag
 9. **成功装好后 `pruneOldApks` 只留最新那个包**：每版一个文件名（`pokerogue-<版本>.apk`）会无限堆积；清理时机放在「校验通过之后」（删早了会把刚下好的包也带走，删晚了失败包会残留）。
 10. **不做「静默安装 / 装完自动重启」**：`REQUEST_INSTALL_PACKAGES` 不允许静默安装，系统安装界面的「打开/完成」也拿不到可控回调；装完由系统接管（用户点「打开」即为新版本启动）。弹窗上的「安装更新」只是拉起界面，不要写成「已更新」。
 
-### 4.4 实测记录（待真机，空着等数据）
+### 4.4 实测记录（真机 ALT-AL00 / Android 12 / Chromium 114）
+
+**实测设备**：华为 `ALT-AL00`（HarmonyOS 4.2.0 / EMUI 14.2，底层 **Android 12 / API 31 / arm64-v8a**，serial `2YX0223511001210`）；WebView = `com.huawei.webview 114.0.5.302`（Chromium 114）。`adb install -r -t` 直装 debug 包成功（华为纯净模式未拦）。
+
+取证手段：`uiautomator dump` 读界面文本、`logcat -s PokeLauncher` 读日志、DevTools 协议读页面内部（这台机器上跑不了模拟器、截图也看不了，所以下面每条结论都有文本/日志证据）。
+
+**本机不可测的条目**（设备/系统版本限制，不是代码问题）：P1-7（需 API 33+）、P1-9（需 API 35）、P4-5（需 API 26–28 设备）、P4-6/P4-7（华为无 GMS，`bmgr backupnow` 报 `Transport error`）。表格「结果」列见每张表后的 **实测结论**。
 
 **P0（性能）**
 
@@ -454,7 +460,14 @@ adb logcat -s PokeLauncher          # 全部日志统一 tag
 | 7 | `getImageData` 次数 | ~2 万 | | |
 | 4 | Chromium 主版本 | ArkWeb 级 | | |
 
-**P1（下载/解压）——待真机项，逐条取证**
+**实测结论（P0）**：全部通过 ✅
+
+- **P0-4 ✅**：`WebView com.huawei.webview 114.0.5.302 (Chromium 114)` ≥ 100。
+- **P0-2 / P0-3 ✅**：`head 6ms / phaser 2095 / game 2999 / ready 3003`（冷启动首次进游戏），二次进游戏 `ready 1011ms`（有缓存）；`page finished in 264ms`。
+- **P0-5 / P0-7 ✅**：`STATE {"getImageData":0,"ready":true,"canvasCount":1}` —— canvas 补丁开启后 `getImageData` 为 **0** 次。游戏进到 `LoginPhase`（种子 `98rWFPSW5DgvLsRD5BMbKVCx`）， `window.__pkGame.loop.running=true`，有声（AudioFlinger opensles）。
+- 顺带：**P0-1 ✅** `local http server on http://127.0.0.1:18787 (canvasPatch=true)` + `server started`；`served 209→454→752→802/915 files`。
+
+**P1（下载/解压）——逐条取证**
 
 | # | 项 | 判据（看日志/界面） | 结果 |
 | --- | --- | --- | --- |
@@ -468,7 +481,19 @@ adb logcat -s PokeLauncher          # 全部日志统一 tag
 | P1-8 | 存储预检 | 剩余空间不足 3.2× 时**开始前**就拦下并显示中文提示 | |
 | P1-9 | Android 15 `dataSync` 超时 | 需 ≥ 6h 持续下载才能复现（实际难以验证）：到点时日志有 `dataSync 前台服务超时`，回 App 可继续 | |
 
-**P2（注入链 / 端口 / 缓存）——待真机项，逐条取证**
+**实测结论（P1）**：主链路全通 ✅（两次完整下载：48s / 约 60s）
+
+- **P1-1 ✅**：`开始下载资源包（有分片则续传）` → 镜像测速 → `downloaded 531701861 bytes` → `installed 34095 entries, 667 MB` → `资源已安装，删除 zip 释放空间` → `download + install complete, version=e4e9b53` → `game ready=true`（`files/game` = 763M）→ 能进游戏，全程 **48 秒**。前台服务 `isForeground=true foregroundId=1001 foregroundNoti=Notification(channel=pokerogue-download ... actions=2)`。
+- **P1-2 ✅**：`probe ghproxy.net failed: timeout` / `probe ghfast.top failed: timeout` / `probe gh-proxy.com speed=0.05 KB/ms` → 实际下载用的就是 `gh-proxy.com`；二次下载命中 `rank cache hit`。
+- **P1-3 ✅（暂停→继续）**：界面 `已暂停 | 15% | 继续`，通知保留；点「继续」→ `resume from 82021080 bytes`（82MB ≈ 暂停时的 15%），**不重头下**。判据里「强杀进程→重开→点继续」未单独跑（与暂停同一条恢复路径）。
+- **P1-4 ⏭️ 未测**：需把 `DEBUG_ASSET_URL` 指向不支持 Range 的静态服务器。
+- **P1-5 部分 ✅**：暂停/继续与界面三态一致；**「取消下载」未测**（会删分片，代价是重下一遍 760MB）。
+- **P1-6 ✅**：`keyevent 3` 退到后台后服务仍在跑、通知进度前进，`game.zip.part` 从 82MB 长到 360MB 并在后台下载完成；`stopWithTask="false"` 生效。
+- **P1-7 ⚠️ 本机不可测**：API 31 不需要运行时通知权限。
+- **P1-8 ✅**：`space precheck ok: need 1622MB, free 101361MB` —— 与界面「需要存储 1.6 GB」一致（3.2 × 531701861B）。
+- **P1-9 ⚠️ 本机不可测**：需 API 35（Android 15）。
+
+**P2（注入链 / 端口 / 缓存）——逐条取证**
 
 | # | 项 | 判据（看日志/界面/控制台） | 结果 |
 | --- | --- | --- | --- |
@@ -481,7 +506,19 @@ adb logcat -s PokeLauncher          # 全部日志统一 tag
 | P2-7 | 版本变更清缓存 | 装完资源后日志有 `已清除 WebView 缓存`；杀掉 App → 换成另一个资源包再启动（或手改偏好里 `lastCachedGameVersion`）→ 冷启动日志再清一次 | |
 | P2-8 | 参数调整文案红线 | 见 P3-4 / P3-10（真机验收统一在那两行做） | |
 
-**P3（UI）——待真机项**
+**实测结论（P2）**：注入链 + 缓存 + 存档镜像全通 ✅
+
+- **P2-1 ✅**：`served patched index.html (canvasPatch=true, cheats=true, saveGuard=true)`；页面脚本顺序 = `inline, inline, __cheats__.js, __pk_boot.js?canvas=1, inline, index-*.js`（注入链顺序正确）。
+- **P2-2 ✅**：`files/saves/localstorage.json` = `{"prLang":"zh-Hans"}`，与页面 `localStorage` 逐字节一致；冷启动日志 `saveSnapshot=20 chars`（= 该串长度）。**「抹掉 localStorage 后回填」未测**（见 P3-20）。
+- **P2-3 ⏭️ 未测**：架构上 Android 的 `localStorage` 落在 `app_webview/`（**不在 `cacheDir`**），系统「清除缓存」按设计碰不到它——这与鸿蒙侧（`cache/web/`，会被清）正好相反，所以 `SaveGuard` 在安卓侧是「Auto Backup + 导出镜像」而不是救命绳。
+- **P2-4 部分 ✅**：`cheatMaster=true` + `cheatEnabledIds=candy` 时 CDP 实测 `window.__pkGameHooks.length = 1`、`typeof window.__cheatScene = object`、`/__cheats__.js` len=3195（含 `candy` 与 `10`）→ 脚本确实注入且钩子挂上；「糖果真的 ×10」需游戏内打到糖果，未验。
+- **P2-5 ✅**：关掉总开关后 `window.__pkGameHooks` 不存在（`hasAnyEnabled()=false` → 不注入 `/__cheats__.js`，与鸿蒙同口径）。
+- **P2-6 ⏭️ 未测**：需先用别的进程占住 18787。
+- **P2-7 ✅**：装完资源 `webcache cleared (temp webview): install from download`；冷启动对账 `webcache cleared (temp webview): game version -> e4e9b53` + `资源版本为 e4e9b53，已清除 WebView 缓存`。
+- **P2-8 ✅**：见 P3-4 / P3-10 / P3-16。
+- 另三条 P2 决策也在真机上确认：`typeof window.Phaser = object` 且描述符是 `get,set,enumerable,configurable`（wrapper 归 `/__pk_boot.js` 所有）、`window.PokeNative = object`、`window.PokeSaveGuard = object`。
+
+**P3（UI）——逐条取证**
 
 | # | 项 | 判据（看界面/日志） | 结果 |
 | --- | --- | --- | --- |
@@ -506,7 +543,28 @@ adb logcat -s PokeLauncher          # 全部日志统一 tag
 | P3-19 | 游戏页静音 | 进游戏听 BGM → 按 Home 退到后台：BGM 立即停（日志 `web audio muted=true`）；回前台恢复（`muted=false`）；点「返回」退出游戏页 BGM 也停；拿一台不支持 `MUTE_AUDIO` 的老机型验证 `game.sound.mute` 兜底同样生效 | |
 | P3-20 | 存档回填提示 | 抹掉游戏 `localStorage`（DevTools）但保留 `files/saves/localstorage.json` → 重进游戏 → 弹「检测到本地存档缺失，已从快照恢复 N 项数据」，且游戏内进度确实是快照那份（P2-2 的 UI 侧判据） | |
 
-**P4（平台特有）——待真机项**
+**实测结论（P3）**：页面与交互全部走通 ✅（未测项已标注）
+
+- **P3-1 ✅**：参数调整页可进入/可返回，系统返回键逐层回退（参数调整→设置页→首页，每次恰好一层）；总开关关闭时条目置灰 + 「关闭时游戏页不注入任何脚本（默认关闭）」。
+- **P3-2 部分 ✅**：滑块组（「倍率修改」糖果/经验/金币 ×10 档）渲染正确；**逐档边界（5 档稀有度、1↔100）未逐个拉**。
+- **P3-3 ✅**：`shared_prefs/pokelauncher_settings.xml` = `cheatMaster=true` / `cheatEnabledIds=candy`；杀进程冷启动 → `init done: cheats=true (1 项)` + CDP `hooks=1`（持久化闭环）。
+- **P3-4 ✅ / P3-10 ✅ / P3-16 ✅**：页面逐字 dump 无「作弊」字样（法律页首屏 14 个文本块全部核对）。
+- **P3-5 ✅**：设置页进入/返回正常，「参数调整」行状态与实际一致。
+- **P3-6 ⏭️ 未测**：方向（横屏/竖屏/跟随系统）未在真机上切换验证。
+- **P3-7 ✅**：`app update: local=1(0.1.0-p0) android=0 published=false` → 界面「安卓版暂未发布」（**没有**误报「发现新版本」）。
+- **P3-8 ⏭️ 未测**：需构造「本地资源版本 ≠ 远端」。
+- **P3-9 ✅**：确认框「将删除已下载的离线资源，本地存档不受影响。确定删除吗？」→ 确认后日志 `game data deleted` + `webcache cleared (temp webview): game deleted` + `game ready=false`，`files/game` 目录消失、首页回未安装态、可重新下载。
+- **P3-11 ✅**：① 未安装态（来源 / 体积 507.1 MB / 需要存储 1.6 GB / 可用空间 / 三条提示 / 镜像+GitHub 直链 / 「上传资源」）② 下载流 ④ **暂停后回首页仍是下载流（`已暂停 15%` + 「继续」），不是未安装页** ⑤ 删除后回未安装页；③「资源准备就绪」停留 ~1s 未单独取证。
+- **P3-12 ✅**：`0% → 5% → 15%` 与服务通知一致，`624 KB/s · 约 14 分钟 → 4.8 MB/s · 约 2 分钟`（速度/ETA 实时刷新），「暂停」→「继续」且进度条保留；「取消下载」未测。
+- **P3-13 部分 ⏭️**：精灵球动画在下载/解压时可见，**角度/周期未量测**。
+- **P3-14 部分 ⏭️**：「上传资源」按钮在位；换源重试、复制镜像直链、SAF 选包导入未逐个跑（P4-2 已验证同一个 SAF 通道可用）。
+- **P3-15 ⏭️ 未测**：需 `androidPublished=true` 且远端版本更高的清单。
+- **P3-17 ✅**：进游戏 3 秒内「返回」全亮、点一下直接回首页；淡出后再点只唤回全亮不退出（`BACK_FADE_MS=3000`）。返回按钮位置 `[68,178][136,233]` = 左上角（符合 §4.3.6 的决定）。
+- **P3-18 部分 ✅**：加载浮层（暗底 + 精灵球 + 「正在载入游戏…」）在首帧后自动消失；**错误卡片（「游戏加载失败」/「重试」）未构造失败场景验证**。
+- **P3-19 ✅**：本机 WebView 不支持 `MUTE_AUDIO`（`MUTE_AUDIO supported=false`）→ 走 `game.sound.mute` 兜底：切后台 `web audio muted=true`（CDP `mute=true`），回前台 `muted=false`，且 `window.__pkGame.loop.running=true` 证明**没有**调 `WebView.onPause()`。
+- **P3-20 ⏭️ 未测**：需抹掉游戏 `localStorage` 后重进。
+
+**P4（平台特有）——逐条取证**
 
 | # | 项 | 判据（看界面/日志/文件） | 结果 |
 | --- | --- | --- | --- |
@@ -524,17 +582,27 @@ adb logcat -s PokeLauncher          # 全部日志统一 tag
 | P4-12 | 弹窗与设置页进度同源 | 首页弹窗点「去更新」后就地变进度（此时只能「取消下载」，点外面关不掉）；关掉弹窗后设置页那行显示同一个百分比；下载完两处都变「安装更新」 | |
 | P4-13 | 真机安装闭环（最终判据） | 用**够老**的一版包 + 清单指向新包 → 应用内更新 → 系统安装器装完点「打开」→ 「应用版本」显示新版本号，且**存档还在**（存档在 `getExternalFilesDir()/game` 与 `localStorage`，升级不清） | |
 
+**实测结论（P4）**：导出/导入闭环通过 ✅；其余拦在「没有第二台机型 / 没有 GMS / 清单里没有安卓更新」
+
+- **P4-1 ✅（端到端）**：游戏内触发导出 → `PKDL saved data.prsv #1` → `export request: name=data.prsv mime=application/octet-stream bytes=96` → `exported save to Downloads: data.prsv (72 bytes)` → 文件系统 `/storage/emulated/0/Download/data.prsv`（72 B，非 0 字节）→ **MediaStore 查询** `_display_name=data.prsv, _size=72, relative_path=Download/, mime_type=application/octet-stream`。`window.__pkDlInstalled=true`。
+- **P4-2 ✅**：游戏内「导入数据」→ 系统选择器启动（`mResumedActivity: com.android.documentsui/.picker.PickActivity`），即 `onShowFileChooser` + `params.createIntent()` 真的生效；**选回来后内容是否正确未验**（`data.prsv` 不在系统「最近」里，那是媒体库视图）。
+- **P4-3 / P4-4 ⏭️ 未测**：重复导出去重、恶意文件名（`../../x.prsv`）未构造。
+- **P4-5 ⚠️ 本机不可测**：需 API 26–28 设备（本机 API 31 走 `MediaStore.Downloads` 分支）。
+- **P4-6 / P4-7 ⚠️ 本机不可测**：华为无 GMS，`bmgr enabled` 能打开，但 `bmgr backupnow` 直接 `Backup finished with result: Transport error` → Auto Backup 规则（只备 `sharedpref` + `file/saves`）**只能靠 lint 的 `FullBackupContent` 检查 + 规则文件本身保证**（对应 §6-#35）。
+- **P4-8 – P4-13 ⏭️ 未测**：需要一份带 `androidVersionCode` + `apkUrl` 的 `version.json`（当前清单安卓字段为 0），P4-13 还需要「够老的一版包」。
+- 顺带确认：APK 下载**不走前台服务**在真机无副作用——只有下载游戏资源时才起 `DownloadService`。
+
 **P0 未通过时**的退路：改用 `androidx.webkit` 的 `WebViewAssetLoader`（`https://appassets.androidplatform.net`，免 socket 免 cleartext），代价是丢 HTTP 缓存与 Range。
 
 ## 5. 分期计划
 
 | 阶段 | 内容 | 工时 | 状态 |
 | --- | --- | --- | --- |
-| **P0 打靶** | 工程骨架（Kotlin + Compose, minSdk 26）+ NanoHTTPD + 注入 + 导入 zip + 进游戏计时 | 2–3 天 | ✅ 代码完成 + 本机编译/单测/release 混淆校验通过；**真机判据待跑（§4.4）** |
-| **P1 下载/解压** | Release 查询 → 镜像并发测速 → 断点续传 → 原子解压切换 → `recover()`；前台服务 + 通知进度；暂停/继续/取消；SAF 手动导入 | 4–6 天 | ✅ 代码完成（71 单测全绿，debug/release 均编译通过）；**真机判据待跑（§4.4）** |
-| **P2 服务与注入** | index.html 补丁、虚拟端点 `/__pk_boot.js` + `/__cheats__.js`、端口占用兜底、8001 stub、`clearCache` 时机、参数调整状态与存档镜像 | 3–4 天 | ✅ 代码完成（累计 180 单测全绿，debug/release 均编译通过，lint 0 error）；**真机判据待跑（§4.4）** |
-| **P3 UI** | Compose：首页四态 + 下载流 + 精灵球动画、设置页、参数调整页、游戏页（返回按钮淡出/错误浮层/方向/静音）、法律页 | 4–6 天 | ✅ 代码完成（参数调整页 / 设置页 / 法律页 / 首页四态 + 下载流 + 精灵球 / 游戏页全部落地；累计 240 单测全绿，debug/release 均编译通过，lint 0 error）；**真机判据待跑（§4.4 P3 全部）** |
-| **P4 平台特有** | 存档导出/导入、Auto Backup、应用内自更新（FileProvider + `REQUEST_INSTALL_PACKAGES`）、通知权限 | 3–4 天 | ✅ 代码完成（存档导出/导入 + Auto Backup + 应用内自更新 + 通知权限全部落地；累计 270 单测全绿，debug/release 均编译通过，lint 0 error）；**真机判据待跑（§4.4 P4 全部）** |
+| **P0 打靶** | 工程骨架（Kotlin + Compose, minSdk 26）+ NanoHTTPD + 注入 + 导入 zip + 进游戏计时 | 2–3 天 | ✅ 代码完成 + 本机编译/单测/release 混淆校验通过；**真机判据见 §4.4（P0 全通）** |
+| **P1 下载/解压** | Release 查询 → 镜像并发测速 → 断点续传 → 原子解压切换 → `recover()`；前台服务 + 通知进度；暂停/继续/取消；SAF 手动导入 | 4–6 天 | ✅ 代码完成（71 单测全绿，debug/release 均编译通过）；**真机判据见 §4.4（主链路全通，P1-7/P1-9 需更新系统）** |
+| **P2 服务与注入** | index.html 补丁、虚拟端点 `/__pk_boot.js` + `/__cheats__.js`、端口占用兜底、8001 stub、`clearCache` 时机、参数调整状态与存档镜像 | 3–4 天 | ✅ 代码完成（累计 180 单测全绿，debug/release 均编译通过，lint 0 error）；**真机判据见 §4.4（注入链/缓存/存档镜像全通）** |
+| **P3 UI** | Compose：首页四态 + 下载流 + 精灵球动画、设置页、参数调整页、游戏页（返回按钮淡出/错误浮层/方向/静音）、法律页 | 4–6 天 | ✅ 代码完成（参数调整页 / 设置页 / 法律页 / 首页四态 + 下载流 + 精灵球 / 游戏页全部落地；累计 240 单测全绿，debug/release 均编译通过，lint 0 error）；**真机判据见 §4.4（页面与交互全通，未测项已标注）** |
+| **P4 平台特有** | 存档导出/导入、Auto Backup、应用内自更新（FileProvider + `REQUEST_INSTALL_PACKAGES`）、通知权限 | 3–4 天 | ✅ 代码完成（存档导出/导入 + Auto Backup + 应用内自更新 + 通知权限全部落地；累计 270 单测全绿，debug/release 均编译通过，lint 0 error）；**真机判据见 §4.4（导出/导入闭环通过；自更新需清单带安卓字段）** |
 | **P5 打磨发布** | 真机矩阵（多 WebView 版本）、性能调优、GitHub Actions 出 APK、签名发版 | 3–5 天 |
 
 **完整对等移植 ≈ 3–4 周；MVP（P0–P2 + 极简 UI）≈ 1.5 周。**
@@ -597,6 +665,7 @@ P4 新增：
 39. **`REQUEST_INSTALL_PACKAGES` 只是常规权限，真正的门禁是用户的「安装未知应用」开关**：不检查 `canRequestPackageInstalls()` 就 `startActivity`，症状是「点了没反应」（有的 ROM 报错、有的静默忽略、有的把你带到设置页列表）。必须在拉起安装器前判断并给出中文说明，用 `ACTION_MANAGE_UNKNOWN_APP_SOURCES` + `package:` 精确跳到本应用那一项。
 40. **APK 下载必须 `.part` + `fd.sync()` + 改名，下完必须验魔数**：直接写目标文件，中途被杀会留下一个「长度对得上但内容不全」的包，安装器只会报一句语焉不详的「解析包时出现问题」；不校验 zip 魔数/最小体积，国内镜像的 404 页（`Content-Length` 也是 200）会被当成安装包交给安装器。
 41. **自更新弹窗与设置页行的状态必须同源**：两处各自写「下载中怎么办」很容易长歪成「一处可取消、一处重新下载」，点两下就双开下载（同一个目标文件互相覆盖，进度还会来回跳）。判定与文案统一走 `apkActionOf` / `apkRowLabel` / `apkRowValue` 三个纯函数（`ApkUpdateTest` 锁住）。
+42. **「能否进游戏」不能把「本地服务已在跑」算进去（真机才暴露的死锁）**：`SpikeController.canEnterGame` 原本要求 `serverState == RUNNING`，但 `init()` 从不启动服务，服务只在 `enterGame()` / `restartServer()` 里起 —— 于是**冷启动（资源已就绪、进程刚起来）时首页「开始运行」是禁用的**，而首页没有第二个启动入口，用户只能绕道打靶页点「重启服务」（P0/P3 一堆判据全卡在这，实测时第一次就撞上）。修法是把判定收窄成「资源就绪 + WebView 达标」（`canEnterGameOf`），服务启动失败的反馈交给 `serverError` 红字（`enterGameBlockReasonOf`）而不是禁用按钮——失败后还得能重试。鸿蒙侧 `LauncherViews.ets` 的「开始运行」只受存储条件限制、本来就不看服务状态，是移植时多加了条件。
 
 ## 7. 风险
 

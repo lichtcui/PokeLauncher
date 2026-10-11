@@ -4,6 +4,7 @@ import com.lichtcui.pokelauncher.install.DownloadPhase
 import com.lichtcui.pokelauncher.install.DownloadStatus
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -146,4 +147,50 @@ class HomeStateTest {
         // 解压完成后停留 900ms（鸿蒙版 BURST_MS；那边的 SHRINK_MS 安卓用不上）
         assertEquals(900L, BURST_MS)
     }
+
+    // ─── 能否进游戏（真机回归：冷启动时服务还没起，按钮不能是禁用的） ───
+
+    @Test
+    fun canEnterGameIgnoresRunningServer() {
+        // 资源就绪 + WebView 达标 → 可以进游戏。本地服务由 enterGame() 现场启动，
+        // 所以这里根本没有「服务是否已在 RUNNING」这个入参——
+        // 曾经把它算进来，导致冷启动（资源就绪、服务未起）时按钮被禁掉且无处可点。
+        assertTrue(canEnterGameOf(gameReady = true, chromiumMajor = 114, minChromiumMajor = 100))
+        assertTrue(canEnterGameOf(gameReady = true, chromiumMajor = 100, minChromiumMajor = 100))
+    }
+
+    @Test
+    fun canEnterGameNeedsResourcesAndWebView() {
+        assertFalse(canEnterGameOf(gameReady = false, chromiumMajor = 114, minChromiumMajor = 100))
+        assertFalse(canEnterGameOf(gameReady = true, chromiumMajor = 99, minChromiumMajor = 100))
+        // 没检测到 WebView 时 chromiumMajor 是 0
+        assertFalse(canEnterGameOf(gameReady = true, chromiumMajor = 0, minChromiumMajor = 100))
+    }
+
+    @Test
+    fun blockReasonIsNullWhenReadyEvenIfServerNeverStarted() {
+        // 关键：服务没起不算「进不去」，否则首页会红字劝退一个其实点得动的按钮
+        assertNull(
+            enterGameBlockReasonOf(
+                gameReady = true, serverError = "", chromiumMajor = 114, minChromiumMajor = 100
+            )
+        )
+    }
+
+    @Test
+    fun blockReasonCoversResourcesWebViewAndServerFailure() {
+        assertTrue(blockReason(false, "", 114, 100)?.contains("离线资源未就绪") == true)
+        assertTrue(blockReason(true, "", 99, 100)?.contains("WebView 版本过低") == true)
+        assertTrue(blockReason(true, "bind failed", 114, 100)?.contains("本地服务启动失败") == true)
+    }
+
+    @Test
+    fun blockReasonPrefersEarlierProblems() {
+        // 资源都没装上时，服务报错不是用户此刻该关心的事
+        assertTrue(blockReason(false, "bind failed", 114, 100)?.contains("离线资源未就绪") == true)
+        assertTrue(blockReason(true, "bind failed", 99, 100)?.contains("WebView 版本过低") == true)
+    }
+
+    private fun blockReason(gameReady: Boolean, serverError: String, chromium: Int, min: Int): String? =
+        enterGameBlockReasonOf(gameReady, serverError, chromium, min)
 }

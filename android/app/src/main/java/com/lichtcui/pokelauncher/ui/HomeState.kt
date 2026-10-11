@@ -57,6 +57,37 @@ fun homeStateOf(initializing: Boolean, inFlow: Boolean, gameReady: Boolean): Hom
 fun inFlowOf(status: DownloadStatus, busyInstalling: Boolean, holdReady: Boolean): Boolean =
     busyInstalling || holdReady || status.isActive || status.phase == DownloadPhase.PAUSED
 
+/**
+ * 能否进游戏（首页「开始运行」与打靶页「进入游戏」的按钮可用性）。
+ *
+ * ⚠️ **刻意不检查本地服务是否已 RUNNING**。服务由 `SpikeController.enterGame()` 现场启动
+ * （资源就绪时的唯一入口就是这两个按钮），若把「服务已在跑」也算进来，冷启动
+ * （资源已就绪但进程刚起来、服务还没起）时按钮会被禁掉，而两个页面都没有别的启动入口
+ * —— 用户直接卡在首页（真机实测到的死锁）。服务启动失败的反馈走 [enterGameBlockReasonOf]，
+ * 而不是禁用按钮（失败后还要能重试）。
+ */
+fun canEnterGameOf(gameReady: Boolean, chromiumMajor: Int, minChromiumMajor: Int): Boolean =
+    gameReady && chromiumMajor >= minChromiumMajor
+
+/**
+ * 进不去游戏的可见原因；`null` 表示现在可以进（与 [canEnterGameOf] 是两套判定，不要合并）。
+ *
+ * `serverError` 只在**尝试进入并失败**之后才非空，所以它排在最后：
+ * 按钮仍可点是刻意的，用户看到原因后能直接再点一次。
+ */
+fun enterGameBlockReasonOf(
+    gameReady: Boolean,
+    serverError: String,
+    chromiumMajor: Int,
+    minChromiumMajor: Int
+): String? = when {
+    !gameReady -> "离线资源未就绪"
+    chromiumMajor < minChromiumMajor ->
+        "系统 WebView 版本过低（Chromium $chromiumMajor，需 $minChromiumMajor+），请先更新 Android System WebView"
+    serverError.isNotEmpty() -> "本地服务启动失败：$serverError"
+    else -> null
+}
+
 // ─────────────────────────── 精灵球阶段 ───────────────────────────
 
 /** 精灵球动画阶段（与鸿蒙版 `PrepPhase` 同名同序，少一个 Android 不存在的 DOWNLOADED） */

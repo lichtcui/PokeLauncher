@@ -182,8 +182,15 @@ class SpikeController(private val app: Context) {
 
     val gameUrl: String get() = server.indexUrl
     /** 进游戏的门禁：游戏就绪 + 服务器在跑 + Chromium 版本达标 */
+    /**
+     * 能否进游戏（首页「开始运行」/打靶页「进入游戏」的按钮可用性）。
+     *
+     * 判定在 [canEnterGameOf]：**只看资源与 WebView 版本，不看本地服务是否已 RUNNING**。
+     * 服务由 [enterGame] 现场启动，若把「服务已在跑」也算进来，冷启动（资源已就绪但服务未起）
+     * 时按钮会被禁掉且无处可点——真机实测到的死锁。
+     */
     val canEnterGame: Boolean
-        get() = gameReady && serverState == GameServer.State.RUNNING && chromiumMajor >= Const.MIN_CHROMIUM_MAJOR
+        get() = canEnterGameOf(gameReady, chromiumMajor, Const.MIN_CHROMIUM_MAJOR)
 
     init {
         log("P0 spike start; filesDir=${installer.rootDir.absolutePath}")

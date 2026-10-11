@@ -70,7 +70,6 @@ import com.lichtcui.pokelauncher.install.DownloadPhase
 import com.lichtcui.pokelauncher.install.DownloadStatus
 import com.lichtcui.pokelauncher.install.DownloadUrls
 import com.lichtcui.pokelauncher.install.Storage
-import com.lichtcui.pokelauncher.server.GameServer
 import kotlinx.coroutines.delay
 
 /**
@@ -596,11 +595,15 @@ private fun ReadyView(
             Text("开始运行", fontSize = 18.sp)
         }
 
-        // 未就绪时说明原因（服务器没起来 / WebView 太旧），否则点了只会白屏
-        if (!controller.canEnterGame) {
+        // 进不去时说明原因（资源缺失 / WebView 太旧 / 服务启动失败），否则点了只会白屏。
+        // 与按钮可用性刻意分开：服务启动失败不禁止重试，只把原因写成红字。
+        val blockReason = enterGameBlockReasonOf(
+            controller.gameReady, controller.serverError, controller.chromiumMajor, Const.MIN_CHROMIUM_MAJOR
+        )
+        if (blockReason != null) {
             Spacer(Modifier.height(12.dp))
             Text(
-                enterGameBlockReason(controller),
+                blockReason,
                 fontSize = 13.sp,
                 color = MaterialTheme.colorScheme.error,
                 textAlign = TextAlign.Center
@@ -621,16 +624,6 @@ private fun ReadyView(
             )
         }
     }
-}
-
-/** 进不去游戏的原因（按钮下方红字；都在 home 页可见，故放这里而非 controller） */
-private fun enterGameBlockReason(controller: SpikeController): String = when {
-    !controller.gameReady -> "离线资源未就绪"
-    controller.serverState != GameServer.State.RUNNING ->
-        "本地服务未就绪：${controller.serverError.ifEmpty { "请稍候或重启应用" }}"
-    controller.chromiumMajor < Const.MIN_CHROMIUM_MAJOR ->
-        "系统 WebView 版本过低（Chromium ${controller.chromiumMajor}，需 ${Const.MIN_CHROMIUM_MAJOR}+），请先更新 Android System WebView"
-    else -> "暂不可进入游戏"
 }
 
 // ─────────────────────────── 应用更新弹窗 ───────────────────────────

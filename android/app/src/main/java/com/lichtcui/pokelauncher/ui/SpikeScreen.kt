@@ -106,14 +106,13 @@ private fun BottomBar(controller: SpikeController, onPickZip: () -> Unit) {
             .padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        if (!controller.canEnterGame) {
+        // 打靶页多一条「服务未就绪」：这里的按钮会自己 restartServer，所以只当诊断信息展示
+        val blockReason = enterGameBlockReasonOf(
+            controller.gameReady, controller.serverError, controller.chromiumMajor, Const.MIN_CHROMIUM_MAJOR
+        ) ?: if (controller.serverState == GameServer.State.RUNNING) null else "本地服务未就绪"
+        if (blockReason != null) {
             Text(
-                text = when {
-                    !controller.gameReady -> "未安装游戏资源：点上方「开始下载」拉取资源包，或导入本地 game.zip"
-                    controller.chromiumMajor < Const.MIN_CHROMIUM_MAJOR -> "WebView Chromium ${controller.chromiumMajor} 低于底线 ${Const.MIN_CHROMIUM_MAJOR}，不支持"
-                    controller.serverError.isNotEmpty() -> controller.serverError
-                    else -> "本地服务未就绪"
-                },
+                text = blockReason,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.error
             )
