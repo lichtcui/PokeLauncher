@@ -11,7 +11,15 @@ import androidx.compose.runtime.setValue
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
 import com.lichtcui.pokelauncher.core.Const
+import com.lichtcui.pokelauncher.core.Format
+import com.lichtcui.pokelauncher.install.DownloadBus
+import com.lichtcui.pokelauncher.install.DownloadPhase
+import com.lichtcui.pokelauncher.install.DownloadService
+import com.lichtcui.pokelauncher.install.DownloadStatus
 import com.lichtcui.pokelauncher.install.GameInstaller
+import com.lichtcui.pokelauncher.install.GameRepository
+import com.lichtcui.pokelauncher.install.PendingDownload
+import com.lichtcui.pokelauncher.install.ReleaseInfo
 import com.lichtcui.pokelauncher.server.GameServer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -32,8 +40,11 @@ class SpikeController(private val app: Context) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val mainHandler = Handler(Looper.getMainLooper())
 
-    val installer = GameInstaller(app.getExternalFilesDir(null) ?: app.filesDir)
+    val installer = GameInstaller(GameRepository.rootDirOf(app))
     val server = GameServer { installer.gameDir }
+
+    /** 仓库只做「查询/下载」；解压安装仍落在共用的 [installer] 上（两边同一份文件系统约定） */
+    private val repository = GameRepository(installer.rootDir, installer)
 
     // ------------------------------------------------------------ 可观测状态
 
@@ -88,6 +99,30 @@ class SpikeController(private val app: Context) {
     var canvasCount by mutableStateOf(0)
         private set
 
+    // ------------------------------------------------------------ P1 下载状态
+
+    /** 下载状态快照：唯一写入方是 `DownloadService`（通过进程级 [DownloadBus]） */
+    var download by mutableStateOf(DownloadBus.status.value)
+        private set
+
+    /** 启动时发现的未完成下载（有的话界面提示「继续下载」） */
+    var pendingDownload by mutableStateOf<PendingDownload?>(null)
+        private set
+
+    /** 远程 Release 信息（tag / 大小），用于下载前的存储预检与界面展示 */
+    var releaseInfo by mutableStateOf<ReleaseInfo?>(null)
+        private set
+    var checkingRelease by mutableStateOf(false)
+        private set
+
+    /** 已安装资源版本（zip 内 currentVersion.txt） */
+    var installedVersion by mutableStateOf("")
+        private set
+
+    /** 下载报错（存储预检 / 查询失败等，由界面直接展示） */
+    var downloadError by mutableStateOf("")
+        private set
+
     val gameUrl: String get() = server.indexUrl
 
     /** 进游戏的门禁：游戏就绪 + 服务器在跑 + Chromium 版本达标 */
@@ -97,6 +132,7 @@ class SpikeController(private val app: Context) {
     init {
         log("P0 spike start; filesDir=${installer.rootDir.absolutePath}")
         detectWebView()
+        observeDownloadBus()
         // recover / 磁盘统计都要遍历大目录，放到 IO 线程
         scope.launch {
             val ready = withContext(Dispatchers.IO) { installer.recover(); installer.isReady() }
@@ -107,7 +143,104 @@ class SpikeController(private val app: Context) {
             if (zip.isFile) {
                 log("local zip found: ${zip.absolutePath} (${zip.length() / 1024 / 1024}MB) — 可直接点「安装本地 game.zip」")
             }
+            refreshDownloadState()
+            checkRelease()
         }
+    }
+
+    // ------------------------------------------------------------ 下载
+
+    /** 订阅下载状态：服务可能在别的进程生命周期里跑着我们不在场，这里只管回写 UI */
+    private fun observeDownloadBus() {
+        scope.launch {
+            DownloadBus.status.collect { status ->
+                val previous = download.phase
+                download = status
+                if (status.phase == DownloadPhase.DONE && previous != DownloadPhase.DONE) {
+                    log("下载并安装完成")
+                    refreshDownloadState()
+                    if (serverState == GameServer.State.RUNNING) restartServer()
+                }
+                if (status.phase == DownloadPhase.FAILED || status.phase == DownloadPhase.CANCELLED) {
+                    refreshDownloadState()
+                }
+            }
+        }
+    }
+
+    /** 刷新「未完成下载 / 已装版本」这两个只读状态 */
+    fun refreshDownloadState() {
+        scope.launch {
+            val (pending, version, ready) = withContext(Dispatchers.IO) {
+                Triple(repository.inspectPending(), installer.readVersion(), installer.isReady())
+            }
+            pendingDownload = pending
+            installedVersion = version
+            gameReady = ready
+            pending?.let {
+                log(
+                    "发现未完成的下载：${it.tag} 已完成 " +
+                        "${Format.bytes(it.received)}（${it.percent}%），可续传"
+                )
+            }
+        }
+    }
+
+    /** 查询远程 Release（有网络才成功，失败只在日志/卡片里提示，不拦任何操作） */
+    fun checkRelease(force: Boolean = false) {
+        if (checkingRelease) return
+        checkingRelease = true
+        downloadError = ""
+        scope.launch {
+            try {
+                val info = withContext(Dispatchers.IO) { repository.resolveRelease(force) }
+                releaseInfo = info
+                log("release ${info.tag} asset=${info.assetSize / 1024 / 1024}MB url=${info.assetUrl}")
+            } catch (e: Throwable) {
+                downloadError = "查询资源包信息失败：${e.message ?: "网络不可用"}"
+                log("resolveRelease failed: ${e.message}")
+            } finally {
+                checkingRelease = false
+            }
+        }
+    }
+
+    /**
+     * 开始 / 继续下载。
+     * @param fresh true 表示丢弃已有分片从头下（换源重试），false 表示有分片就续传
+     */
+    fun startDownload(fresh: Boolean) {
+        if (download.isActive) {
+            log("已有下载在进行，忽略")
+            return
+        }
+        // 507MB 的包不能下到一半才发现空间不够：先按 3.2× 预检
+        val expected = releaseInfo?.assetSize?.takeIf { it > 0 } ?: pendingDownload?.total ?: 0L
+        repository.storageProblem(expected)?.let {
+            downloadError = it
+            log("存储预检未通过：$it")
+            return
+        }
+        downloadError = ""
+        log(if (fresh) "换源重试：丢弃已有分片，重新测速选源" else "开始下载资源包（有分片则续传）")
+        DownloadService.start(app, fresh)
+    }
+
+    fun pauseDownload() {
+        log("暂停下载")
+        DownloadService.pause(app)
+    }
+
+    fun cancelDownload() {
+        log("取消下载（丢弃已下载的分片）")
+        DownloadService.cancel(app)
+    }
+
+    /** 删除本地资源：连未完成的下载分片一起清掉 */
+    fun clearDownloadFiles() {
+        repository.clearDownloadFiles()
+        pendingDownload = null
+        log("已清除下载残留")
     }
 
     // ------------------------------------------------------------ 日志
@@ -213,6 +346,7 @@ class SpikeController(private val app: Context) {
                 }
                 gameReady = installer.isReady()
                 log("install done: $label, ready=$gameReady")
+                refreshDownloadState()
                 // 资源换了，必须重启服务让 index.html 重新注入
                 if (serverState == GameServer.State.RUNNING) restartServer()
             } catch (e: Throwable) {
@@ -227,6 +361,8 @@ class SpikeController(private val app: Context) {
     fun deleteGame() {
         installer.deleteGame()
         gameReady = false
+        installedVersion = ""
+        clearDownloadFiles()
         log("game deleted")
     }
 

@@ -95,7 +95,7 @@ HDC=/Applications/DevEco-Studio.app/Contents/sdk/default/openharmony/toolchains/
 
 ## 4. 安卓版（`android/`）
 
-同一个仓库里的**第二个 App**：`android/` 是独立的 Gradle 工程（不在 HAP 编译范围内），bundle/applicationId 也叫 `com.lichtcui.pokelauncher`，当前处于 **P0 打靶阶段**。完整方案、分期计划、关键坑见 [`docs/android-port.md`](./docs/android-port.md)。
+同一个仓库里的**第二个 App**：`android/` 是独立的 Gradle 工程（不在 HAP 编译范围内），bundle/applicationId 也叫 `com.lichtcui.pokelauncher`，目前 **P0（打靶）+ P1（下载/解压链路）代码已完成，但都还没在真机上跑过判据**。完整方案、分期计划、关键坑见 [`docs/android-port.md`](./docs/android-port.md)。
 
 ```bash
 export JAVA_HOME=/Library/Java/JavaVirtualMachines/temurin-17.jdk/Contents/Home
@@ -103,15 +103,18 @@ export ANDROID_HOME=/usr/local/share/android-commandlinetools
 export PATH="$JAVA_HOME/bin:$PATH"
 cd android
 ./gradlew assembleDebug        # → app/build/outputs/apk/debug/app-debug.apk
-./gradlew testDebugUnitTest    # core 层纯函数单测（Paths/Format/Mime）
+./gradlew testDebugUnitTest    # JVM 纯函数单测（core：Paths/Format/Mime/Version；install：下载地址/续传策略/状态文案/Release 解析）
+./gradlew :app:lintDebug       # 需 0 error（MissingPermission 等）
 ```
 
 Android 侧的红线（改之前先读）：
 
 - **端口固定 18787，绝不回退**：localStorage 以 origin 为键，换端口 = 丢存档（与鸿蒙侧同一条约束）。
-- **存档在 WebView 的 localStorage**，物理落在应用数据目录；因此**任何要持久化的数据都不要放 `cacheDir`**（Android「清除缓存」会清）。清理只用 `WebView.clearCache()`，**不能**用 `clearStorage`（会连存档一起干掉）。
+- **存档在 WebView 的 localStorage**，物理落在应用数据目录；因此**任何要持久化的数据都不要放 `cacheDir`**（Android「清除缓存」会清）。清理只用 `WebView.clearCache()`，**不能**用 `clearStorage`（会连存档一起干掉）。下载分片（`game.zip.part` / `game.zip.download.json`）同理，只放 `filesDir` / `getExternalFilesDir`。
+- **下载只能由用户操作启动**：targetSdk 35 下 API 34+ 禁止后台自拉 `dataSync` 前台服务（会抛 `ForegroundServiceStartNotAllowedException`）。不要在开机/启动/定时里自动开下，只能显示「未完成下载」提示，由用户点。
 - **`keystore.properties` / `*.jks` / `*.keystore` 绝不入库**（已加进 `android/.gitignore`，同 `signature/` 的红线）。
-- **release 已开 R8**：新增 JS 桥方法名（`@JavascriptInterface`）或 `JSONObject` 解析的字段名时，要同步 `app/proguard-rules.pro`；写完后用 `./gradlew assembleRelease` 验证，并确认 debug/release 的 dex 行为一致（`PokeNative` 等字符串两边都要在）。
+- **release 已开 R8**：新增 JS 桥方法名（`@JavascriptInterface`）或 `JSONObject` 解析的字段名时，要同步 `app/proguard-rules.pro`；写完后用 `./gradlew assembleRelease` 验证，并确认 debug/release 的 dex 行为一致（`PokeNative` 等字符串两边都要在）。注：下载链路的 JSON 全部用**字符串字面量**（`optString("tag_name")`）解析，不要改成反射式/序列化框架式的“属性名当 key”。
+- **断点续传不能拼坏包**：服务端忽略 `Range` 返回 200 时必须 `setLength(0)` 从头重下；只有**下载失败**才换源，解压失败不换源（重下 507MB 白亏）。
 - **通用代码对齐两套实现**：`core/Const.kt` 与 `common/Const.ets`（端口、镜像列表、资源来源）必须同步修改，否则两端行为分叉。
-- **无真机不下结论**：模拟器与真机的 WebView/Chromium 版本差异极大，P0 的七项判据必须在真机上跑（`adb install -r` → 打开 App → 截图读悬浮面板指标）。
+- **无真机不下结论**：模拟器与真机的 WebView/Chromium 版本差异极大，P0 的七项判据与 P1 的下载判据（见 [`docs/android-port.md`](./docs/android-port.md) §4.4）必须在真机上跑（`adb install -r` → 打开 App → 截图读悬浮面板指标，日志 `-s PokeLauncher`）。
 - 日志统一 tag `PokeLauncher`（`adb logcat -s PokeLauncher`），与鸿蒙侧同 tag 便于对照。

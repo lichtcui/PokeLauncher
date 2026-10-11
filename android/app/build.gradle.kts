@@ -80,8 +80,12 @@ dependencies {
 
     // 本地 HTTP 服务（把沙箱 game 目录以固定 origin 提供给 WebView）
     implementation(libs.nanohttpd)
+    // 资源包下载：Range 断点续传 + 流式写盘 + 测速探测的超时/取消
+    implementation(libs.okhttp)
     // 版本门禁 + 后台静音（WebViewCompat.setAudioMuted）
     implementation(libs.androidx.webkit)
 
     testImplementation(libs.junit)
+    // 单测里能真的解析 JSON（android.jar 里的 org.json 是空实现，会抛 "Stub!"）
+    testImplementation(libs.json)
 }

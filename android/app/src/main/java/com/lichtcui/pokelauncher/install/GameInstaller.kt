@@ -28,8 +28,19 @@ class GameInstaller(root: File) {
     /** 开发捷径：把 `game.zip` 直接用 `adb push` 到 files 目录，免去走 SAF 选择器 */
     val localZipFile: File = File(root, Const.DEFAULT_ASSET)
 
+    /** 资源版本标记（zip 内 `currentVersion.txt`，内容是 GitHub Release 的 commit） */
+    val versionFile: File = File(gameDir, Const.VERSION_FILE_NAME)
+
     /** 游戏是否就绪（首页判定「已就绪」的唯一依据） */
     fun isReady(): Boolean = File(gameDir, Const.INDEX_FILE).isFile
+
+    /** 读取本地已安装的资源版本；未安装 / 读失败返回空串（对应鸿蒙版 `readVersion`） */
+    fun readVersion(): String = try {
+        if (versionFile.isFile) versionFile.readText().trim() else ""
+    } catch (e: Exception) {
+        Log.w(Const.TAG, "read version failed: ${e.message}")
+        ""
+    }
 
     /** 可用空间（首页下载前置检查用） */
     fun availableBytes(): Long = rootDir.usableSpace
@@ -114,13 +125,14 @@ class GameInstaller(root: File) {
     }
 
     private fun precheckSpace(zipLength: Long) {
-        // 更新期间要同时容纳「旧包 + 新包 + zip」，与鸿蒙版一致按 3.2× 估算
-        val need = (zipLength * 3.2).toLong()
+        // 更新期间要同时容纳「旧包 + 新包 + zip」，与鸿蒙版一致按 3.2× 估算（判定逻辑在 Storage，可单测）
         val free = availableBytes()
-        if (free < need) {
-            throw IOException("存储空间不足：需要约 ${need / 1024 / 1024} MB，可用 ${free / 1024 / 1024} MB")
-        }
-        Log.i(Const.TAG, "space precheck ok: need ${need / 1024 / 1024}MB, free ${free / 1024 / 1024}MB")
+        val problem = Storage.check(free, zipLength)
+        if (problem != null) throw IOException(problem)
+        Log.i(
+            Const.TAG,
+            "space precheck ok: need ${Storage.requiredBytes(zipLength) / 1024 / 1024}MB, free ${free / 1024 / 1024}MB"
+        )
     }
 
     /**

@@ -3,4 +3,7 @@
     <!-- 与鸿蒙版 `EntryAbility_label` 保持一致 -->
     <string name="app_name">PokeRogue</string>
     <string name="app_desc">PokeRogue 离线安卓版启动器：首次安装资源后即可断网游玩</string>
+    <!-- 下载前台服务的通知频道 -->
+    <string name="download_channel_name">游戏资源下载</string>
+    <string name="download_channel_desc">下载 PokeRogue 离线资源包时的进度通知（可暂停/继续）</string>
 </resources>

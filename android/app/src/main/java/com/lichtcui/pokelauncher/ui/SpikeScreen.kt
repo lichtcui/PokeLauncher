@@ -1,5 +1,8 @@
 package com.lichtcui.pokelauncher.ui
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -18,6 +21,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
@@ -30,11 +34,15 @@ import androidx.compose.runtime.key
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import com.lichtcui.pokelauncher.core.Const
 import com.lichtcui.pokelauncher.core.Format
+import com.lichtcui.pokelauncher.install.DownloadPhase
+import com.lichtcui.pokelauncher.install.DownloadText
 import com.lichtcui.pokelauncher.server.GameServer
 import com.lichtcui.pokelauncher.web.PokeWebView
 
@@ -58,11 +66,29 @@ private fun SpikeScreen(controller: SpikeController) {
         if (uri != null) controller.installFromUri(uri)
     }
 
+    // API 33+ 通知权限：下载本身不依赖它（前台服务通知免授权），但不授权的话
+    // 「下载完成 / 失败」的普通通知会被系统丢掉，所以发起下载前顺手申请一次。
+    val context = LocalContext.current
+    val requestNotifications = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        controller.log(if (granted) "通知权限：已授予" else "通知权限：被拒绝（前台服务通知仍会显示，完成/失败提醒会被系统忽略）")
+    }
+    val startDownload: (Boolean) -> Unit = { fresh ->
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) !=
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            requestNotifications.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+        controller.startDownload(fresh)
+    }
+
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
-                title = { Text("P0 打靶 · canvas 补丁 A/B", fontSize = 18.sp) },
+                title = { Text("P1 打靶 · 下载 / 解压链路", fontSize = 18.sp) },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surface,
                     titleContentColor = MaterialTheme.colorScheme.primary
@@ -80,6 +106,7 @@ private fun SpikeScreen(controller: SpikeController) {
         ) {
             item { EnvCard(controller) }
             item { ServerCard(controller) }
+            item { DownloadCard(controller, onStart = startDownload) }
             item { AssetCard(controller, onPickZip = { pickZip.launch(arrayOf("*/*")) }) }
             item { PatchCard(controller) }
             item { TimingCard(controller) }
@@ -99,7 +126,7 @@ private fun BottomBar(controller: SpikeController, onPickZip: () -> Unit) {
         if (!controller.canEnterGame) {
             Text(
                 text = when {
-                    !controller.gameReady -> "未安装游戏资源：先导入 game.zip 或 adb push 到沙箱"
+                    !controller.gameReady -> "未安装游戏资源：点上方「开始下载」拉取资源包，或导入本地 game.zip"
                     controller.chromiumMajor < Const.MIN_CHROMIUM_MAJOR -> "WebView Chromium ${controller.chromiumMajor} 低于底线 ${Const.MIN_CHROMIUM_MAJOR}，不支持"
                     controller.serverError.isNotEmpty() -> controller.serverError
                     else -> "本地服务未就绪"
@@ -162,6 +189,113 @@ private fun ServerCard(controller: SpikeController) {
             }
         }
     }
+}
+
+/**
+ * 下载控制区：进度 / 速度 / 剩余 / 当前源 / 暂停 / 继续 / 取消 / 换源重试。
+ * 文案全部来自 [DownloadText]（与前台服务通知同一份，两边不会不一致）。
+ */
+@Composable
+private fun DownloadCard(controller: SpikeController, onStart: (Boolean) -> Unit) {
+    val d = controller.download
+    val phaseColor = when (d.phase) {
+        DownloadPhase.DONE -> MaterialTheme.colorScheme.tertiary
+        DownloadPhase.FAILED, DownloadPhase.CANCELLED -> MaterialTheme.colorScheme.error
+        DownloadPhase.IDLE -> MaterialTheme.colorScheme.onSurfaceVariant
+        else -> MaterialTheme.colorScheme.onSurface
+    }
+    Section("资源下载（P1）") {
+        LabeledRow("状态", DownloadText.describe(d), phaseColor)
+        LabeledRow("阶段", phaseLabel(d.phase) + if (d.isActive) "（进行中）" else "")
+        if (d.total > 0) {
+            LinearProgressIndicator(
+                progress = { d.percent / 100f },
+                modifier = Modifier.fillMaxWidth()
+            )
+        } else if (d.isActive) {
+            // 测速 / 解压阶段没有百分比：不确定进度条
+            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+        }
+        LabeledRow(
+            "已下载",
+            if (d.total > 0) "${Format.bytes(d.received)} / ${Format.bytes(d.total)}"
+            else Format.bytes(d.received)
+        )
+        LabeledRow("速度", Format.speed(d.speedBps.toLong()).ifEmpty { "—" })
+        LabeledRow("剩余", Format.duration(d.etaSeconds).ifEmpty { "—" })
+        LabeledRow(
+            "当前源",
+            if (d.sourceUrl.isEmpty()) "—"
+            else "${d.sourceIndex + 1}/${d.sourceCount} · ${d.sourceKind} · ${d.host}"
+        )
+        LabeledRow(
+            "远程版本",
+            controller.releaseInfo?.let { "${it.tag}（${Format.bytes(it.assetSize)}）" } ?: "未知"
+        )
+        LabeledRow("已装版本", controller.installedVersion.ifEmpty { "—" })
+        controller.pendingDownload?.let { pending ->
+            Text(
+                "发现未完成的下载：${pending.tag} 已完成 ${Format.bytes(pending.received)}" +
+                    "（${pending.percent}%，来自 ${pending.host}）—— 点「继续下载」从断点续传",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.tertiary
+            )
+        }
+        if (controller.downloadError.isNotEmpty()) {
+            Text(
+                controller.downloadError,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error
+            )
+        }
+
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(
+                onClick = { onStart(false) },
+                enabled = !d.isActive && !controller.busy && !controller.checkingRelease
+            ) {
+                Text(if (d.canResume || controller.pendingDownload != null) "继续下载" else "开始下载")
+            }
+            OutlinedButton(
+                onClick = { controller.pauseDownload() },
+                enabled = d.canPause
+            ) { Text("暂停") }
+            OutlinedButton(
+                onClick = { controller.cancelDownload() },
+                enabled = d.canCancel
+            ) { Text("取消") }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(
+                onClick = { onStart(true) },
+                enabled = !d.isActive && !controller.busy && !controller.checkingRelease
+            ) { Text("换源重试") }
+            OutlinedButton(
+                onClick = { controller.checkRelease(true) },
+                enabled = !controller.checkingRelease
+            ) { Text(if (controller.checkingRelease) "查询中…" else "查询最新版本") }
+            if (d.canResume || controller.pendingDownload != null) {
+                OutlinedButton(onClick = { controller.clearDownloadFiles() }) { Text("丢弃分片") }
+            }
+        }
+        Text(
+            "下载由前台服务承载：可以退到后台甚至从最近任务划掉，通知里有暂停/继续。" +
+                "进程被系统杀掉后分片仍在，回来点「继续下载」会带 Range 续传（服务端不支持 Range 时自动从头下）。",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
+
+private fun phaseLabel(phase: DownloadPhase): String = when (phase) {
+    DownloadPhase.IDLE -> "未开始"
+    DownloadPhase.PROBING -> "测速选源"
+    DownloadPhase.DOWNLOADING -> "下载中"
+    DownloadPhase.PAUSED -> "已暂停"
+    DownloadPhase.EXTRACTING -> "解压安装"
+    DownloadPhase.DONE -> "已完成"
+    DownloadPhase.FAILED -> "失败"
+    DownloadPhase.CANCELLED -> "已取消"
 }
 
 @Composable

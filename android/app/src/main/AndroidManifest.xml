@@ -5,6 +5,19 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
+    <!--
+      下载资源包的前台服务（dataSync）。三个权限缺一不可：
+      - FOREGROUND_SERVICE：进入前台的基本权限；
+      - FOREGROUND_SERVICE_DATA_SYNC：targetSdk 35 起 dataSync 类型必须单独声明；
+      - POST_NOTIFICATIONS：API 33+ 的通知权限，打靶页发起下载前用运行时弹框申请
+        （没有它前台服务通知仍会显示，但「下载完成/失败」的普通通知会被系统丢弃）。
+      WAKE_LOCK：507MB 下载跨屏熄灭时要继续跑（带 60 分钟上限的 partial wake lock）。
+    -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+
     <application
         android:name=".App"
         android:allowBackup="true"
@@ -28,6 +41,17 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!--
+          下载前台服务。stopWithTask=false：用户从最近任务里划掉 App 后下载继续跑
+          （进程被系统回收时进度也会落盘，回到 App 点「继续」可续传）。
+          注意：API 34+ 不允许后台自行拉起前台服务，所有启动都必须由用户操作触发。
+        -->
+        <service
+            android:name=".install.DownloadService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync"
+            android:stopWithTask="false" />
     </application>
 
 </manifest>

@@ -42,6 +42,31 @@ object Const {
     const val DEFAULT_ASSET = "game.zip"
 
     /**
+     * 本地调试包地址：非空时离线资源包改用这个 URL 下载（跳过 Release 查询与镜像测速），
+     * 用于本地放一个小测试包、几秒内跑完「测速 → 下载 → 解压 → 就绪」全链路。
+     * 与鸿蒙版 `common/Const.ets` 的 `DEBUG_ASSET_URL` 同名同义，正式发布必须为空串。
+     */
+    const val DEBUG_ASSET_URL = ""
+
+    /**
+     * 断点续传用的临时文件名。
+     * ⚠️ 这两个文件与「已下载字节数」都必须落在 filesDir / getExternalFilesDir：
+     * cacheDir 会被系统「清除缓存」清掉，507MB 的进度不能赌这个。
+     */
+    const val PART_ZIP_NAME = "game.zip.part"
+    const val DOWNLOAD_STATE_NAME = "game.zip.download.json"
+
+    /** zip 内的资源版本标记（对应 GitHub Release 的 commit） */
+    const val VERSION_FILE_NAME = "currentVersion.txt"
+
+    /**
+     * 下载前台服务的通知频道与通知 id（完成/失败用 id+1）。
+     * 频道名在 `res/values/strings.xml`，不走这里是避免和资源文件两份文案。
+     */
+    const val DOWNLOAD_CHANNEL_ID = "pokerogue-download"
+    const val DOWNLOAD_NOTIFICATION_ID = 1001
+
+    /**
      * 强制 2D canvas 使用 willReadFrequently。
      * Chromium 通病：Phaser 为每个 Text 调 getImageData，有 GPU 读回固定开销，
      * 游戏启动创建约 2 万个 Text 会累计数秒。鸿蒙实测 28s → 4s，Android 同样适用。
