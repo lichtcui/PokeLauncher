@@ -31,6 +31,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
@@ -54,16 +55,45 @@ import com.lichtcui.pokelauncher.web.PokeWebView
 @Composable
 fun PokeLauncherApp(controller: SpikeController) {
     PokeTheme {
-        // 打靶页 → 「参数调整」页。暂时用本地状态量做导航：P3 阶段只有三个页面，
-        // 引入 navigation-compose 反而多一层依赖（正式版首页/设置页落地时再评估）。
+        // 页面路由：暂时用几个本地状态量（P3 阶段页面总数只有五个，
+        // 引入 navigation-compose 反而多一层依赖与混淆风险）。
+        // 层级关系：打靶页（=首页）→ 设置页 → {参数调整页, 法律页}。
         var showCheats by remember { mutableStateOf(false) }
-        // 系统返回键：游戏页 / 参数调整页 → 打靶页；打靶页由系统处理（退出）
-        BackHandler(enabled = controller.showGame) { controller.exitGame() }
-        BackHandler(enabled = showCheats) { showCheats = false }
+        var showSettings by remember { mutableStateOf(false) }
+        var showLegal by remember { mutableStateOf(false) }
+
+        // 只有游戏页用「屏幕方向」偏好；其余页面手机上恒竖屏、平板上跟随系统
+        ApplyPageOrientation(gamePageActive = controller.showGame)
+
+        // 单一返回键处理：优先级与下面的 `when` 显示顺序一致。
+        // （不能用多个 BackHandler：当 showCheats 与 showSettings 同时为 true 时，
+        //  最后注册的那个会抢到事件，可能出现「退出设置却还停在参数调整页」。）
+        BackHandler(enabled = controller.showGame || showCheats || showLegal || showSettings) {
+            when {
+                controller.showGame -> controller.exitGame()
+                // 参数调整页 / 法律页都是从设置页进的，先回设置页
+                showCheats -> showCheats = false
+                showLegal -> showLegal = false
+                else -> showSettings = false
+            }
+        }
+
         when {
             controller.showGame -> GameScreen(controller)
+            showLegal -> LegalScreen(onBack = { showLegal = false })
             showCheats -> CheatScreen(onBack = { showCheats = false })
-            else -> SpikeScreen(controller, onOpenCheats = { showCheats = true })
+            showSettings -> SettingsScreen(
+                spike = controller,
+                onBack = { showSettings = false },
+                onOpenCheats = { showCheats = true },
+                onOpenLegal = { showLegal = true },
+                onTriggerUpdate = {
+                    // 回首页后由首页发起下载（首页才有通知权限的 launcher）
+                    controller.requestUpdate()
+                    showSettings = false
+                }
+            )
+            else -> SpikeScreen(controller, onOpenSettings = { showSettings = true })
         }
     }
 }
@@ -72,7 +102,7 @@ fun PokeLauncherApp(controller: SpikeController) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun SpikeScreen(controller: SpikeController, onOpenCheats: () -> Unit) {
+private fun SpikeScreen(controller: SpikeController, onOpenSettings: () -> Unit) {
     val pickZip = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         // zip 的 MIME 在不同文件管理器里可能是 application/zip / octet-stream / 空，
         // 所以选择器必须放开到 */*，只在回调里做校验
@@ -97,13 +127,21 @@ private fun SpikeScreen(controller: SpikeController, onOpenCheats: () -> Unit) {
         controller.startDownload(fresh)
     }
 
+    // 设置页点了「更新到新版本」：回到本页后立即发起下载（对应鸿蒙版 `pendingUpdate` 标记）
+    LaunchedEffect(controller.pendingUpdate) {
+        if (controller.pendingUpdate) {
+            controller.consumePendingUpdate()
+            startDownload(false)
+        }
+    }
+
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
                 title = { Text("P1 打靶 · 下载 / 解压链路", fontSize = 18.sp) },
                 actions = {
-                    TextButton(onClick = onOpenCheats) { Text("参数调整") }
+                    TextButton(onClick = onOpenSettings) { Text("设置") }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surface,

@@ -100,4 +100,27 @@ object Const {
 
     /** 本地服务供 WebView 加载的入口页 */
     const val INDEX_FILE = "index.html"
+
+    /**
+     * 应用自更新清单（Gitee Raw，与鸿蒙版同一份）。格式见仓库根 `version.json`。
+     *
+     * ⚠️ **不能**拿清单里鸿蒙用的 `versionCode` 和安卓版本比（那会让安卓端永远显示「有新版本」，
+     * 点进去还是 HAP 下载页）。安卓看的是清单里的 `androidVersionCode` / `androidVersionName` /
+     * `apkUrl` / `androidChangelog`（见 [com.lichtcui.pokelauncher.appupdate.AppUpdateManifest]），
+     * 缺这些字段就表示「安卓版还没有已发布的版本」。
+     */
+    const val APP_UPDATE_MANIFEST_URL =
+        "https://gitee.com/licht3345/PokeLauncher/raw/master/version.json"
+
+    /** 应用下载页（检测到新版本后用浏览器打开；P4 会换成应用内下载 APK） */
+    const val APP_UPDATE_PAGE_URL = "https://gitee.com/licht3345/PokeLauncher/releases"
+
+    /** 项目 GitHub 仓库（设置页「关于」入口用浏览器打开） */
+    const val PROJECT_GITHUB_URL = "https://github.com/lichtcui/PokeLauncher"
+
+    /**
+     * 启动时自动检查应用更新的最小间隔（24 小时节流）：
+     * 与鸿蒙版同名同值，等首页四态落地后在首页启动时使用（本阶段只有设置页的主动检查）。
+     */
+    const val APP_UPDATE_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000L
 }

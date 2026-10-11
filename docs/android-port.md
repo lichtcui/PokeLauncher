@@ -105,7 +105,7 @@ android/
 | 6 | 存档落点正确 | 游戏内存档 → 重启 App 仍在；点系统「清除缓存」后仍在 | 手动验证 |
 | 7 | 音频 | BGM 能自动播放（`mediaPlaybackRequiresUserGesture=false` 生效） | 听 |
 
-### 4.1 已落地代码（P0–P2，可编译可装机）
+### 4.1 已落地代码（P0–P3 已实现部分，可编译可装机）
 
 ```
 android/                                   Gradle 8.14.3 / AGP 8.11.0 / Kotlin 2.0.21 / Compose BOM 2024.12.01
@@ -118,6 +118,9 @@ android/                                   Gradle 8.14.3 / AGP 8.11.0 / Kotlin 2
 │  ├─ core/ Const / Paths / Mime / Format  无 Android 依赖，可 JVM 单测
 │  ├─ core/ Version.kt                     release-<commit> 归一化（与鸿蒙 normalizeVersion 一致）
 │  ├─ core/ Prefs.kt                       SharedPreferences 封装（库名 pokelauncher_settings）
+│  ├─ core/ OrientationPref.kt             屏幕方向偏好（portrait/landscape/system，**只作用于游戏页**）
+│  ├─ appupdate/ AppUpdate.kt              应用自更新纯逻辑：清单解析（含 android* 字段）+ 版本比较 + 检查节流
+│  ├─ appupdate/ AppUpdateRepository.kt    清单拉取（OkHttp + 模块级 TTL 缓存）+ 打开链接
 │  ├─ server/ GameServer.kt                NanoHTTPD×2（18787 资源 / 8001 API stub）+ /__cheats__.js 端点 + 端口重试
 │  ├─ server/ InjectScripts.kt             注入链：存档守卫 + 参数调整 + 引导脚本（canvas 补丁/计时/Phaser 包装）
 │  ├─ server/ ServerDiag.kt                启动失败诊断（端口占用判定 + 中文提示，纯函数）
@@ -136,11 +139,17 @@ android/                                   Gradle 8.14.3 / AGP 8.11.0 / Kotlin 2
 │  ├─ web/ PokeWebView.kt                  WebView 配置 + PokeNative JS 桥 + PokeSaveGuard 存档桥
 │  ├─ web/ SaveGuard.kt                    存档镜像（filesDir/saves/localstorage.json + .bak）+ 注入脚本
 │  ├─ web/ WebCache.kt                     clearCache 时机（活实例优先，否则临时实例；仅主线程）
-│  └─ ui/ Theme / SpikeController / SpikeScreen / CheatScreen   打靶页 + 「参数调整」页（= P0–P3 第一块的全部 UI）
-├─ app/src/test/java/.../                  **183 个 JVM 单测**（core 22：Paths 7 / Format 6 / Mime 5 / Version 4；
+│  └─ ui/                                  打靶页 + 设置页 + 参数调整页 + 法律页（P3 已落地部分）
+│     ├─ Theme.kt / Common.kt              主题色；页面外壳公共件（返回栏 / 分组标题 / 导航行 / 状态行）
+│     ├─ PageOrientation.kt                根组件套用屏幕方向（游戏页用偏好，其余页面手机竖屏/平板跟随系统）
+│     ├─ SpikeController.kt                打靶页状态机（安装/下载/进入游戏/删除/待办更新标记）
+│     ├─ SpikeScreen.kt / CheatScreen.kt   打靶页；参数调整页（纯注册表驱动）
+│     └─ SettingsScreen.kt / LegalText.kt / LegalScreen.kt   设置页；法律正文（纯数据）；法律页
+├─ app/src/test/java/.../                  **211 个 JVM 单测**（core 29：Paths 7 / Format 6 / Mime 5 / Version 4 / OrientationPref 7；
 │                                          install 49：DownloadUrls 11 / DownloadState 16 / DownloadStatus 16 / ReleaseInfo 6；
 │                                          cheat 71：CheatFormat 27 / CheatScripts 14 / CheatState 13 / Cheats 17；
-│                                          server 19：InjectScripts 9 / ServerDiag 10；web 22：SaveGuard 22）
+│                                          server 19：InjectScripts 9 / ServerDiag 10；web 22：SaveGuard 22；
+│                                          appupdate 14：AppUpdate 14；ui 7：LegalText 7）
 └─ app/src/main/res/                       图标（品牌红环）/ 通知图标 ic_download / 主题 / network_security_config
 ```
 
@@ -150,14 +159,18 @@ android/                                   Gradle 8.14.3 / AGP 8.11.0 / Kotlin 2
 | --- | --- |
 | `./gradlew assembleDebug` | ✅ `app-debug.apk` 9.8 MB |
 | `./gradlew assembleRelease`（R8 + 资源收缩） | ✅ `app-release-unsigned.apk` 1.1 MB（含 OkHttp/Okio） |
-| `./gradlew testDebugUnitTest` | ✅ **183 tests, 0 failures** |
-| `./gradlew :app:lintDebug` | ✅ **0 errors**（24 warnings / 6 hints，均为依赖版本提示类，不阻塞） |
+| `./gradlew testDebugUnitTest` | ✅ **211 tests, 0 failures** |
+| `./gradlew :app:lintDebug` | ✅ **0 errors**（25 warnings / 6 hints，均为依赖版本提示类，不阻塞） |
 | release 包 JS 桥是否存活 | ✅ 反编译 dex：`PokeNative` / `reportTiming` / `reportState` / **`PokeSaveGuard`** / **`load` / `save` / `notifyRestored`** 均在（`o1.g.load`：类名可混淆，方法名由 `-keepclassmembers @JavascriptInterface` 保住） |
 | release 包新链路常量是否存活 | ✅ dex 里仍有 `tag_name` / `browser_download_url` / `receivedBytes` / `bytes=0-` / `If-Range` / `Content-Range` / `game.zip.download.json` / `pokerogue-download` |
 | release 包注入链常量是否存活 | ✅ dex 里仍有 `__cheats__.js` ×4 / `__pk_boot.js` ×2 / `window.__pkGameHooks` ×3 / 7 条脚本标记（`__cheatCandy/Exp/Money/Luck/Catch/FreeEgg/Reward`）/ `cheatMaster`·`cheatEnabledIds`·`cheatParams` / `localstorage.json`·`localstorage.bak.json` / `SAVEGUARD` ×5 |
 | manifest 基线 | ✅ minSdk 26 / targetSdk 35 / INTERNET + ACCESS_NETWORK_STATE + FOREGROUND_SERVICE(+DATA_SYNC) + POST_NOTIFICATIONS + WAKE_LOCK / cleartext 全局 false + 回环白名单 |
 | 前台服务声明 | ✅ release 合并后 manifest 里 `com.lichtcui.pokelauncher.install.DownloadService` 未被混淆，`foregroundServiceType=0x1`（dataSync）、`exported=false`、`stopWithTask=false` |
 | release 包中文常量存活（P3 参数调整页） | ✅ 字节搜索 dex：`参数调整总开关` / 风险提示两行全文 / `强制奖励稀有度` / `100% 捕获率` / `倍率修改` 等均在 |
+| release 包中文常量存活（P3 设置页/法律页） | ✅ 字节搜索 dex：`设置` / `屏幕方向` / `竖屏` / `横屏` / `跟随系统` / `应用更新` / `离线资源更新` / `删除本地数据` / `更新到新版本` / `法律与免责声明` / `关于` / `应用版本` / `资源版本` / `资源来源` / `仍然开启` / `开启参数调整` / 两段风险确认全文 / `安卓版暂未发布` / `检查中…` / `已是最新` / `发现新版本` / `未安装` / `正在删除…` / `将删除已下载的离线资源，本地存档不受影响。确定删除吗？` / `本地数据已删除` / `最近更新：2026-09-18` 等全部在 |
+| 方向偏好 / 更新比较 / 法律正文 | ✅ 纯逻辑已由单测覆盖（`OrientationPrefTest` 7 / `AppUpdateTest` 14 / `LegalTextTest` 7），三处都不依赖设备 |
+
+> ⚠️ **release 包不能靠类名取证**：R8 混淆后 `SettingsScreenKt` / `CommonKt` / `SpikeController` 这些类名在 dex 里**根本不存在**（被改名或 class-merging 内联掉，当前 release dex 里搜这些名字都是 0）。查 release 只有两条可靠路径：① dex 字符串（中文常量用字节搜索）；② `app/build/outputs/mapping/release/mapping.txt`（看类被映射成什么、哪些名字被 keep 规则保住）。
 
 > 验 dex 字符串时注意：**字符串池是 UTF-8**，`strings -a` 只能看到 ASCII，中文要用字节搜索：
 > `python3 -c "import sys;print(sys.stdin.buffer.read().count('参数调整'.encode()))" < classes.dex`。
@@ -205,9 +218,15 @@ adb logcat -s PokeLauncher          # 全部日志统一 tag
 - 引导脚本（`/__pk_boot.js`）：canvas 补丁 + 计时埋点 + `window.Phaser` 包装（唯一所有者），并把 Game 实例派发给 `window.__pkGameHooks` 上的场景捕获回调。
 - 日志关键字：`served patched index.html (canvasPatch=…, cheats=…, saveGuard=…)`、`served /__cheats__.js (N bytes)`、`已清除 WebView 缓存`、`SAVEGUARD restored N keys`、`TIMING {…}`。
 
-**P3 参数调整页（打靶页右上角「参数调整」进入）**
+**P3 参数调整页（设置页 → 「参数调整」行进入）**
 
-顶部总开关 → 两个分组（倍率修改 / 其他）→ 每条一个开关；声明了 `param` 的条目多一个滑块（拖动实时改内存、松手才落盘）。改动需**重载游戏页**才生效（`__CHEAT_PARAMS__` 是页面加载时烘进脚本的，与鸿蒙口径一致）。页面完全由 `CHEATS` 驱动，**新增条目不需改 UI**。
+顶部总开关 → 两个分组（倍率修改 / 其他）→ 每条一个开关；声明了 `param` 的条目多一个滑块（拖动实时改内存、松手才落盘）。打开总开关前有账号风险确认弹窗（文案与鸿蒙版逐字一致，从鸿蒙的设置页搬到了本页）。改动需**重载游戏页**才生效（`__CHEAT_PARAMS__` 是页面加载时烘进脚本的，与鸿蒙口径一致）。页面完全由 `CHEATS` 驱动，**新增条目不需改 UI**。
+
+**P3 设置页 / 法律页（打靶页右上角「设置」进入）**
+
+- 运行设置：屏幕方向三段（竖屏 / 横屏 / 跟随系统，只影响游戏页）；「参数调整」入口行（显示已开启/已关闭，**开关本体在参数调整页**）。
+- 数据管理：`应用更新`（点一下强制检查；没有 `androidVersionCode` 时显示「安卓版暂未发布」，有更新时多出一行「去更新」+ 更新说明）；`离线资源更新`（对比本地资源版本，发现新版时多出一行「更新到新版本」→ 返回首页自动开始下载）；`删除本地数据`（确认弹窗 → 异步删除 → Toast + 返回首页）。
+- 关于：应用版本（`BuildConfig`）/ 资源版本 / 资源来源 / 作者 / GitHub（浏览器打开）/ 法律与免责声明（进入法律页，10 个章节）。
 
 ### 4.3 与上面计划的差异（实现期决定）
 
@@ -255,12 +274,26 @@ adb logcat -s PokeLauncher          # 全部日志统一 tag
 > P3 分块推进：**第一块 = 参数调整页**（已落地），后续是首页四态/下载流/精灵球动画、设置页、游戏页、法律页。
 
 1. **参数调整页完全由 `CHEATS` 驱动**：分组、条目、参数范围、显示文本全部来自注册表，新增条目只改 `cheat/Cheats.kt`（与鸿蒙版「只改 `Cheats.ets`」同一条规则）。这也是为什么把 `CheatParam.sliderSteps()` 放在注册表旁边而不是 UI 文件里。
-2. **总开关放在参数调整页顶部**（鸿蒙版在「设置 → 运行设置」）：开关离条目越近越不容易误操作，也让本页自成一个可验证的闭环（P3 第一块不改设置页）。设置页落地后**只加入口链接**，不重复放开关，避免两处状态分叉。
+2. **总开关放在参数调整页顶部**（鸿蒙版在「设置 → 运行设置」）：开关离条目越近越不容易误操作，也让本页自成一个可验证的闭环（P3 第一块不改设置页）。设置页落地后**只加入口链接**（已落地：一行「参数调整」，右侧显示已开启/已关闭），不重复放开关，避免两处状态分叉。
 3. **不引 `navigation-compose`**：P3 全部页面加起来只有五个，根组件里的一个状态变量就够；多一层依赖还多一层混淆风险。等页面数量真的超了再换。
 4. **滑块档位换算放在 `cheat/Cheats.kt`**：Material3 的 `steps` 是「端点之间的档位数」（0..4 step1 → 3），传错就是崩溃或该滑不动；Compose 文件无法 JVM 单测，所以把它放在注册表旁边（`CheatsTest` 覆盖，含「不能为负」与「每个参数都适配」。基准值均来自注册表，新增参数越界会在单测里直接红）。
 5. **拖动中只改内存，松手才落盘**（与鸿蒙版一致）：SharedPreferences 是同步 `commit`，每次滑动都写盘会掉帧；拖动中只调 `setParamLive`，`onValueChangeFinished` 才 `setParam`。
 6. **改动需重载才生效**：`__CHEAT_PARAMS__` 是 `/__cheats__.js` 在被请求时烘进脚本的，所以页面上写「改动会在重载游戏页后生效」——不承诺「拖动即生效」（与鸿蒙行为一致）。
 7. **文案红线延伸到整页**：标题就叫「参数调整」，风险提示文案与鸿蒙版**逐字一致**（账号风险 + 兼容性风险两行）。日后加新文案先看 `AGENTS.md` §2 的命名约定。
+
+### 4.3.4 P3（设置页 / 法律页）实现期决定
+
+> P3 第二块：**设置页 + 法律页**（含屏幕方向偏好、应用自更新模块、参数调整入口、删除本地数据）。
+
+1. **共享 `version.json` 新增 5 个安卓字段**（本轮唯一跨端数据结构变更）：`androidVersionCode` / `androidVersionName` / `androidMinVersionCode`（0 = 未声明）/ `androidChangelog` / `apkUrl`。安卓**只认** `android*` 字段：没有 `androidVersionCode` 就判 `androidPublished=false`，界面显示「安卓版暂未发布」；**绝不**拿鸿蒙的 `versionCode`（当前 1001000）去比——安卓包号还很小，那会永远显示「发现新版本」，而且点进去是 HAP 下载页（判据见 §4.4 P3-7）。发版对齐规则写进了 §8。
+2. **应用内自更新不在本阶段**：与鸿蒙版行为一致（检测 + 浏览器打开 `apkUrl`，无 `apkUrl` 时打开 `pageUrl`）。应用内下载安装 APK 要 FileProvider + `REQUEST_INSTALL_PACKAGES`，属 P4。
+3. **「更新到新版本」用标记而不是直接开下载**：设置页只调 `controller.requestUpdate()`（置 `pendingUpdate`），返回打靶页后由 `SpikeScreen` 的 `LaunchedEffect` 消费标记发起下载（等价于鸿蒙的 `AppStorage('pendingUpdate')`）。理由：申请通知权限要 Activity 的 launcher，「预检 → 启动前台服务」这条链只该有一份实现（首页），否则两个入口早晚分叉。
+4. **参数调整总开关不放设置页**（§4.3.3-2 的落地）：设置页只有一行入口，开关本体在参数调整页顶部；开启前的风险确认弹窗也搬到了那边（文案逐字一致）。一个状态只配一个控件。
+5. **屏幕方向由根组件套用，且只对游戏页生效**：`ApplyPageOrientation(gamePageActive)`——游戏页用偏好（竖屏/横屏/跟随系统 → `PORTRAIT` / `SENSOR_LANDSCAPE` / `UNSPECIFIED`），其余页面手机恒竖屏、平板（`smallestScreenWidthDp ≥ 600`）跟随系统。放根组件而不是 `MainActivity`：进/出游戏页要**立即**生效，而 Activity 只创建一次；`configChanges` 已声明，改 `requestedOrientation` 不会重建 Activity。设置方向包了 `runCatching`（多窗口等场景会抛异常）。
+6. **设置页不新建 Controller**：方向/参数调整/资源版本都在 `remember` 里直接读现有单例，只有「应用更新的检查结果」是模块级缓存（避开每次进出重发请求）。副产物：从设置页进参数调整再返回时设置页是**重建**的（状态重新读过，显示的就是最新的，不会出现两份状态）。
+7. **「删除本地数据」改成异步**（顺带修了打靶页的同名按钮）：`deleteGame(onDone)` 把删目录树（~1.5GB）切到 `Dispatchers.IO`，Compose 状态回写仍在主线程；完成时额外清掉偏好里的 `lastCachedGameVersion`（资源没了，下次装回同一版本还得再清一次 WebView 缓存）。删除完成 → Toast + 回首页（与鸿蒙一致）。
+8. **法律页文案双平台化，但章节集合必须与鸿蒙一致**：只改两处措辞（平台列举 / 更新载体 HAP↔APK），免责边界逐条对齐 `pages/Legal.ets`；正文单独放 `ui/LegalText.kt`（不依赖 Compose，所以能被 `LegalTextTest` 扫「无『作弊』」红线与章节 id 顺序）。
+9. **「关于」直接读运行时值**：应用版本用 `BuildConfig`（当前 `0.1.0-p0 (1)`）、资源版本用 `SpikeController.installedVersion`、GitHub 用 `Const.PROJECT_GITHUB_URL`。安卓的 `versionCode/versionName` 现在还是 P0 的占位值，要在发版前与 `version.json` 的 `android*` 字段对齐（§8）。
 
 ### 4.4 实测记录（待真机，空着等数据）
 
@@ -297,16 +330,22 @@ adb logcat -s PokeLauncher          # 全部日志统一 tag
 | P2-5 | 关开关就回原版 | 关总开关 + 重载 → `cheats=false`，不再注入 `/__cheats__.js`，行为回到纯净版 | |
 | P2-6 | 端口占用兜底 | 先用其它进程占住 18787（另一个实例 / `nc -l 18787`）→ 点进游戏 → 重试两次后失败，日志/界面给出「端口被占用」中文提示（不是白屏也不是英文异常） | |
 | P2-7 | 版本变更清缓存 | 装完资源后日志有 `已清除 WebView 缓存`；杀掉 App → 换成另一个资源包再启动（或手改偏好里 `lastCachedGameVersion`）→ 冷启动日志再清一次 | |
-| P2-8 | 参数调整文案红线 | **P3 才能验**：参数调整页与任何用户可见文案不得出现「作弊」字样（审核风险） | |
+| P2-8 | 参数调整文案红线 | 见 P3-4 / P3-10（真机验收统一在那两行做） | |
 
 **P3（UI）——待真机项**
 
 | # | 项 | 判据（看界面/日志） | 结果 |
 | --- | --- | --- | --- |
-| P3-1 | 参数调整页可进入/可返回 | 打靶页右上角进入；系统返回键回到打靶页；总开关关闭时所有条目开关与滑块置灰 | |
+| P3-1 | 参数调整页可进入/可返回 | 打靶页右上角「设置」→ 「参数调整」行进入；系统返回键回到设置页，再按回打靶页；总开关关闭时所有条目开关与滑块置灰 | |
 | P3-2 | 滑块档位正确 | 「强制奖励稀有度」只有 5 档（Common/Great/Ultra/Rogue/Master，不能停在中间值）；「糖果获取倍率」能拉到 1 与 100 | |
 | P3-3 | 状态持久化 | 改开关 + 拉滑块 → 杀进程重开 → 页面仍是改过的值；DevTools 里 `/__cheats__.js` 的 `__CHEAT_PARAMS__` 与新值一致 | |
 | P3-4 | 文案红线 | 整页（标题/提示/开关/滑块）无「作弊」字样 | |
+| P3-5 | 设置页可进入/可返回 | 打靶页右上角「设置」进入；返回键回打靶页；「参数调整」行显示的已开启/已关闭与实际一致（开关状态在参数调整页改完返回后应刷新） | |
+| P3-6 | 屏幕方向 | 设置页选「横屏」→ 进入游戏页立即横屏、随传感器左右翻转；退出游戏立即回竖屏；选「跟随系统」后重启 App 仍生效（平板上启动器页面不强制竖屏） | |
+| P3-7 | 应用更新（跨端关键判据） | 清单里**没有** `androidVersionCode` 时显示「安卓版暂未发布」（**绝不能**显示「发现新版本」）；点一下状态变「检查中…」再回初值；有 `androidVersionCode > 本地` 时出现「去更新（版本号）」并用浏览器打开 `apkUrl`；清单 424/404（Gitee 挂了）显示「检查失败」而不是崩掉 | |
+| P3-8 | 离线资源更新 / 更新到新版本 | 本地资源版本与远端不一致时显示「发现新版本」+ 一行「更新到新版本」；点它 → 返回首页并自动开始下载（日志与 P1 链路一致，**不弹**二次确认）；未装资源时显示「未安装」+ 首页下载引导文案 | |
+| P3-9 | 删除本地数据 | 弹确认框（「本地存档不受影响」）→ 确认后行内显示「正在删除…」界面不卡死 → 完成 Toast + 回首页；回首页后「资源版本」= 未安装、能重新下载；日志有 `game deleted` 与 `已清除 WebView 缓存` | |
+| P3-10 | 法律页 | 从设置页「法律与免责声明」进入：顶部提示条 + 10 个章节 + 更新日期；**通篇无「作弊」字样**（P2-8 的判据在这里落地）；返回键回设置页 | |
 
 **P0 未通过时**的退路：改用 `androidx.webkit` 的 `WebViewAssetLoader`（`https://appassets.androidplatform.net`，免 socket 免 cleartext），代价是丢 HTTP 缓存与 Range。
 
@@ -317,7 +356,7 @@ adb logcat -s PokeLauncher          # 全部日志统一 tag
 | **P0 打靶** | 工程骨架（Kotlin + Compose, minSdk 26）+ NanoHTTPD + 注入 + 导入 zip + 进游戏计时 | 2–3 天 | ✅ 代码完成 + 本机编译/单测/release 混淆校验通过；**真机判据待跑（§4.4）** |
 | **P1 下载/解压** | Release 查询 → 镜像并发测速 → 断点续传 → 原子解压切换 → `recover()`；前台服务 + 通知进度；暂停/继续/取消；SAF 手动导入 | 4–6 天 | ✅ 代码完成（71 单测全绿，debug/release 均编译通过）；**真机判据待跑（§4.4）** |
 | **P2 服务与注入** | index.html 补丁、虚拟端点 `/__pk_boot.js` + `/__cheats__.js`、端口占用兜底、8001 stub、`clearCache` 时机、参数调整状态与存档镜像 | 3–4 天 | ✅ 代码完成（累计 180 单测全绿，debug/release 均编译通过，lint 0 error）；**真机判据待跑（§4.4）** |
-| **P3 UI** | Compose：首页四态 + 下载流 + 精灵球动画、设置页、参数调整页、游戏页（返回按钮淡出/错误浮层/方向/静音）、法律页 | 4–6 天 | 🚧 进行中：**参数调整页已完成**（183 单测全绿）；首页/设置/游戏/法律页待做 |
+| **P3 UI** | Compose：首页四态 + 下载流 + 精灵球动画、设置页、参数调整页、游戏页（返回按钮淡出/错误浮层/方向/静音）、法律页 | 4–6 天 | 🚧 进行中：参数调整页 ✅、设置页 ✅（含方向偏好/应用更新/删除本地数据）、法律页 ✅（211 单测全绿）；首页四态/下载流/精灵球动画、游戏页待做 |
 | **P4 平台特有** | 存档导出/导入、Auto Backup、应用内自更新（FileProvider + `REQUEST_INSTALL_PACKAGES`）、通知权限 | 3–4 天 |
 | **P5 打磨发布** | 真机矩阵（多 WebView 版本）、性能调优、GitHub Actions 出 APK、签名发版 | 3–5 天 |
 
@@ -350,6 +389,12 @@ P2 新增（同样很能坑人）：
 20. **「参数调整」文案红线在安卓侧同样适用**：任何用户可见文案不得出现「作弊」字样（应用商店审核风险），代码/文档内部继续用 cheat。
 21. **Kotlin raw string 里的 `$` 是模板插值**：从 ArkTS 搬 JS 时逐行检查（`SaveGuardTest` / `CheatsTest` 都断言了「脚本里无 `$`」来防回归）。
 
+P3 新增（两个都是本机实测到的「工具坑」，不是业务坑）：
+
+22. **本机的 compose lint 检查器会直接崩掉 `lintDebug`**：写 `Modifier.then(...)` 会触发 `SuspiciousModifierThenDetector`，声明 `fun Modifier.xxx()` 扩展又会触发 `ModifierDeclarationDetector`，两者都以 `NoClassDefFoundError`（`androidx/compose/lint/Names$Ui$Layout`）结束——**是任务失败，不是一条警告**。当前的处理是避开这两种写法（用 if/else 选 Modifier），而不是 `lint { disable ... }`（这些检查本身有用）；真要写 Modifier 扩展，先去升级 compose-lint 版本。
+23. **release 包不能靠类名取证**：R8 混淆后 `SettingsScreenKt` / `CommonKt` / `SpikeController` 这些类名在 dex 里搜不到（改名 / class-merging 内联）。查 release 只有两条可靠路径：dex 字符串（中文用字节搜索）+ `mapping.txt`。
+24. **`SpikeController.deleteGame()` 是异步的**（多了 `onDone` 回调）：删 1.5GB 目录树切到了 IO，调用方不能假设「函数返回就是删完了」；它同时会清掉 `lastCachedGameVersion`。
+
 ## 7. 风险
 
 | 风险 | 等级 | 应对 |
@@ -363,5 +408,7 @@ P2 新增（同样很能坑人）：
 ## 8. 发布
 
 - 出包：`cd android && ./gradlew assembleRelease`（keystore 不入库，走 `~/.gradle/gradle.properties` 或本地 `keystore.properties`，对齐 [`AGENTS.md`](../AGENTS.md) 的签名边界约定）。
-- 版本清单：安卓侧的 `versionCode` / `versionName` 需与仓库根 [`version.json`](../version.json) 对齐，供应用内自更新比对。
+- 版本清单：仓库根 [`version.json`](../version.json) 是**两个平台共用**的一份清单。安卓发版时要写这 5 个字段：`androidVersionCode` / `androidVersionName` / `androidMinVersionCode`（可选，低于它强制更新）/ `androidChangelog` / `apkUrl`（留空则「去更新」打开 `pageUrl`）。
+  - `androidVersionCode` / `androidVersionName` 必须与 `android/app/build.gradle.kts` 的 `versionCode` / `versionName` 完全一致（现在还是 P0 占位值 `1` / `0.1.0-p0`）。
+  - **只写鸿蒙字段而不写 `androidVersionCode` 时，安卓端会显示「安卓版暂未发布」**：这是刻意设计（宁可说「未发布」也不能把用户引到 HAP 页），但也意味着缺字段时安卓用户收不到任何更新提示。
 - 发版同时推 `origin`(Gitee) 与 `github` 两个远端（见 AGENTS.md §2）。

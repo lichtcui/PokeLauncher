@@ -12,18 +12,16 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -53,13 +51,14 @@ import com.lichtcui.pokelauncher.cheat.sliderSteps
  * 条目注册表在 [`CHEATS`]，本页只是渲染 + 回写状态，新增条目**不需要改本文件**。
  *
  * 与鸿蒙版的一处差异：**总开关放在本页顶部**（鸿蒙版在「设置 → 运行设置 → 参数调整」里）。
- * 理由是这个开关离条目越近越不容易误操作；设置页落地后只保留一个跳转入口，不重复放开关。
+ * 理由是这个开关离条目越近越不容易误操作；设置页只保留一个跳转入口，不重复放开关。
+ * 开启前的风险确认弹框（[RISK_DIALOG_MESSAGE]）与鸿蒙版逐字一致。
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CheatScreen(onBack: () -> Unit) {
     var masterEnabled by remember { mutableStateOf(CheatState.isMasterEnabled()) }
     var enabledIds by remember { mutableStateOf(CheatState.enabledIds().toSet()) }
+    var confirmEnable by remember { mutableStateOf(false) }
     // 拖动中的数值放本地：Slider 是高频回调，每次都回读偏好会掉帧（鸿蒙版同款处理）
     var paramValues by remember {
         mutableStateOf(
@@ -74,21 +73,7 @@ fun CheatScreen(onBack: () -> Unit) {
     }
 
     Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("参数调整", fontSize = 20.sp) },
-                navigationIcon = {
-                    // 用文字箭头而不是 Icons.*：少一个 material-icons 依赖，也和鸿蒙版一致
-                    IconButton(onClick = onBack) {
-                        Text("‹", fontSize = 30.sp)
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface,
-                    titleContentColor = MaterialTheme.colorScheme.onSurface
-                )
-            )
-        }
+        topBar = { LauncherTopBar(title = "参数调整", onBack = onBack) }
     ) { padding ->
         LazyColumn(
             modifier = Modifier
@@ -102,8 +87,13 @@ fun CheatScreen(onBack: () -> Unit) {
                 MasterRow(
                     enabled = masterEnabled,
                     onCheckedChange = { on ->
-                        CheatState.setMaster(on)
-                        masterEnabled = CheatState.isMasterEnabled()
+                        if (on) {
+                            // 开启前必须确认账号风险（文案与鸿蒙版逐字一致）
+                            confirmEnable = true
+                        } else {
+                            CheatState.setMaster(false)
+                            masterEnabled = CheatState.isMasterEnabled()
+                        }
                     }
                 )
             }
@@ -158,7 +148,34 @@ fun CheatScreen(onBack: () -> Unit) {
             }
         }
     }
+
+    if (confirmEnable) {
+        AlertDialog(
+            onDismissRequest = { confirmEnable = false },
+            title = { Text("开启参数调整") },
+            text = { Text(RISK_DIALOG_MESSAGE) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        confirmEnable = false
+                        CheatState.setMaster(true)
+                        masterEnabled = CheatState.isMasterEnabled()
+                    }
+                ) { Text("仍然开启", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmEnable = false }) { Text("取消") }
+            }
+        )
+    }
 }
+
+/** 开启总开关前的风险确认文案（与鸿蒙版 `Settings.onCheatToggle` 逐字一致） */
+private const val RISK_DIALOG_MESSAGE =
+    "账号风险：上游官方对修改游戏数据有检测机制，通过 Hook 改写运行时数值可能使账号被标记" +
+        "（Flagged）甚至封禁。开启后本机存档已不纯净，不建议再导入或上传到在线版。" +
+        "请仅在离线或确认安全的环境下使用。\n\n" +
+        "兼容性风险：参数调整依赖应用内部实现，资源更新后可能失效或表现异常。"
 
 /** 常驻风险提示（文案与鸿蒙版逐字一致） */
 @Composable

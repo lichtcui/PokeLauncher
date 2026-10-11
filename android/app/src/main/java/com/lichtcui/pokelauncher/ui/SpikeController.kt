@@ -125,6 +125,14 @@ class SpikeController(private val app: Context) {
     var downloadError by mutableStateOf("")
         private set
 
+    /**
+     * 设置页「更新到新版本」置起的待办标记（对应鸿蒙版 `AppStorage('pendingUpdate')`）：
+     * 回首页后由首页发起下载。放标志而不是直接开下载，是为了让「申请通知权限 → 预检 → 启动服务」
+     * 这条链路只留在首页一处（权限请求必须要 Activity 的 launcher）。
+     */
+    var pendingUpdate by mutableStateOf(false)
+        private set
+
     val gameUrl: String get() = server.indexUrl
     /** 进游戏的门禁：游戏就绪 + 服务器在跑 + Chromium 版本达标 */
     val canEnterGame: Boolean
@@ -265,6 +273,17 @@ class SpikeController(private val app: Context) {
         log("已清除下载残留")
     }
 
+    /** 设置页「更新到新版本」：标记后返回首页，由首页发起下载（见 [pendingUpdate]） */
+    fun requestUpdate() {
+        pendingUpdate = true
+        log("收到「更新到新版本」：回首页后开始下载")
+    }
+
+    /** 首页取走标记（只消费一次） */
+    fun consumePendingUpdate() {
+        pendingUpdate = false
+    }
+
     // ------------------------------------------------------------ 日志
 
     fun log(msg: String) {
@@ -382,14 +401,43 @@ class SpikeController(private val app: Context) {
         }
     }
 
-    fun deleteGame() {
-        installer.deleteGame()
-        gameReady = false
-        installedVersion = ""
-        clearDownloadFiles()
-        // 与鸿蒙版 Settings 的「删除本地数据」一致：数据删了就顺手把缓存也清掉
-        if (WebCache.clear("game deleted")) log("已清除 WebView 缓存")
-        log("game deleted")
+    /**
+     * 删除本地资源 / 存档之外的下载残留（设置页「删除本地数据」与打靶页「删除资源」共用）。
+     *
+     * 目录删完要写回 Compose 状态，所以整件事放 [scope]（主线程）上串起来，
+     * 只有真正碰磁盘的那步（1.5GB 的目录树）切到 IO——否则界面会卡住一两秒。
+     *
+     * @param onDone 完成回调（设置页用它收起「正在删除…」并返回首页）
+     */
+    fun deleteGame(onDone: () -> Unit = {}) {
+        if (busy) {
+            log("有任务在进行，忽略删除请求")
+            return
+        }
+        busy = true
+        busyText = "正在删除本地数据…"
+        scope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    installer.deleteGame()
+                    repository.clearDownloadFiles()
+                }
+                gameReady = false
+                installedVersion = ""
+                pendingDownload = null
+                // 资源没了，「已清缓存的版本」也要跟着作废：重新装回同一版本时还得再清一次
+                Prefs.putString(KEY_LAST_CACHED_VERSION, "")
+                // 与鸿蒙版 Settings 的「删除本地数据」一致：数据删了就顺手把缓存也清掉
+                if (WebCache.clear("game deleted")) log("已清除 WebView 缓存")
+                log("game deleted")
+            } catch (e: Throwable) {
+                log("delete failed: ${e.message}")
+            } finally {
+                busy = false
+                busyText = ""
+                onDone()
+            }
+        }
     }
 
     // ------------------------------------------------------------ 进 / 出游戏
