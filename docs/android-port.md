@@ -481,7 +481,7 @@ adb logcat -s PokeLauncher          # 全部日志统一 tag
 | P1-8 | 存储预检 | 剩余空间不足 3.2× 时**开始前**就拦下并显示中文提示 | |
 | P1-9 | Android 15 `dataSync` 超时 | 需 ≥ 6h 持续下载才能复现（实际难以验证）：到点时日志有 `dataSync 前台服务超时`，回 App 可继续 | |
 
-**实测结论（P1）**：主链路全通 ✅（两次完整下载：48s / 约 60s）
+**实测结论（P1）**：主链路全通 ✅（两次完整下载：48s / 约 60s；P1-4 无 Range 降级见「第四轮补测」）
 
 - **P1-1 ✅**：`开始下载资源包（有分片则续传）` → 镜像测速 → `downloaded 531701861 bytes` → `installed 34095 entries, 667 MB` → `资源已安装，删除 zip 释放空间` → `download + install complete, version=e4e9b53` → `game ready=true`（`files/game` = 763M）→ 能进游戏，全程 **48 秒**。前台服务 `isForeground=true foregroundId=1001 foregroundNoti=Notification(channel=pokerogue-download ... actions=2)`。
 - **P1-2 ✅**：`probe ghproxy.net failed: timeout` / `probe ghfast.top failed: timeout` / `probe gh-proxy.com speed=0.05 KB/ms` → 实际下载用的就是 `gh-proxy.com`；二次下载命中 `rank cache hit`。
@@ -543,7 +543,7 @@ adb logcat -s PokeLauncher          # 全部日志统一 tag
 | P3-19 | 游戏页静音 | 进游戏听 BGM → 按 Home 退到后台：BGM 立即停（日志 `web audio muted=true`）；回前台恢复（`muted=false`）；点「返回」退出游戏页 BGM 也停；拿一台不支持 `MUTE_AUDIO` 的老机型验证 `game.sound.mute` 兜底同样生效 | |
 | P3-20 | 存档回填提示 | 抹掉游戏 `localStorage`（DevTools）但保留 `files/saves/localstorage.json` → 重进游戏 → 弹「检测到本地存档缺失，已从快照恢复 N 项数据」，且游戏内进度确实是快照那份（P2-2 的 UI 侧判据） | |
 
-**实测结论（P3）**：页面与交互全部走通 ✅（未测项已标注）
+**实测结论（P3）**：页面与交互全部走通 ✅（未测项已标注；P3-14「选 zip 导入」在第四轮补测里跑完整条链路，并暴露出一个致命缺陷，见下）
 
 - **P3-1 ✅**：参数调整页可进入/可返回，系统返回键逐层回退（参数调整→设置页→首页，每次恰好一层）；总开关关闭时条目置灰 + 「关闭时游戏页不注入任何脚本（默认关闭）」。
 - **P3-2 ✅**：滑块组（「倍率修改」糖果/经验/金币）渲染正确，「糖果获取倍率」能拉到 **1x 与 100x** 两端；「强制奖励稀有度」逐档实拉 5 个位置，取值**精确落在这 5 档**：`Common / Great / Ultra / Rogue / Master`（不存在中间值，与 `CheatParam(min=0, max=4, step=1, labels=…)` 一致）。顺带确认一条 UI 规则：**条目自己的开关没打开时它的滑块是禁用的**（`CheatScreen.kt` 的 `enabled = masterEnabled && checked`）—— 第一次测「强制奖励稀有度」拖不动就是因为它开关没开，打开后拖动立即生效。
@@ -603,6 +603,19 @@ adb logcat -s PokeLauncher          # 全部日志统一 tag
 
 单测从 275 涨到 **278**（+3：浮点漂移吸附、真实中间值不受影响、档位标签保持），`clean assembleDebug assembleRelease testDebugUnitTest :app:lintDebug` 全绿。
 
+**第四轮补测：P3-14 选 zip 导入 + P1-4 无 Range 续传**
+
+- **P3-14 ✅ 全通（并修掉一个致命缺陷）**：真机走完整链路 —— SAF「文档」总选中 `huge-game.txt`（内容其实是 zip）→ 界面进入「导入 document:98773：6800 个文件，0MB」（**解压期间文件计数实时前进**）→ 完成后变「离线资源已就绪」→ 点「开始运行」进游戏，CDP 读到 `document.querySelector('h1').textContent == 'MINI GAME OK'`，即**跑的确实是刚导入的那个包**。日志时间线：`install start` → `installed 20001 entries` 共 3.27s（先用 3000 文件的包只跑了 0.776s，快到 `uiautomator dump` 根本采不到中间态，所以才换成 20000 文件的包）。
+  ⚠️ 这一条**过去是假通过**：判据原本只验到「弹出 SAF 选择器」。真点进文件后立刻报 `install failed: 解压失败：Stream closed` —— 即「上传资源」入口**完全不可用**，只有走真机才会被发现。根因与修法见 §6-#45；单测 +4（`GameInstallerStreamTest`，其中一例用内存 zip **精确复现**原报错）。
+- **P1-4 ✅ 通过**：把 `Const.DEBUG_ASSET_URL` 指向 Mac 上的 `python3 -m http.server`（实测 `curl -r 0-99` 返回 `200` + 全量 4960B、**没有** `Accept-Ranges`），用 `adb reverse tcp:8000 tcp:8000` 打通；再手工预置一个「下载到一半」的 `game.zip.part`（1000B）+ `game.zip.download.json`（`totalBytes=4960`）。点「继续下载」后日志为：
+  ```
+  resume from 1000 bytes (http://127.0.0.1:8000/mini-game.zip)
+  服务端忽略 Range（HTTP 200），从头重下        ← 关键：没有把 4960B 追加到 1000B 后面（那会得到一个 5960B 的坏 zip）
+  downloaded 4960 bytes from http://127.0.0.1:8000/mini-game.zip
+  installed 27 entries, 0 MB / game ready=true
+  ```
+  即服务端不支持 Range 时**从头重下并顺利完成**：不挂起、不无限重试、不产坏包。注：预置分片是 `adb push` 进去的（属主 `shell`），第一次重试撞了 `EACCES` —— 那是测试手法问题（`chmod 666` 后即通过），不是产品缺陷。
+
 **P0 未通过时**的退路：改用 `androidx.webkit` 的 `WebViewAssetLoader`（`https://appassets.androidplatform.net`，免 socket 免 cleartext），代价是丢 HTTP 缓存与 Range。
 
 ## 5. 分期计划
@@ -610,9 +623,9 @@ adb logcat -s PokeLauncher          # 全部日志统一 tag
 | 阶段 | 内容 | 工时 | 状态 |
 | --- | --- | --- | --- |
 | **P0 打靶** | 工程骨架（Kotlin + Compose, minSdk 26）+ NanoHTTPD + 注入 + 导入 zip + 进游戏计时 | 2–3 天 | ✅ 代码完成 + 本机编译/单测/release 混淆校验通过；**真机判据见 §4.4（P0 全通）** |
-| **P1 下载/解压** | Release 查询 → 镜像并发测速 → 断点续传 → 原子解压切换 → `recover()`；前台服务 + 通知进度；暂停/继续/取消；SAF 手动导入 | 4–6 天 | ✅ 代码完成（71 单测全绿，debug/release 均编译通过）；**真机判据见 §4.4（主链路全通，P1-7/P1-9 需更新系统）** |
+| **P1 下载/解压** | Release 查询 → 镜像并发测速 → 断点续传 → 原子解压切换 → `recover()`；前台服务 + 通知进度；暂停/继续/取消；SAF 手动导入 | 4–6 天 | ✅ 代码完成（71 单测全绿，debug/release 均编译通过）；**真机判据见 §4.4（主链路全通，含 P1-4 无 Range 降级；P1-7/P1-9 需更新系统）** |
 | **P2 服务与注入** | index.html 补丁、虚拟端点 `/__pk_boot.js` + `/__cheats__.js`、端口占用兜底、8001 stub、`clearCache` 时机、参数调整状态与存档镜像 | 3–4 天 | ✅ 代码完成（累计 180 单测全绿，debug/release 均编译通过，lint 0 error）；**真机判据见 §4.4（注入链/缓存/存档镜像全通）** |
-| **P3 UI** | Compose：首页四态 + 下载流 + 精灵球动画、设置页、参数调整页、游戏页（返回按钮淡出/错误浮层/方向/静音）、法律页 | 4–6 天 | ✅ 代码完成（参数调整页 / 设置页 / 法律页 / 首页四态 + 下载流 + 精灵球 / 游戏页全部落地；累计 240 单测全绿，debug/release 均编译通过，lint 0 error）；**真机判据见 §4.4（页面与交互全通；仅 P3-14「换源重试」、P3-15 更新弹窗未测）** |
+| **P3 UI** | Compose：首页四态 + 下载流 + 精灵球动画、设置页、参数调整页、游戏页（返回按钮淡出/错误浮层/方向/静音）、法律页 | 4–6 天 | ✅ 代码完成（参数调整页 / 设置页 / 法律页 / 首页四态 + 下载流 + 精灵球 / 游戏页全部落地；累计 240 单测全绿，debug/release 均编译通过，lint 0 error）；**真机判据见 §4.4（页面与交互全通，含 P3-14 选 zip 导入；仅 P3-14「换源重试」子项、P3-15 更新弹窗未测）** |
 | **P4 平台特有** | 存档导出/导入、Auto Backup、应用内自更新（FileProvider + `REQUEST_INSTALL_PACKAGES`）、通知权限 | 3–4 天 | ✅ 代码完成（存档导出/导入 + Auto Backup + 应用内自更新 + 通知权限全部落地；累计 270 单测全绿，debug/release 均编译通过，lint 0 error）；**真机判据见 §4.4（导出/导入闭环通过；自更新需清单带安卓字段）** |
 | **P5 打磨发布** | 真机矩阵（多 WebView 版本）、性能调优、GitHub Actions 出 APK、签名发版 | 3–5 天 |
 
@@ -679,6 +692,9 @@ P4 新增：
 42. **「能否进游戏」不能把「本地服务已在跑」算进去（真机才暴露的死锁）**：`SpikeController.canEnterGame` 原本要求 `serverState == RUNNING`，但 `init()` 从不启动服务，服务只在 `enterGame()` / `restartServer()` 里起 —— 于是**冷启动（资源已就绪、进程刚起来）时首页「开始运行」是禁用的**，而首页没有第二个启动入口，用户只能绕道打靶页点「重启服务」（P0/P3 一堆判据全卡在这，实测时第一次就撞上）。修法是把判定收窄成「资源就绪 + WebView 达标」（`canEnterGameOf`），服务启动失败的反馈交给 `serverError` 红字（`enterGameBlockReasonOf`）而不是禁用按钮——失败后还得能重试。鸿蒙侧 `LauncherViews.ets` 的「开始运行」只受存储条件限制、本来就不看服务状态，是移植时多加了条件。
 43. **WebView 的 `onReceivedError`（4 参）对**所有**资源都会回调，而主框架 4xx/5xx 走的是另一个回调**：漏了 `request.isForMainFrame` 过滤，游戏里随便丢一个可选资源（图片/脚本）就会把整页换成「游戏加载失败」卡片；反过来只接 `onReceivedError` 又接不住主框架 404 —— 把 `index.html` 移走再重载，用户看到的是本地服务返回的裸文本 `Not Found` 白页（首帧 9ms），没有中文说明也没有「重试」。两个回调都要接，且都以 `isForMainFrame` 为界（子资源失败只记日志）。
 44. **Compose `Slider(steps=…)` 的档位值带浮点漂移**：档位值是 `min + i * (max-min)/steps`，实拉会得到 `10.999999`，界面显示「10.999999x」并把脏数字写进 `cheatParams` 与注入脚本。取值入口（`CheatFormat.resolveNumber`）要做**容差吸附**（`1e-6`）而不是无条件取整 —— 无条件 `round` 会把用户手填的真实中间值（`7.5`）也改掉，与鸿蒙版取值语义分叉。
+
+45. **`ZipInputStream` 是共享的，不能被 `use{}` 关掉 —— 否则「上传资源」彻底不能用**：`GameInstaller.extract()` 对每个条目写的是 `openEntry(entry).use { input -> … }`。走 `ZipFile` 时每次 `getInputStream()` 拿到的都是**独立**的条目流，关它是对的；但走 `installFromStream`（SAF 选包的唯一入口）时 `openEntry` 返回的是**同一个 `ZipInputStream`**，第一个条目读完就把整个 zip 流关掉了，第二个条目 `nextEntry` 立刻抛 `IOException("Stream closed")` → 真机日志 `install failed: 解压失败：Stream closed`，27 个条目只做出 1 个文件。**两个入口共用 `extract`，所以只有流式入口坏**，跑「下载并安装」路径永远看不出问题（这也是它一直没被发现的原因）。修法是给流式入口套一个只屏蔽 `close()` 的 `internal class SharedZipEntryStream(src) : FilterInputStream(src)`（读写全透传），`extract` 保持不动。
+    **教训**：`use{}` 的「谁打开谁关闭」假设在包装流上不成立；判据只写到「弹出选择器」等于没验，文件一定要真的选下去。
 
 ## 7. 风险
 

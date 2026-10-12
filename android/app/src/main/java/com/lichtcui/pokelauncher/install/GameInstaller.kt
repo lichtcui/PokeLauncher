@@ -3,11 +3,27 @@ package com.lichtcui.pokelauncher.install
 import android.util.Log
 import com.lichtcui.pokelauncher.core.Const
 import java.io.File
+import java.io.FilterInputStream
 import java.io.IOException
 import java.io.InputStream
 import java.util.zip.ZipEntry
 import java.util.zip.ZipFile
 import java.util.zip.ZipInputStream
+
+/**
+ * 把共享的 [ZipInputStream] 当成「单个条目的内容流」交给 `extract` 时用。
+ *
+ * `extract` 对每个条目做 `openEntry(entry).use { … }`；关闭独立条目流是对的，
+ * 但流式解压时 `openEntry` 返回的是同一个 `ZipInputStream`，被 `use{}` 关闭后
+ * 后续 `nextEntry` 会抛 `Stream closed`。这层包装只屏蔽 `close()`，读写全部透传。
+ *
+ * 可见性为 `internal` 是为了让单测能锁死这个行为（见 `GameInstallerStreamTest`）。
+ */
+internal class SharedZipEntryStream(src: InputStream) : FilterInputStream(src) {
+    override fun close() {
+        // 故意不关闭：底层 ZipInputStream 由 installFromStream 持有，条目流只是共享视图
+    }
+}
 
 /**
  * 游戏资源的安装与复原。对应鸿蒙版 `GameRepository` 的「原子安装」部分。
@@ -121,7 +137,11 @@ class GameInstaller(root: File) {
         val zipIn = ZipInputStream(input.buffered(256 * 1024))
         // ⚠️ ZipInputStream 是流式的：当前条目的内容流在下一次 nextEntry 后即失效，
         // 所以必须在推进到下一个条目之前把内容读完——extract 的循环正是这么做的。
-        extract(generateSequence { zipIn.nextEntry }, { zipIn }, onProgress)
+        // ⚠️ 另一个坑：extract 对每个条目做 `openEntry(entry).use { … }`。对 ZipFile 来说
+        // 每次拿到的是互不相干的独立流，关掉它是对的；但这里 openEntry 返回的是**同一个**
+        // ZipInputStream，一旦被 use{} 关掉，第二条 nextEntry 就抛 "Stream closed"——
+        // 所以必须包一层屏蔽 close() 的视图（真机验收时「上传资源」正是死在这里）。
+        extract(generateSequence { zipIn.nextEntry }, { SharedZipEntryStream(zipIn) }, onProgress)
     }
 
     private fun precheckSpace(zipLength: Long) {
