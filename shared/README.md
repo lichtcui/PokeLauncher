@@ -59,3 +59,15 @@ node scripts/gen-shared.mjs --check  # 只校验（生成文件是否过期 + �
 - 发布：`scripts/build-release-app.sh` 里再跑一次 `--check`。
 
 失败提示都是「跑 `node scripts/gen-shared.mjs`」，不是让你手改生成文件。
+
+## 验证状态（2026-10-12）
+
+| 环节 | 状态 |
+| --- | --- |
+| `--check` 拦截 | ✅ 实测：故意把 `mime.json` 的 `js` 改成 `text/plain` → 鸿蒙构建失败在 `checkSharedCode` 插件、安卓失败在 `:app:checkSharedCode`；改回即通过。「占位符两端不对齐」「多了没人用的占位符」两种改法同样被拦。 |
+| 生成物落进发布产物 | ✅ 抽查 release 包字面量：鸿蒙 `ets/modules.abc` 含「HarmonyOS NEXT 启动器」措辞，安卓 `classes.dex` 含「启动器（Launcher）」措辞（各只含**本平台**那一份，R8 / 混淆后未丢）。 |
+| 安卓真机 | ✅ 装 debug 包 → 设置 → 法律与免责声明：10 章节全渲染、正文为安卓措辞、新增句「应用启动时会访问 Gitee…」在位；进游戏页正常（canvas 补丁 + Phaser v3.90.0 起来 ⇒ MIME 表端到端可用）。 |
+| 鸿蒙真机 | ⚠️ **未跑**（本机无 `hdc` 设备）：法律页渲染与游戏页注入链 / ArkWeb 日志判据都还没在设备上确认；鸿蒙侧目前只有「debug + release 编译通过 + 发布产物字面量抽查 + 用 Python 复跑 `LegalText` 那套断言」。 |
+| `LegalText.test.ets`（ohosTest） | ⚠️ 只编译通过（故意写坏能正确报错），**没在真机上执行过**（同样缺设备）。 |
+
+⏭️ 待补：接上鸿蒙真机后跑「安装 → 法律页 → 游戏页抓 `ARKWEB-CONSOLE`」与 `hdc shell aa test … OpenHarmonyTestRunner`。
