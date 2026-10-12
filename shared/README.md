@@ -129,6 +129,7 @@ node scripts/gen-shared.mjs --check  # 只校验（生成文件是否过期 + �
 | 该脚本挂在 `--check` 上 | ✅ 实测：改坏一条向量（`1048575 → "1023.9 KB"`）→ 两端构建都会失败在 `checkSharedCode`；去掉鸿蒙 `formatSpeed` 的 `isFinite` 兜底 → 同样失败（这条正是脚本第一次跑就抓出来的：`formatSpeed(NaN)` 会显示 `NaN KB/s`，已修）。 |
 | 向量护栏 | ✅ 实测：把 `cases/format.json` 里 `1048575 → "1024 KB"` 改成 `"1023.9 KB"` → 安卓 `FormatTest` 红、鸿蒙侧复跑也红（同一份期望值）；在两端测试里各手写回一条路径期望值 → `--check` 报「又手写了一份期望值」。 |
 | 向量在**鸿蒙真机**上跑 | ⚠️ **未跑**：`LocalHttpServer.test` / `Format.test` / `GameRepository.test` 都改成了遍历生成向量，只在编译期验证过（缺 `hdc` 设备）。 |
+| 版本号对齐 | ✅ 实测 6 种改法：清单落后于 `AppScope/app.json5`（拦）、清单超前（只提示、exit 0）、版本号相同而 `versionName` 不一致（拦）、安卓 `gradle versionCode=2` 而清单 `androidVersionCode=1`（拦）、安卓版本名不一致（拦）、安卓清单超前（只提示）。 |
 | 手写清单 `version.json` | ✅ 实测 6 种改法全被拦：键名打错（`androidVersioncode`）、写了 `android*` 却没有 `androidVersionName`、只写 `apkUrl`、`minVersionCode > versionCode`、`pageUrl` 缺协议、`versionName` 清空。 |
 | 原生目录 / 白名单 | ✅ 实测 8 种改法全被拦：鸿蒙摇晃幅度 14→15、安卓 `BURST_MS` 900→950、存档目录改名、备份规则多备 `external`、备份规则漏掉存档目录、数据提取只漏一块的 include、APK 目录改名、FileProvider 多放行一条 `cache-path`。 |
 | 混淆白名单 | ✅ 实测 3 种改法全被拦：白名单删掉嵌套类字段（`ReleaseAsset.browser_download_url` / `.size`）、删掉 `methodList` 里的 `load`、`ManifestJson` 新增字段却不同步白名单。 |

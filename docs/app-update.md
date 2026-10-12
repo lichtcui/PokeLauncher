@@ -87,12 +87,17 @@ scripts/build-release-app.sh
 
 1. 递增 `AppScope/app.json5` 的 `versionCode` / `versionName`。
 2. 同步更新仓库根 `version.json`，提交并推到 `master`（Gitee 与 GitHub 各推一份，清单由 Gitee 读取）。
+   > 第 1、2 步是同一件事写在两处，`--check` 会对账：清单**落后**于应用版本会直接构建失败
+   > （落后 = 用户永远收不到更新提示）；清单**超前**只打印一行提示（发布窗口的正常中间态）。
+   > 版本号相同但 `versionName` 不一致也会失败（设置页展示的是清单里的名字）。
 3. 上传新 HAP 到 Gitee Release。
 4. 在 GitHub 建同名 tag + Release，附同一份 HAP（**需先具备 release 签名**，见上节）。
 
 ## 验证
 
 - 临时把远程 `versionCode` 调大 → 重启 App 应弹窗；设置页「应用更新」应显示「发现新版本」。
+  （这里的「远程」指**推上去的清单**：用**已装的旧包**去读它即可，不用重新构建——本地把
+  `version.json` 改得比 `AppScope/app.json5` 大时 `--check` 会打印一行提示，提交时记得两边一起走。）
 - 手动检查失败会显示「检查失败」；启动自动检查失败仅打日志（`Settings`/`Home`/`AppUpdate` tag）。
 - 自动检查节流键：偏好 `pokelauncher_settings` 的 `appUpdateLastCheck`。
 

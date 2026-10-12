@@ -88,9 +88,11 @@ const P = {
   ktBackupRules: 'android/app/src/main/res/xml/backup_rules.xml',
   ktExtractionRules: 'android/app/src/main/res/xml/data_extraction_rules.xml',
   ktProviderPaths: 'android/app/src/main/res/xml/provider_paths.xml',
+  ktGradle: 'android/app/build.gradle.kts',
 };
 
 const problems = [];
+const notes = [];
 const fail = (msg) => problems.push(msg);
 const read = (rel) => readFileSync(join(ROOT, rel), 'utf8');
 
@@ -1250,6 +1252,58 @@ function checkManifestSchema() {
 }
 
 /**
+ * 版本号对齐：`version.json` 是**手写**的（发版流程第 2 步），而应用自身的版本号另写一处
+ * （鸿蒙 `AppScope/app.json5`、安卓 `android/app/build.gradle.kts`）。
+ *
+ * 漂了的两个方向都是真实故障，但只有一个该拦：
+ * - 清单**落后**于应用 → 用户永远收不到「发现新版本」。静默、最坏，必须拦；
+ * - 清单**超前**于应用 → 提示更新却下载不到对应包。发布窗口里这是**正常中间态**
+ *   （docs/app-update.md 还有一条「临时把远程 versionCode 调大」的自更新测试流程），
+ *   所以只提示不拦——真拦了就得为了测一次弹窗把本地版本号也改歪。
+ */
+function checkVersionAlignment() {
+  const manifest = JSON.parse(read('version.json'));
+  const compare = (platform, where, localCode, localName, manifestCode, manifestName) => {
+    if (typeof manifestCode !== 'number' || !Number.isInteger(manifestCode)) return; // 格式问题由 checkManifestSchema 报
+    if (manifestCode < localCode) {
+      fail(
+        `版本对齐：${platform} 更新清单的版本号**落后**于应用自己（${where} versionCode=${localCode}，` +
+          `version.json=${manifestCode}）——清单是 App 判断「有没有新版本」的基准，落后就等于新版本永远不提示。` +
+          '两边是同一件事，发版时一起改（见 docs/app-update.md 的发版流程）。'
+      );
+    } else if (manifestCode > localCode) {
+      notes.push(
+        `${platform} 更新清单版本号（${manifestCode}）高于本地应用版本（${localCode}）：` +
+          '这只应出现在发布窗口或本地测试自更新期间，提交时记得两边一起走。'
+      );
+    } else if (typeof manifestName === 'string' && manifestName !== localName) {
+      fail(
+        `版本对齐：${platform} 版本号一致但版本名不一致（${where} versionName="${localName}" ↔ version.json="${manifestName}"）——` +
+          '界面上要展示清单里的 versionName，改一个漏另一个会显示成旧名字。'
+      );
+    }
+  };
+
+  const app = read('AppScope/app.json5');
+  const appCode = pick(app, /"versionCode"\s*:\s*(\d+)/);
+  const appName = pick(app, /"versionName"\s*:\s*"([^"]*)"/);
+  if (appCode === undefined || appName === undefined) {
+    fail('版本对齐：从 AppScope/app.json5 里读不到 versionCode / versionName（解析失败？）');
+  } else {
+    compare('鸿蒙', 'AppScope/app.json5', Number(appCode), appName, manifest.versionCode, manifest.versionName);
+  }
+
+  const gradle = read(P.ktGradle);
+  const gradleCode = pick(gradle, /\bversionCode\s*=\s*(\d+)/);
+  const gradleName = pick(gradle, /\bversionName\s*=\s*"([^"]*)"/);
+  if (gradleCode === undefined || gradleName === undefined) {
+    fail('版本对齐：从 android/app/build.gradle.kts 里读不到 versionCode / versionName（解析失败？）');
+  } else if (manifest.androidVersionCode !== undefined) {
+    compare('安卓', 'android/app/build.gradle.kts', Number(gradleCode), gradleName, manifest.androidVersionCode, manifest.androidVersionName);
+  }
+}
+
+/**
  * 安卓原生侧的「同一件事写在两个文件里」检查（AGENTS.md 点名的红线）。
  *
  * 这些不是跨端分叉，而是**同一端两份配置**必须对齐，错一处的代价都很大：
@@ -1624,6 +1678,7 @@ checkCaseUsage();
 checkJsBridgeContract();
 checkHarmonyKeepList();
 checkManifestSchema();
+checkVersionAlignment();
 checkNativePathRules();
 checkHarmonyVectors();
 assertKotlinDocs(outputs);
@@ -1650,6 +1705,8 @@ for (const [file, content] of outputs) {
     console.log(`${current === null ? '生成' : '更新'} ${file}`);
   }
 }
+
+for (const n of notes) console.error(`⚠️  ${n}`);
 
 if (CHECK) {
   if (stale) {
