@@ -32,6 +32,7 @@
 | 项 | 决策 | 理由 |
 | --- | --- | --- |
 | 仓库形态 | 本仓库加 **`android/` 子目录**（monorepo） | 共用 `docs/`、共用作弊注册表、共用 issue 与版本节奏 |
+| 跨端共享代码 | 仓库根 **`shared/` + `scripts/gen-shared.mjs` 生成两端源码** | 两端没有共同运行时（KMP 不支持 OHOS target），能真共用的只有 JS 与注册表数据；「生成 + 构建时 `--check`」比「手抄两份」可靠得多（详见 [`shared/README.md`](../shared/README.md)）|
 | 分发渠道 | **GitHub/Gitee Release 直发 APK** | 功能全保留（含「参数调整」+ 应用内自更新），与鸿蒙版定位一致 |
 | UI 技术 | **Jetpack Compose** | 4 页 + 下载状态流 + 精灵球动画，状态管理最省事 |
 | 首版范围 | 先做 **P0 打靶验证** | 先证伪风险（性能 / 兼容性），再投全部工时 |
@@ -40,15 +41,17 @@
 
 ### 3.1 原样复用（纯 JS 字符串 / 纯算法，几乎零改动）
 
-这是本次移植最大的红利——**最有价值的部分不需要重写**：
+这是本次移植最大的红利——**最有价值的部分不需要重写**。而且这部分**已经不再是「复制一份」，而是真的共用一份源码**：[`shared/`](../shared/README.md) 是唯一真相，`scripts/gen-shared.mjs` 生成两端的源码（生成物带「不要手改」头注释，构建时 `--check` 不一致即失败；详见 [`shared/README.md`](../shared/README.md)）。
 
-- [`Cheats.ets`](../entry/src/main/ets/model/Cheats.ets) 的 `CHEATS` 注册表与 7 条 `script` → [`cheat/Cheats.kt`](../android/app/src/main/java/com/lichtcui/pokelauncher/cheat/Cheats.kt)（**JS 逐字保真**，用脚本比对过每一行）
-- [`CheatState.ets`](../entry/src/main/ets/model/CheatState.ets) 的 `SCENE_RUNTIME`（场景捕获：`__onScene` / `__onPhase` / `Array.prototype.push` hook / `Phaser.Game` 包装）+ `buildBootScript()` 拼接逻辑 → `cheat/CheatScripts.kt`；纯编解码 → `cheat/CheatFormat.kt`
+- 参数调整注册表（`CHEATS`）与 7 条 `script`：[`shared/cheats.json`](../shared/cheats.json) + [`shared/js/cheats/*.js`](../shared/js/cheats) → **生成** [`cheat/Cheats.kt`](../android/app/src/main/java/com/lichtcui/pokelauncher/cheat/Cheats.kt) 与 [`model/Cheats.ets`](../entry/src/main/ets/model/Cheats.ets)
+- 场景捕获运行时（`__onScene` / `__onPhase` / `Array.prototype.push` hook）与存档守卫、canvas 补丁 JS：[`shared/js/`](../shared/js) → **生成** `core/SharedJs.kt` 与 `common/SharedJs.ets`；拼接逻辑 `buildBootScript()` → `cheat/CheatScripts.kt`，纯编解码 → `cheat/CheatFormat.kt`
 - `FORCE_WILL_READ_FREQUENTLY` 的 2D canvas 补丁（**Chromium 通病，Android WebView 同样需要**，启动 28s → 4s 的收益照样拿）→ `server/InjectScripts.kt`
 - `SaveGuard` 的 JS 片段（保留；Android 侧它不再是「抢救存档」，而是 Auto Backup / 导出兜底，见 §4.3.2）→ `web/SaveGuard.kt`
-- `resolveRequestPath()` 路径穿越判定、镜像列表、测速策略
+- `resolveRequestPath()` 路径穿越判定、镜像列表、测速策略（这些是**纯逻辑、两份手写**，由 `--check` 对账）
 - 原子安装状态机（`game.new` → `.extract-complete` 标记 → 两次 rename → `recover()`）
 - `Format.ets` 三个格式化函数（改为 Kotlin JVM 单测）
+
+**唯一一处刻意偏离**：`window.Phaser` 属性描述符的归属。鸿蒙版由「参数调整」脚本持有，Android 侧改由 `/__pk_boot.js` 独占（否则两个脚本各 `defineProperty` 一次，后者覆盖前者，必有一方的 setter 永不触发），详见 §4.3.2 第 1 条。这也是共享的 `scene-runtime.core.js` 末尾不带尾适配的原因——两端各拼自己的尾巴。
 
 **唯一一处刻意偏离**：`window.Phaser` 属性描述符的归属。鸿蒙版由「参数调整」脚本持有，Android 侧改由 `/__pk_boot.js` 独占（否则两个脚本各 `defineProperty` 一次，后者覆盖前者，必有一方的 setter 永不触发），详见 §4.3.2 第 1 条。
 
@@ -118,6 +121,7 @@ android/                                   Gradle 8.14.3 / AGP 8.11.0 / Kotlin 2
 │  ├─ App.kt                               Application：启动日志 + 仅 debug 开远程调试 + 偏好/参数调整状态/存档目录初始化
 │  ├─ MainActivity.kt                      唯一 Activity（singleTask + configChanges 不重建）
 │  ├─ core/ Const / Paths / Mime / Format  无 Android 依赖，可 JVM 单测
+│  ├─ core/ SharedJs.kt                    ⚠️ 生成物：共享注入 JS（场景捕获运行时 / 存档守卫 / canvas 补丁）
 │  ├─ core/ Version.kt                     release-<commit> 归一化（与鸿蒙 normalizeVersion 一致）
 │  ├─ core/ Prefs.kt                       SharedPreferences 封装（库名 pokelauncher_settings）
 │  ├─ core/ OrientationPref.kt             屏幕方向偏好（portrait/landscape/system，**只作用于游戏页**）
@@ -136,7 +140,8 @@ android/                                   Gradle 8.14.3 / AGP 8.11.0 / Kotlin 2
 │  ├─ install/ Storage.kt                  3.2× 空间预检（纯函数）
 │  ├─ install/ DownloadStatus.kt           状态快照 / DownloadBus / ProgressMeter / 通知文案（纯逻辑）
 │  ├─ install/ DownloadService.kt          前台服务：通知进度 + 暂停/继续/取消 action + onTimeout
-│  ├─ cheat/ Cheats.kt                     7 条参数调整注册表（JS 逐字保真自 Cheats.ets）
+│  ├─ cheat/ Cheats.kt                     ⚠️ 生成物：参数调整注册表（唯一真相在 shared/）
+│  ├─ cheat/ CheatSlider.kt                Compose 滑块档位换算（手写：两端 UI 写法不同，不进 shared/）
 │  ├─ cheat/ CheatFormat.kt                ids/params 编解码 + 夹紧 + JS 数字字面量（纯函数）
 │  ├─ cheat/ CheatState.kt                 总开关/启用项/参数 + SharedPreferences 持久化
 │  ├─ cheat/ CheatScripts.kt               SCENE_RUNTIME + buildBootScript()（/__cheats__.js 的内容）
@@ -353,17 +358,17 @@ adb logcat -s PokeLauncher          # 全部日志统一 tag
 9. **SaveGuard 在 Android 的定位与鸿蒙不同**：鸿蒙是因为 localStorage 落在 `cache/web/`（会被「清除缓存」清）而必须镜像；Android 的 localStorage 本来就在应用数据目录。这里保留它的目的是 **Auto Backup / 存档导出（P4）的兜底**，并且**只在 localStorage 整体为空时回填**，不覆盖玩家现有存档。落盘到 `filesDir/saves/`（内部存储，Auto Backup 默认覆盖；不用 external）。
 10. **持久化用 SharedPreferences 而不是本文原先写的 DataStore**：服务端在第 N 个资源请求上需要**同步**读 `hasAnyEnabled()` 才能决定注入哪些标签；DataStore 只有异步 API，会逼出一层「内存快照 + 首帧竞态」的额外状态机。偏好项很少，同步读写足够，且零新依赖（工具链仍是 Kotlin 2.0.21）。
 11. **写存档的策略**：去重（与 `diskContent` / `queuedContent` 比）+ 单线程串行 executor + 写前把主文件 `rename` 成 `.bak`。游戏内每 60s 无条件 flush 一次，没变化时不应产生任何 IO（`SaveGuardTest` 覆盖）。
-12. **JS 逐字保真**：7 条脚本的 body/name/desc/param 用脚本逐行比对过（与 `Cheats.ets` 全等），只有 `SCENE_RUNTIME` 末尾按第 1 条改。单测额外锁住两条易错约束：**脚本里不得出现 `$`**（Kotlin raw string 会当模板插值）、**声明了 param 就必须真的读 `__CHEAT_PARAMS__.<id>`**（否则是假旋钮）。
+12. **共享 JS 不再靠「逐字复制」，而靠生成**：`shared/js/**` + `shared/cheats.json` 由 `scripts/gen-shared.mjs` 生成两端源码，`--check` 接在两端构建上（`hvigorfile.ts` 的 `checkSharedCode` / Gradle 的 `:app:checkSharedCode`）。单测仍锁住两条易错约束：**脚本里不得出现 `$`**（Kotlin raw string 会当模板插值）、**声明了 param 就必须真的读 `__CHEAT_PARAMS__.<id>`**（否则是假旋钮），另外还多了「生成物与 `shared/` 一致」「两端 `Const` 常量不分叉」两条。
 13. **`PokeSaveGuard` 桥的混淆边界**：类名可以被 R8 改名（JS 侧用的是传给 `addJavascriptInterface` 的字符串），但方法名必须保留——靠既有的 `-keepclassmembers class * { @android.webkit.JavascriptInterface <methods>; }` 规则；release dex 已验 `load` / `save` / `notifyRestored` 未被改名。
 
 ### 4.3.3 P3（UI）实现期决定
 
 > P3 分块推进：**第一块 = 参数调整页**（已落地），后续是首页四态/下载流/精灵球动画、设置页、游戏页、法律页。
 
-1. **参数调整页完全由 `CHEATS` 驱动**：分组、条目、参数范围、显示文本全部来自注册表，新增条目只改 `cheat/Cheats.kt`（与鸿蒙版「只改 `Cheats.ets`」同一条规则）。这也是为什么把 `CheatParam.sliderSteps()` 放在注册表旁边而不是 UI 文件里。
+1. **参数调整页完全由 `CHEATS` 驱动**：分组、条目、参数范围、显示文本全部来自注册表，新增条目只改 `shared/`（生成到两端；与鸿蒙版同一条规则）。
 2. **总开关放在参数调整页顶部**（鸿蒙版在「设置 → 运行设置」）：开关离条目越近越不容易误操作，也让本页自成一个可验证的闭环（P3 第一块不改设置页）。设置页落地后**只加入口链接**（已落地：一行「参数调整」，右侧显示已开启/已关闭），不重复放开关，避免两处状态分叉。
 3. **不引 `navigation-compose`**：P3 全部页面加起来只有六个（首页/设置/参数调整/法律/打靶/游戏），根组件（`ui/RootScreen.kt`）里的几个布尔量 + **唯一**一个 `BackHandler` 就够（它的 `when` 顺序必须与渲染 `when` 一致，否则返回键会跳到看不见的页面）；多一层依赖还多一层混淆风险。等页面数量真的超了再换。
-4. **滑块档位换算放在 `cheat/Cheats.kt`**：Material3 的 `steps` 是「端点之间的档位数」（0..4 step1 → 3），传错就是崩溃或该滑不动；Compose 文件无法 JVM 单测，所以把它放在注册表旁边（`CheatsTest` 覆盖，含「不能为负」与「每个参数都适配」。基准值均来自注册表，新增参数越界会在单测里直接红）。
+4. **滑块档位换算放在 `cheat/CheatSlider.kt`**：Material3 的 `steps` 是「端点之间的档位数」（0..4 step1 → 3），传错就是崩溃或该滑不动；Compose 文件无法 JVM 单测，所以把它放在注册表旁边（`CheatsTest` 覆盖，含「不能为负」与「每个参数都适配」。基准值均来自注册表，新增参数越界会在单测里直接红）。注：它**刻意不进 `shared/`**——两端 UI（Compose `Slider` vs ArkUI `Slider`）写法不同，共享的只有注册表数据。
 5. **拖动中只改内存，松手才落盘**（与鸿蒙版一致）：SharedPreferences 是同步 `commit`，每次滑动都写盘会掉帧；拖动中只调 `setParamLive`，`onValueChangeFinished` 才 `setParam`。
 6. **改动需重载才生效**：`__CHEAT_PARAMS__` 是 `/__cheats__.js` 在被请求时烘进脚本的，所以页面上写「改动会在重载游戏页后生效」——不承诺「拖动即生效」（与鸿蒙行为一致）。
 7. **文案红线延伸到整页**：标题就叫「参数调整」，风险提示文案与鸿蒙版**逐字一致**（账号风险 + 兼容性风险两行）。日后加新文案先看 `AGENTS.md` §2 的命名约定。

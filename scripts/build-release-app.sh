@@ -55,6 +55,11 @@ APP_UNSIGNED="$OUT_DIR/harmony-pokerouge-default-unsigned.app"
 APP_NAME="$(basename "${APP_UNSIGNED%-unsigned.app}")"
 APP_SIGNED="$OUT_DIR/$APP_NAME-release-signed.app"
 
+# 跨端共享代码（shared/**）：先对账再打包。hvigor 的 checkSharedCode 插件也会跑一次，
+# 这里显式跑是为了让"共享代码没同步"在发布日志里直接可见（而不是藏在构建输出里）。
+echo "==> 0/5 校验跨端共享代码（shared/）"
+node "$ROOT/scripts/gen-shared.mjs" --check
+
 echo "==> 1/5 hvigor 构建未签名 HAP + App Pack"
 "$HVIGOR" assembleHap --mode module -p module=entry@default -p product=default \
   -p buildMode=release --no-daemon

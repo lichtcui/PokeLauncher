@@ -5,6 +5,7 @@ import { hilog } from '@kit.PerformanceAnalysisKit';
 import { mimeOf } from '../common/Mime';
 import { FORCE_WILL_READ_FREQUENTLY, DEBUG_UI } from '../common/Const';
 import { buildBootScript, hasAnyEnabled } from './CheatState';
+import { CANVAS_PATCH_JS } from '../common/SharedJs';
 import { buildSaveGuardScript } from './SaveGuard';
 
 const DOMAIN: number = 0x0000;
@@ -456,18 +457,15 @@ export class LocalHttpServer {
     });
   }
 
-  /** 构建注入脚本（强制 2D canvas willReadFrequently），关闭时返回空串 */
+  /**
+   * 构建 canvas 补丁注入脚本（强制 2D canvas `willReadFrequently`），关闭时返回空串。
+   * JS 本身来自 `shared/js/canvas-patch.js`（与安卓逐字共享，见 shared/README.md）。
+   */
   private buildInjectScript(): string {
     if (!FORCE_WILL_READ_FREQUENTLY) {
       return '';
     }
-    const js: string = 'var o2=HTMLCanvasElement.prototype.getContext;' +
-      'HTMLCanvasElement.prototype.getContext=function(t,a){' +
-      'if(t==="2d"){var n={};if(a){for(var k in a){n[k]=a[k];}}n.willReadFrequently=true;' +
-      'return o2.call(this,t,n);}' +
-      'return o2.apply(this,arguments);};';
-    return '<script>(function(){try{' + js +
-      '}catch(e){console.log("PATCH err "+e);}})();<\/script>';
+    return '<script>' + CANVAS_PATCH_JS + '<\/script>';
   }
 
   /** 动态下发作弊注入脚本：按当前启用清单生成，游戏启动前执行 */

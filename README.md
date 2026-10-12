@@ -119,7 +119,8 @@
 
 ## 其他平台
 
-- **Android**：仓库内的 [`android/`](./android) 是 Android 版（Kotlin + Jetpack Compose + NanoHTTPD + WebView，同一个应用 ID / 同一个资源包来源），目前处于 **P0 打靶验证阶段**，尚不可日常使用。方案、分期计划与编译步骤见 [`docs/android-port.md`](./docs/android-port.md)。
+- **Android**：仓库内的 [`android/`](./android) 是 Android 版（Kotlin + Jetpack Compose + NanoHTTPD + WebView，同一个应用 ID / 同一个资源包来源），代码已按 P0–P4 全部落地，但**尚未在真机上跑过验收判据**，暂不可日常使用。方案、分期计划与编译步骤见 [`docs/android-port.md`](./docs/android-port.md)。
+- **两端共用的部分**（参数调整注册表与注入 JS）在仓库根 [`shared/`](./shared/README.md)：由 `scripts/gen-shared.mjs` **生成**成两端源码，不是手抄两份；改了 `shared/` 忘记重新生成会直接构建失败。
 
 ## 许可与免责
 

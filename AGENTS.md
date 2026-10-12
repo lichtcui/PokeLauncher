@@ -54,8 +54,10 @@
 - **ArkUI 坑**：`@Builder` 的**值参数**不会触发重渲染，动态文案要直接在 `build()` 里读 `@State`（见 `Settings.ets` 的「检查更新」「删除本地数据」行）；需要随状态刷新时用 `@Component` + `@Prop`。
 - **release 已开混淆**（`entry/build-profile.json5` + `entry/obfuscation-rules.txt`）。新增 JSON 解析字段或 `javaScriptProxy` 的 `methodList` 方法名时，必须把对应属性名加进 `-keep-property-name`，否则 release 包会静默读不到值。未开 `-enable-filename-obfuscation`（会破坏 `main_pages.json` 静态路由）。
 - 新增静态资源放 `entry/src/main/resources/base/media/`，引用 `$r('app.media.xxx')`。
-- **新增作弊条目只改 `model/Cheats.ets`**（见 [`docs/cheats.md`](./docs/cheats.md)），UI/状态/注入会自动生效。
+- **新增作弊条目只改 `shared/cheats.json` + 新增一个 `shared/js/cheats/<id>.js`**，然后跑 `node scripts/gen-shared.mjs`（见 [`docs/cheats.md`](./docs/cheats.md)、[`shared/README.md`](./shared/README.md)）。两端的注册表（`entry/src/main/ets/model/Cheats.ets`、`android/.../cheat/Cheats.kt`）是**生成物，不要手改**；UI/状态/注入会自动生效。
   - ⚠️ 命名：该功能在 **UI 上叫「参数调整」**（`作弊` 字样会触发应用商店审核风险），代码/文档沿用 `cheat` 命名。**新增任何用户可见文案都用「参数调整」**。
+- **跨端共享代码 = `shared/`（生成，不是引用）**：鸿蒙 ArkTS 与安卓 Kotlin 没有共同运行时（KMP 不支持 OHOS target），两端之间真正能共享的只有 **JS 字符串与注册表数据**。`scripts/gen-shared.mjs` 从 `shared/**` 生成 4 个文件（两个 `Cheats` + 两个 `SharedJs`），生成物一律**不要手改**。
+  - 护栏：`hvigorfile.ts` 的 `checkSharedCode` 插件与 Gradle 的 `:app:checkSharedCode`（`preBuild` 前置）都会跑 `node scripts/gen-shared.mjs --check`，**不一致直接构建失败**；它还会拦「把共享 JS 重新内联回某一端」与 `$` / `"""` / 反引号 这类会静默破坏 raw string 的字符，并对账 `common/Const.ets` ↔ `core/Const.kt` 的端口 / 镜像列表 / 版本清单地址（这两份**不生成**，因为各自还有平台独有内容）。
 - **存档是 Web 的 `localStorage`，物理落在 `<沙箱>/cache/web/`**，会被「清除缓存」清掉。因此 `model/SaveGuard.ets` 会把它镜像到 `files/saves/` 并在清空时自动回填——**任何需要持久化的数据都不要放 `cache/`**，放 `files/`。
 
 ### 测试（ohosTest，跑在真机）
@@ -85,6 +87,7 @@ HDC=/Applications/DevEco-Studio.app/Contents/sdk/default/openharmony/toolchains/
 | 文档 | 内容 |
 | --- | --- |
 | [`docs/architecture.md`](./docs/architecture.md) | 目录结构、运行原理、关键行为 |
+| [`shared/README.md`](./shared/README.md) | 跨端共享代码（`shared/**` 生成两端源码的机制与护栏） |
 | [`docs/cheats.md`](./docs/cheats.md) | 作弊框架、新增作弊条目 |
 | [`docs/app-update.md`](./docs/app-update.md) | 应用自更新能力边界、实现、发版流程 |
 | [`docs/device-cli.md`](./docs/device-cli.md) | 本 App 的日志 tag 与抓日志要点 |
@@ -103,7 +106,7 @@ export ANDROID_HOME=/usr/local/share/android-commandlinetools
 export PATH="$JAVA_HOME/bin:$PATH"
 cd android
 ./gradlew assembleDebug        # → app/build/outputs/apk/debug/app-debug.apk
-./gradlew testDebugUnitTest    # JVM 纯函数单测 270 例（core / install / cheat / server / web / appupdate / ui）
+./gradlew testDebugUnitTest    # JVM 纯函数单测 282 例（core / install / cheat / server / web / appupdate / ui）
 ./gradlew :app:lintDebug       # 需 0 error（MissingPermission 等）
 ```
 
@@ -115,10 +118,10 @@ Android 侧的红线（改之前先读）：
 - **`keystore.properties` / `*.jks` / `*.keystore` 绝不入库**（已加进 `android/.gitignore`，同 `signature/` 的红线）。
 - **release 已开 R8**：新增 JS 桥方法名（`@JavascriptInterface`）或 `JSONObject` 解析的字段名时，要同步 `app/proguard-rules.pro`；写完后用 `./gradlew assembleRelease` 验证，并确认 debug/release 的 dex 行为一致（`PokeNative` 等字符串两边都要在）。注：下载链路的 JSON 全部用**字符串字面量**（`optString("tag_name")`）解析，不要改成反射式/序列化框架式的“属性名当 key”。
 - **断点续传不能拼坏包**：服务端忽略 `Range` 返回 200 时必须 `setLength(0)` 从头重下；只有**下载失败**才换源，解压失败不换源（重下 507MB 白亏）。
-- **通用代码对齐两套实现**：`core/Const.kt` 与 `common/Const.ets`（端口、镜像列表、资源来源）必须同步修改，否则两端行为分叉。
+- **通用代码对齐两套实现**：`core/Const.kt` 与 `common/Const.ets`（端口、镜像列表、资源来源）必须同步修改，否则两端行为分叉——这份**由 `node scripts/gen-shared.mjs --check` 自动对账**（两端构建都会跑，不一致就失败）。
 - **`window.Phaser` 的属性描述符只能由 `/__pk_boot.js` 持有**：「参数调整」运行时（`cheat/CheatScripts.kt`）只往 `window.__pkGameHooks` 里压回调，**不得**再 `Object.defineProperty(window,'Phaser',…)`（写两次会静默覆盖，先注册的一方 setter 永不触发）；两边都用 `x = x || []` 复用数组。注入顺序固定为 **存档守卫 → 参数调整 → 引导脚本**（`server/InjectScripts.kt`，`InjectScriptsTest` 锁住）。
 - **WebView 缓存只用 `clearCache(true)`，**绝不能**用 `clearStorage`/`deleteAllData()`**（会连 localStorage 存档一起干掉）；`clearCache` 必须主线程（统一走 `web/WebCache.kt`）。资源包版本变了要清一次（偏好键 `lastCachedGameVersion`，覆盖「后台服务里装完时游戏页从未打开」的时机）。
-- **参数调整（cheat）**：UI 文案一律叫「**参数调整**」（不得出现「作弊」字样，审核风险）；`cheat/Cheats.kt` 的 7 条 JS 必须与 `entry/src/main/ets/model/Cheats.ets` **逐字同步**（改一边就得改另一边），且**不得出现 `$`**（Kotlin raw string 会当模板插值，单测有断言）；声明了 `param` 就必须真的读 `__CHEAT_PARAMS__`。开关是「总开关 && 至少一条启用」才注入 `/__cheats__.js`。参数调整页（`ui/CheatScreen.kt`）完全由注册表驱动，**新增条目不需要改 UI**；总开关在参数调整页顶部（与鸿蒙的「设置页」位置不同），开启前有账号风险确认弹窗，设置页里**只加入口行**（显示已开启/已关闭），不重复放开关。
+- **参数调整（cheat）**：UI 文案一律叫「**参数调整**」（不得出现「作弊」字样，审核风险）；`cheat/Cheats.kt` 与 `entry/.../model/Cheats.ets` 都是 `shared/` 的**生成物**（改一边即可、由 `scripts/gen-shared.mjs` 同步两边），共享 JS **不得出现 `$`**（Kotlin raw string 会当模板插值，生成器与单测都有断言）；声明了 `param` 就必须真的读 `__CHEAT_PARAMS__`。开关是「总开关 && 至少一条启用」才注入 `/__cheats__.js`。参数调整页（`ui/CheatScreen.kt`）完全由注册表驱动，**新增条目不需要改 UI**（只改 `shared/`）；总开关在参数调整页顶部（与鸿蒙的「设置页」位置不同），开启前有账号风险确认弹窗，设置页里**只加入口行**（显示已开启/已关闭），不重复放开关。
 - **状态持久化用 `core/Prefs.kt`（SharedPreferences，库名 `pokelauncher_settings` 与鸿蒙一致），不用 DataStore**：本地 HTTP 服务要在处理 `/index.html` 时**同步**读 `hasAnyEnabled()`。存档镜像落 `filesDir/saves/`（对应鸿蒙的 SaveGuard，只为 Auto Backup/导出兜底），同样不得放 `cacheDir`。
 - **首页四态/阶段判定写在 `ui/HomeState.kt` 的纯函数里**（`homeStateOf` / `inFlowOf` / `prepPhaseOf` / `flowTitleOf` …），**不要**把它们塞回 `@Composable`：本机没有模拟器/真机，Compose 组件零验证，纯函数能被 `HomeStateTest` 锁住。两条容易改错的边界：四态优先级是 `initializing` → `inFlow` → `gameReady`（更新资源时旧包还在，不能直接跳就绪页）；**`DownloadPhase.PAUSED` 算「流程中」**（它不在 `isActive` 里，漏算会让用户暂停后再也点不到「继续」）。
 - **`SpikeController.installing` 是独立状态**：它和 `busy` 不是一回事——「删除本地数据」也是 `busy`，但绝不能渲染成「正在解压」。

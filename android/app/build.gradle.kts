@@ -89,3 +89,26 @@ dependencies {
     // 单测里能真的解析 JSON（android.jar 里的 org.json 是空实现，会抛 "Stub!"）
     testImplementation(libs.json)
 }
+
+/**
+ * 跨端共享代码校验：`shared/` 目录（两端共用的 JS 与数据）由 `scripts/gen-shared.mjs` 生成成
+ * 两端源码，改了没重新生成 / 两端常量分叉时让构建直接失败。
+ *
+ * 保险丝的位置在编译之前（`preBuild`）：否则「改了 shared/ 忘了跑生成器」的后果是两端行为
+ * 静默不一致，比编译错误难查得多。详见 shared/README.md。
+ */
+val nodeBin: String = providers.environmentVariable("NODE_BIN").orNull
+    // DevEco 自带的 node（macOS 常见位置）：Android Studio 起的 Gradle 有时 PATH 里没有 node
+    ?: listOf("/Applications/DevEco-Studio.app/Contents/tools/node/bin/node")
+        .firstOrNull { File(it).canExecute() }
+    ?: "node"
+
+val checkSharedCode by tasks.registering(Exec::class) {
+    group = "verification"
+    description = "校验 shared/ 与两端生成代码是否同步（node scripts/gen-shared.mjs --check）"
+    // android/ 的上一级才是仓库根
+    workingDir = rootProject.projectDir.parentFile
+    commandLine(nodeBin, "scripts/gen-shared.mjs", "--check")
+}
+
+tasks.named("preBuild") { dependsOn(checkSharedCode) }

@@ -1,15 +1,20 @@
 /**
- * 作弊注册表：条目内容集中在此维护，可无限扩展。
+ * 参数调整（代码里沿用 cheat 命名）注册表。
  *
- * 所有条目均为「实时作弊」：注入脚本在游戏启动前捕获运行中的 Phaser 场景
- * （BattleScene），然后 hook 游戏方法或直接修改内存数据，开启后即时生效、无需重启。
+ * ⚠️ **本文件由 `scripts/gen-shared.mjs` 自动生成，不要手改**。
+ * 唯一真相在仓库根 `shared/cheats.json` + `shared/js/cheats/<id>.js`：
+ * 改完跑 `node scripts/gen-shared.mjs`，两端（鸿蒙 / 安卓）一起更新。
  *
- * 数值型条目可声明 param，脚本里通过 __CHEAT_PARAMS__.<param.id> 读取当前值。
- * 实时实现依赖游戏内部方法名，游戏更新后可能失效（详见 README「作弊原理」）。
+ * 所有条目均为「实时调整」：脚本在游戏启动前捕获运行中的 Phaser 场景（BattleScene），
+ * 然后 hook 游戏方法或直接改内存数据，开启后即时生效、无需重启。
+ * 数值型条目可声明 param，脚本里通过 `__CHEAT_PARAMS__.<param.id>` 读取当前值。
+ * 实时实现依赖游戏内部方法名，游戏更新后可能失效（详见 README「参数调整原理」）。
  *
- * ⚠️ 风险：PokéRogue 官方对作弊有检测机制，Hook 改数据可能被标记/封禁。
- * 开启作弊后的存档不纯净，不建议再导入在线版。
+ * ⚠️ 风险：官方对修改存档有检测机制，Hook 改数据可能被标记。开启后的存档不纯净，
+ * 不建议再导入在线版。
+ * ⚠️ UI 文案一律「参数调整」，「作弊」字样有应用商店审核风险。
  */
+
 export interface CheatParam {
   id: string;
   label: string;
@@ -31,17 +36,17 @@ export interface CheatGroupInfo {
   subtitle: string;
 }
 
-/** 分组顺序即作弊页的展示顺序 */
+/** 分组顺序即参数调整页的展示顺序 */
 export const CHEAT_GROUPS: CheatGroupInfo[] = [
   {
     id: 'multiplier',
-    title: '倍率修改',
-    subtitle: '放大游戏内收益（实时生效）'
+    title: "倍率修改",
+    subtitle: "放大游戏内收益（实时生效）"
   },
   {
     id: 'other',
-    title: '其他',
-    subtitle: '直接修改游戏内数据（实时生效）'
+    title: "其他",
+    subtitle: "直接修改游戏内数据（实时生效）"
   }
 ];
 
@@ -54,20 +59,21 @@ export interface Cheat {
   param?: CheatParam;
 }
 
+/** 条目顺序即参数调整页的展示顺序 */
 export const CHEATS: Cheat[] = [
   {
     id: 'candy',
-    name: '糖果获取倍率',
-    desc: '捕获 / 孵化 / Boss 获得的糖果 ×N（消耗糖果不受影响）',
+    name: "糖果获取倍率",
+    desc: "捕获 / 孵化 / Boss 获得的糖果 ×N（消耗糖果不受影响）",
     group: 'multiplier',
     param: {
-      id: 'candy',
-      label: '倍率',
+      id: "candy",
+      label: "倍率",
       min: 1,
       max: 100,
       default: 10,
       step: 1,
-      unit: 'x'
+      unit: "x"
     },
     script: `__onScene(function(scene){
   var N = Number(__CHEAT_PARAMS__.candy || 10);
@@ -85,17 +91,17 @@ export const CHEATS: Cheat[] = [
   },
   {
     id: 'exp',
-    name: '经验获取倍率',
-    desc: '战斗获得的经验 ×N（实时，升级立即结算）',
+    name: "经验获取倍率",
+    desc: "战斗获得的经验 ×N（实时，升级立即结算）",
     group: 'multiplier',
     param: {
-      id: 'exp',
-      label: '倍率',
+      id: "exp",
+      label: "倍率",
       min: 1,
       max: 100,
       default: 10,
       step: 1,
-      unit: 'x'
+      unit: "x"
     },
     script: `__onScene(function(scene){
   var N = Number(__CHEAT_PARAMS__.exp || 10);
@@ -119,17 +125,17 @@ export const CHEATS: Cheat[] = [
   },
   {
     id: 'money',
-    name: '金币获取倍率',
-    desc: '战斗获得的金币 ×N（消费金币不受影响）',
+    name: "金币获取倍率",
+    desc: "战斗获得的金币 ×N（消费金币不受影响）",
     group: 'multiplier',
     param: {
-      id: 'money',
-      label: '倍率',
+      id: "money",
+      label: "倍率",
       min: 1,
       max: 100,
       default: 10,
       step: 1,
-      unit: 'x'
+      unit: "x"
     },
     script: `__onScene(function(scene){
   var N = Number(__CHEAT_PARAMS__.money || 10);
@@ -145,8 +151,8 @@ export const CHEATS: Cheat[] = [
   },
   {
     id: 'luck',
-    name: '幸运值拉满',
-    desc: '全队幸运值拉满（SSS），提升战后奖励升级与稀有遭遇',
+    name: "幸运值拉满",
+    desc: "全队幸运值拉满（SSS），提升战后奖励升级与稀有遭遇",
     group: 'other',
     script: `__onScene(function(scene){
   function apply(){
@@ -178,8 +184,8 @@ export const CHEATS: Cheat[] = [
   },
   {
     id: 'catch',
-    name: '100% 捕获率',
-    desc: '投球必定捕获野生宝可梦（训练师战无法投球，不受影响）',
+    name: "100% 捕获率",
+    desc: "投球必定捕获野生宝可梦（训练师战无法投球，不受影响）",
     group: 'other',
     script: `__onPhase("AttemptCapturePhase", function(phase){
   var proto = Object.getPrototypeOf(phase);
@@ -192,8 +198,8 @@ export const CHEATS: Cheat[] = [
   },
   {
     id: 'free-egg',
-    name: '免费抽蛋',
-    desc: '抽蛋不消耗扭蛋券；券数不足时会保底显示为 25（仅显示、不扣减）',
+    name: "免费抽蛋",
+    desc: "抽蛋不消耗扭蛋券；券数不足时会保底显示为 25（仅显示、不扣减）",
     group: 'other',
     script: `__onScene(function(scene){
   var gd = scene.gameData;
@@ -217,17 +223,17 @@ export const CHEATS: Cheat[] = [
   },
   {
     id: 'reward-tier',
-    name: '强制奖励稀有度',
-    desc: '战后奖励固定为指定稀有度（重掷仍保持）',
+    name: "强制奖励稀有度",
+    desc: "战后奖励固定为指定稀有度（重掷仍保持）",
     group: 'other',
     param: {
-      id: 'rewardTier',
-      label: '档位',
+      id: "rewardTier",
+      label: "档位",
       min: 0,
       max: 4,
       default: 4,
       step: 1,
-      labels: ['Common', 'Great', 'Ultra', 'Rogue', 'Master']
+      labels: ["Common", "Great", "Ultra", "Rogue", "Master"]
     },
     script: `__onPhase("SelectModifierPhase", function(phase){
   var proto = Object.getPrototypeOf(phase);

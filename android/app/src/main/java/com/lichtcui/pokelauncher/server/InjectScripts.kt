@@ -1,6 +1,7 @@
 package com.lichtcui.pokelauncher.server
 
 import com.lichtcui.pokelauncher.core.Const
+import com.lichtcui.pokelauncher.core.SharedJs
 
 /**
  * 注入脚本。
@@ -57,17 +58,10 @@ object InjectScripts {
      *    这是必须在 JS 侧消除的隐性 bug（详见 `cheat/CheatScripts.kt` 的类注释）。
      */
     fun bootScript(patchCanvas: Boolean): String {
+        // canvas 补丁来自 `shared/js/canvas-patch.js`（与鸿蒙逐字共享，见 shared/README.md）。
+        // 这里不用本地 `log()` 而是自己 console.log('PK …')，因为共享片段必须能独立注入到鸿蒙侧。
         val canvasJs = if (patchCanvas) {
-            """
-            try{
-              var _gc=HTMLCanvasElement.prototype.getContext;
-              HTMLCanvasElement.prototype.getContext=function(t,a){
-                if(t==='2d'){var n={};if(a){for(var k in a){n[k]=a[k];}}n.willReadFrequently=true;return _gc.call(this,t,n);}
-                return _gc.apply(this,arguments);
-              };
-              log('canvas willReadFrequently patch applied');
-            }catch(e){log('canvas patch err '+e)}
-            """.trimIndent()
+            SharedJs.CANVAS_PATCH_JS
         } else {
             "log('canvas patch disabled (A/B baseline)');"
         }

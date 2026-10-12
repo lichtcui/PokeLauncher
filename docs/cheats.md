@@ -3,6 +3,8 @@
 > 操作手册见 [`../AGENTS.md`](../AGENTS.md)。
 >
 > **命名约定**：这个功能在 UI 上叫 **「参数调整」**（`作弊` 这类字眼会触发应用商店审核风险），但代码与本文档沿用 `cheat` 命名（`Cheats.ets` / `CheatState.ets` / `buildBootScript`）。看到两者指的是同一个东西。
+>
+> **注册表在哪**：条目与脚本的唯一真相在仓库根 [`shared/cheats.json`](../shared/cheats.json) + [`shared/js/cheats/`](../shared/js/cheats)（`Cheats.ets` / `Cheats.kt` 是生成物），机制见 [`shared/README.md`](../shared/README.md)。安卓侧同一套代码的落地见 [`android-port.md`](./android-port.md)。
 
 所有作弊都是**实时 hook**：注入脚本在游戏启动前捕获运行中的 Phaser 场景（`BattleScene`），再 hook 游戏方法或直接改内存数据；**注入后在游戏内即时生效**（无需像旧方案那样存档 + 读档）。⚠️ 更改开关/数值需要**重新进入游戏页**（或重启 App）才会重新注入。
 
@@ -10,7 +12,11 @@
 
 | 文件 | 职责 |
 | --- | --- |
-| `model/Cheats.ets` | 作弊注册表 `CHEATS: Cheat[]`，每条 `{ id, name, desc, group, script, param? }`。**新增作弊只改这里。** |
+| `shared/cheats.json` | **唯一真相**：分组 + 条目（`id` / `name` / `desc` / `group` / `script` 引用 / `param`） |
+| `shared/js/cheats/<id>.js` | **唯一真相**：每条一条纯 JS 脚本（文件本身就是脚本，不涉及字符串转义） |
+| `scripts/gen-shared.mjs` | 生成器 + 校验器：产出两端注册表与共享 JS 常量，并对账两端常量/注入链（`--check` 供构建使用） |
+| `model/Cheats.ets` | **生成物**（不要手改）：鸿蒙注册表 `CHEATS: Cheat[]`，每条 `{ id, name, desc, group, script, param? }` |
+| `common/SharedJs.ets` | **生成物**：共享注入 JS 常量（场景捕获运行时 / 存档守卫 / canvas 补丁） |
 | `model/CheatState.ets` | 内存单例 + 持久化（`pokelauncher_settings` 的 `cheatMaster` / `cheatEnabledIds` / `cheatParams`）+ `buildBootScript()`（注入 `__CHEAT_PARAMS__` + **场景捕获运行时** + 按启用清单拼接 script） |
 | `LocalHttpServer.ets` | `/index.html` 注入 `<script src="/__cheats__.js">`；`/__cheats__.js` 请求时调 `buildBootScript()` 动态下发（`no-cache`） |
 | `pages/Settings.ets` | 「参数调整」总开关（开启时弹账号风险 + 兼容性风险确认框） |
@@ -28,6 +34,8 @@
   2. 用 `Object.defineProperty(window, "Phaser", {set})` 在 `window.Phaser` 赋值时**包装 `Phaser.Game` 构造函数**，`new Phaser.Game()` 时拿到实例。
 - 用「方法名鸭子类型」判定 BattleScene：有 `addMoney` / `getPlayerParty` / `ui` / `phaseManager`。
 - 捕获后 `window.__cheatScene` 暴露实例（便于 DevTools 调试），并卸载 push 钩子。
+
+> 上面这些都在 [`shared/js/scene-runtime.core.js`](../shared/js/scene-runtime.core.js) 里，两端逐字共享。**但「谁持有 `window.Phaser` 描述符」是各端自己的事**：鸿蒙只有这一个注入脚本会碰它，所以由它 `defineProperty`；安卓还多一个 `/__pk_boot.js`（canvas 补丁 + 启动计时）也要包装 `Phaser.Game`，两个脚本各 `defineProperty` 一次会互相覆盖（先注册的一方 setter 永不触发），因此安卓把描述符**只交给 boot 脚本**，本脚本改为往 `window.__pkGameHooks` 里压回调——即共享文件末尾只到 `Array.prototype.push` hook，尾部追加由各端自己做。
 - 日志（`ARKWEB-CONSOLE`）：`CHEAT phaser Game wrapped` / `CHEAT game constructed` / `CHEAT watch scenes=N` / `CHEAT scene captured` / `CHEAT phase hook installed`。
 
 ## 现有条目与 hook 点（参考）
@@ -44,31 +52,38 @@
 
 ## 添加一条作弊（步骤）
 
-1. 在 `model/Cheats.ets` 的 `CHEATS` 数组追加一项：
+1. 新建脚本文件 `shared/js/cheats/<id>.js`（纯 JS，就是 `script` 的内容）：
 
-   ```ts
+   ```js
+   __onScene(function(scene){
+     var N = Number(__CHEAT_PARAMS__.money || 10);
+     var proto = Object.getPrototypeOf(scene);
+     if (proto && typeof proto.addMoney === "function" && !proto.__cheatMoney) {
+       var orig = proto.addMoney;
+       proto.addMoney = function(amount){ return orig.call(this, amount * N); };
+       proto.__cheatMoney = true;
+     }
+   });
+   ```
+
+2. 在 `shared/cheats.json` 的 `cheats` 数组追加一块（顺序 = 页面展示顺序）：
+
+   ```json
    {
-     id: 'money',             // 唯一且稳定；持久化用它，发布后不要改
-     name: '金币获取倍率',
-     desc: '说明文字（显示在作弊页）',
-     group: 'multiplier',     // 分组：'multiplier'=倍率修改 / 'other'=其他
-     // 用 __onScene 拿实时 scene；用 __CHEAT_PARAMS__ 读数值参数
-     script: `__onScene(function(scene){
-       var N = Number(__CHEAT_PARAMS__.money || 10);
-       var proto = Object.getPrototypeOf(scene);
-       if (proto && typeof proto.addMoney === "function" && !proto.__cheatMoney) {
-         var orig = proto.addMoney;
-         proto.addMoney = function(amount){ return orig.call(this, amount * N); };
-         proto.__cheatMoney = true;
-       }
-     });`,
-     // 可选：数值型参数（作弊页自动出现 Slider）
-     param: { id: 'money', label: '倍率', min: 1, max: 100, default: 10, step: 1, unit: 'x' }
+     "id": "money",            // 唯一且稳定；持久化用它，发布后不要改
+     "name": "金币获取倍率",
+     "desc": "说明文字（显示在参数调整页）",
+     "group": "multiplier",    // 分组：multiplier=倍率修改 / other=其他
+     "script": "cheats/money.js",
+     "param": { "id": "money", "label": "倍率", "min": 1, "max": 100, "default": 10, "step": 1, "unit": "x" }
    }
    ```
 
-2. **不需要改任何 UI/状态代码**：作弊页自动遍历 `CHEATS` 渲染，开关与数值参数自动持久化。
-3. 验证：按 [`../AGENTS.md`](../AGENTS.md) 的「编译 → 安装 → 重启」闭环装到真机 → 设置开「参数调整」→ 首页「参数调整」打开该条 → 进入游戏 → 抓 `ARKWEB-CONSOLE` 日志确认 hook 命中。
+3. `node scripts/gen-shared.mjs`（生成两端的 `Cheats.ets` / `Cheats.kt`）。
+   - 生成器会先校验：`id` 唯一、分组存在、`min < max`、`default` 在区间内、`labels` 档位数对得上、脚本用 `__onScene`/`__onPhase` 注册、声明了 `param` 就真的读了 `__CHEAT_PARAMS__.<id>`、没有孤儿脚本文件、JS 里没有 `$` / `"""` / 反引号。
+   - 忘记跑生成器 / 改完只改一边：**两端构建都会跑 `--check` 并向你报错**。
+4. **不需要改任何 UI/状态代码**：参数调整页自动遍历 `CHEATS` 渲染，开关与数值参数自动持久化。
+5. 验证：按 [`../AGENTS.md`](../AGENTS.md) 的「编译 → 安装 → 重启」闭环装到真机 → 设置开「参数调整」→ 首页「参数调整」打开该条 → 进入游戏 → 抓 `ARKWEB-CONSOLE` 日志确认 hook 命中。
 
 ## script 运行环境与约定
 
@@ -82,7 +97,7 @@
 
 ## 注意
 
-- `script` 是字符串，注意转义（外层单引号则内部用双引号，或用反引号）；它是纯 JS，不受 ArkTS 类型限制。
+- `script` 现在是 `shared/js/cheats/<id>.js` 文件本身（纯 JS，**不需要考虑转义**）；但生成器禁止其中出现 `$`（Kotlin raw string 会当模板插值）与反引号，需要时用 `String.fromCharCode(36)` 之类绕开，或改用字符串拼接。
 - ⚠️ 作弊会污染存档，官方有检测机制（可能被标记/封禁），仅离线使用，**勿导入在线版**。
 - **实时依赖游戏内部方法名**：本 App 会从 GitHub Release 自动更新 `game.zip`，游戏升级后方法名可能变化 → 作弊可能失效。新增条目时优先选稳定的公开方法名，并注意用鸭子类型（方法名）而非类名识别。
 - 需要「直接改数据」而非「放大增量」时（如幸运值、扭蛋券），直接改 `scene`/`scene.gameData` 上的内存对象即可；要「持续维持」则 hook 相应入口（如 `addPlayerPokemon`、`consumeVouchers`）。phase 相关的 hook 用 `__onPhase(phaseName, cb)`。

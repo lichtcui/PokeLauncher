@@ -1,18 +1,19 @@
 package com.lichtcui.pokelauncher.cheat
 
 /**
- * 「参数调整」条目注册表：条目内容集中在此维护，可无限扩展。
- * 对应鸿蒙版 `model/Cheats.ets`（**JS 脚本逐字保真**，改这里等于改游戏内行为）。
+ * 「参数调整」条目注册表。
  *
- * 所有条目均为「实时调整」：注入脚本在游戏启动前捕获运行中的 Phaser 场景
- * （BattleScene），然后 hook 游戏方法或直接修改内存数据，开启后即时生效、无需重启。
+ * ⚠️ **本文件由 `scripts/gen-shared.mjs` 自动生成，不要手改**。
+ * 唯一真相在仓库根 `shared/cheats.json` + `shared/js/cheats/<id>.js`：
+ * 改完跑 `node scripts/gen-shared.mjs`，两端（鸿蒙 / 安卓）一起更新。
  *
+ * 所有条目均为「实时调整」：脚本在游戏启动前捕获运行中的 Phaser 场景（BattleScene），
+ * 然后 hook 游戏方法或直接改内存数据，开启后即时生效、无需重启。
  * 数值型条目可声明 [CheatParam]，脚本里通过 `__CHEAT_PARAMS__.<param.id>` 读取当前值。
- * 实时实现依赖游戏内部方法名，游戏更新后可能失效（详见 README「参数调整原理」）。
  *
  * ⚠️ 命名：UI 上叫「参数调整」（`作弊` 字样有应用商店审核风险），代码沿用 cheat。
- * ⚠️ 新增条目只改本文件的 [CHEATS]：注入、状态、UI 会自动生效
- * （见 [`docs/cheats.md`](../../../../../../../../../../docs/cheats.md)）。
+ * ⚠️ 脚本由生成器保证不含 `$` / `"""`（Kotlin raw string 的两个坑），别手工加回来。
+ * ⚠️ 滑块档位换算在 [sliderSteps]（手写文件），不在本生成文件里。
  */
 data class CheatParam(
     val id: String,
@@ -45,19 +46,7 @@ data class Cheat(
 /** 分组顺序即参数调整页的展示顺序 */
 val CHEAT_GROUPS: List<CheatGroup> = CheatGroup.entries.toList()
 
-/**
- * 把参数映射成 Compose `Slider` 需要的档位数。
- *
- * ⚠️ Material3 的 `steps` 是「**端点之间**的档位数」，不是总档数：
- * `0..4` 且 step 1 → `3`（也就是 0/1/2/3/4 五档）。算不出整数档位时返回 0（连续滑块），
- * 免得给 Slider 传负数直接崩。
- */
-fun CheatParam.sliderSteps(): Int {
-    if (step <= 0.0) return 0
-    val gaps = ((max - min) / step).toInt() - 1
-    return if (gaps > 0) gaps else 0
-}
-
+/** 条目顺序即参数调整页的展示顺序（也是注入时的脚本拼接顺序） */
 val CHEATS: List<Cheat> = listOf(
     Cheat(
         id = "candy",
@@ -212,10 +201,7 @@ val CHEATS: List<Cheat> = listOf(
         name = "强制奖励稀有度",
         desc = "战后奖励固定为指定稀有度（重掷仍保持）",
         group = CheatGroup.OTHER,
-        param = CheatParam(
-            id = "rewardTier", label = "档位", min = 0.0, max = 4.0, defaultValue = 4.0, step = 1.0,
-            labels = listOf("Common", "Great", "Ultra", "Rogue", "Master")
-        ),
+        param = CheatParam(id = "rewardTier", label = "档位", min = 0.0, max = 4.0, defaultValue = 4.0, step = 1.0, labels = listOf("Common", "Great", "Ultra", "Rogue", "Master")),
         script = """
             __onPhase("SelectModifierPhase", function(phase){
               var proto = Object.getPrototypeOf(phase);

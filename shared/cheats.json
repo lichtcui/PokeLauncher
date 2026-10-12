@@ -1,0 +1,108 @@
+{
+  "_comment": "参数调整（cheat）注册表：唯一真相。改这里后跑 node scripts/gen-shared.mjs 生成两端代码。",
+  "groups": [
+    {
+      "id": "multiplier",
+      "title": "倍率修改",
+      "subtitle": "放大游戏内收益（实时生效）"
+    },
+    {
+      "id": "other",
+      "title": "其他",
+      "subtitle": "直接修改游戏内数据（实时生效）"
+    }
+  ],
+  "cheats": [
+    {
+      "id": "candy",
+      "name": "糖果获取倍率",
+      "desc": "捕获 / 孵化 / Boss 获得的糖果 ×N（消耗糖果不受影响）",
+      "group": "multiplier",
+      "script": "cheats/candy.js",
+      "param": {
+        "id": "candy",
+        "label": "倍率",
+        "min": 1,
+        "max": 100,
+        "default": 10,
+        "step": 1,
+        "unit": "x"
+      }
+    },
+    {
+      "id": "exp",
+      "name": "经验获取倍率",
+      "desc": "战斗获得的经验 ×N（实时，升级立即结算）",
+      "group": "multiplier",
+      "script": "cheats/exp.js",
+      "param": {
+        "id": "exp",
+        "label": "倍率",
+        "min": 1,
+        "max": 100,
+        "default": 10,
+        "step": 1,
+        "unit": "x"
+      }
+    },
+    {
+      "id": "money",
+      "name": "金币获取倍率",
+      "desc": "战斗获得的金币 ×N（消费金币不受影响）",
+      "group": "multiplier",
+      "script": "cheats/money.js",
+      "param": {
+        "id": "money",
+        "label": "倍率",
+        "min": 1,
+        "max": 100,
+        "default": 10,
+        "step": 1,
+        "unit": "x"
+      }
+    },
+    {
+      "id": "luck",
+      "name": "幸运值拉满",
+      "desc": "全队幸运值拉满（SSS），提升战后奖励升级与稀有遭遇",
+      "group": "other",
+      "script": "cheats/luck.js"
+    },
+    {
+      "id": "catch",
+      "name": "100% 捕获率",
+      "desc": "投球必定捕获野生宝可梦（训练师战无法投球，不受影响）",
+      "group": "other",
+      "script": "cheats/catch.js"
+    },
+    {
+      "id": "free-egg",
+      "name": "免费抽蛋",
+      "desc": "抽蛋不消耗扭蛋券；券数不足时会保底显示为 25（仅显示、不扣减）",
+      "group": "other",
+      "script": "cheats/free-egg.js"
+    },
+    {
+      "id": "reward-tier",
+      "name": "强制奖励稀有度",
+      "desc": "战后奖励固定为指定稀有度（重掷仍保持）",
+      "group": "other",
+      "script": "cheats/reward-tier.js",
+      "param": {
+        "id": "rewardTier",
+        "label": "档位",
+        "min": 0,
+        "max": 4,
+        "default": 4,
+        "step": 1,
+        "labels": [
+          "Common",
+          "Great",
+          "Ultra",
+          "Rogue",
+          "Master"
+        ]
+      }
+    }
+  ]
+}

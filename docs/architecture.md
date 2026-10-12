@@ -10,11 +10,19 @@
 
 ## 目录结构
 
+仓库根有**两份独立工程**：鸿蒙（`entry/`，本文档主体）与安卓（`android/`，见 [`android-port.md`](./android-port.md)）。两者构建体系互不相干，共用的东西只有 [`shared/`](../shared/README.md)（由 `scripts/gen-shared.mjs` **生成**成两端源码，不是引用）。
+
 ```
+shared/                            # 跨端唯一真相（生成两端的 Cheats / SharedJs）
+├─ cheats.json                     # 参数调整注册表（分组 + 条目 + param）
+├─ js/cheats/<id>.js               # 每条一条纯 JS 脚本
+└─ js/{scene-runtime.core,save-guard,canvas-patch}.js   # 两端逐字共享的注入 JS
+
 entry/src/main/ets/
 ├─ entryability/EntryAbility.ets   # 启动本地 HTTP 服务、窗口设置、DEBUG_UI 时开 Web 调试
 ├─ common/
 │  ├─ Const.ets                    # 常量（URL/镜像/DEBUG_UI/FORCE_WILL_READ_FREQUENTLY 等）
+│  ├─ SharedJs.ets                 # ⚠️ 生成物：共享注入 JS（场景捕获运行时/存档守卫/canvas 补丁）
 │  ├─ Mime.ets                     # 扩展名 → MIME
 │  ├─ Prefs.ets                    # 共享 preferences 库名 + 实例缓存（getStore）
 │  ├─ Http.ets                     # 共享 GET 文本请求 requestText()
@@ -31,7 +39,7 @@ entry/src/main/ets/
 │  ├─ Notifier.ets                 # 通知权限 + 完成/失败通知
 │  ├─ WindowHolder.ets             # 主窗口引用 + setWindowBackgroundColor + setOrientation
 │  ├─ OrientationPref.ets          # 屏幕方向偏好（竖屏/横屏/跟随系统）读写
-│  ├─ Cheats.ets                   # 作弊注册表（条目内容，新增作弊改这里）
+│  ├─ Cheats.ets                   # ⚠️ 生成物：作弊注册表（唯一真相在 shared/，见 shared/README.md）
 │  └─ CheatState.ets               # 作弊状态单例 + 持久化 + 生成注入脚本 buildBootScript()
 └─ pages/
    ├─ Index.ets                  # 首页启动器：只做声明式渲染 + 状态回写；下载业务在 model/LauncherSession.ets
@@ -47,7 +55,7 @@ entry/src/main/ets/
 2. 首次进入：从 GitHub Release 下载 `game.zip`（`request.agent`，带镜像加速与测速选源），用 `zlib.decompressFile` 解压到 `<filesDir>/game`。
 3. `GamePage` 用 `Web` 组件加载 `http://127.0.0.1:18787/index.html`，游戏资源全部由本地服务器提供。
 4. **不要再用 `onInterceptRequest`**：实测每个请求约 55ms（主线程 IPC），改为本地 HTTP 服务后走真实 HTTP + 缓存。
-5. `index.html` 由 `LocalHttpServer.servePatchedIndex` 注入：`<script src="/__cheats__.js">`（作弊注入）+ 强制 2D canvas `willReadFrequently:true`（消除 ArkWeb `getImageData` 的 GPU 读回开销，启动 28s → 4s）。
+5. `index.html` 由 `LocalHttpServer.servePatchedIndex` 注入：`<script src="/__cheats__.js">`（作弊注入）+ 强制 2D canvas `willReadFrequently:true`（消除 ArkWeb `getImageData` 的 GPU 读回开销，启动 28s → 4s）。两端这几段注入 JS 都来自 `shared/js/`（见 [`shared/README.md`](../shared/README.md)）。
 6. `/__cheats__.js` 是**虚拟端点**：请求时按当前启用的作弊清单动态生成组合脚本，在游戏脚本前执行。详见 [`cheats.md`](./cheats.md)。
 7. 屏幕方向由 `OrientationPref` 持久化：首页/设置页始终竖屏（`Index.onPageShow` 强制 `PORTRAIT`），只有 `GamePage.onPageShow` 应用用户选择（横屏 `AUTO_ROTATION_LANDSCAPE` / 跟随系统 `UNSPECIFIED`）。
 
