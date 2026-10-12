@@ -27,6 +27,7 @@
  *   测速参数、存储预检系数、USER_AGENT（有意不同，白名单锁死）
  */
 import { readFileSync, writeFileSync, existsSync, readdirSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -1064,6 +1065,27 @@ function assertKotlinDocs(outputs) {
 }
 
 /**
+ * 鸿蒙侧纯函数 × 向量：`scripts/check-harmony-vectors.mjs` 把鸿蒙的纯函数从 `.ets` 里剪出来，
+ * 在 Node 里喂与安卓**同一批**向量。
+ *
+ * 为什么要挂在 `--check` 上：鸿蒙的这些测试（`LocalHttpServer.test` / `Format.test` /
+ * `GameRepository.test`）只能跑在**设备**上，而本机经常没有 `hdc` 设备——不挂在这儿，
+ * 「鸿蒙侧实现到底满不满足向量」在开发期就没人回答得了。脚本失败时是**响亮报错**（函数找不到 /
+ * 语法错误 / 值不等），不会静默通过。
+ */
+function checkHarmonyVectors() {
+  const r = spawnSync(process.execPath, [join(ROOT, 'scripts/check-harmony-vectors.mjs')], { encoding: 'utf8' });
+  if (r.error) {
+    fail(`鸿蒙侧向量复跑无法启动（${r.error.message}）：scripts/check-harmony-vectors.mjs`);
+    return;
+  }
+  if (r.status !== 0) {
+    const indent = (r.stdout + r.stderr).trim().split('\n').map((l) => `      ${l}`).join('\n');
+    fail(`鸿蒙侧纯函数不满足 shared/ 向量（scripts/check-harmony-vectors.mjs）：\n${indent}`);
+  }
+}
+
+/**
  * 取出 `class X` 的类体（到下一个顶格 `}` 为止）——够用即可，取错会以「找不到桥方法」的形式报错。
  */
 function classBody(text, className) {
@@ -1252,6 +1274,7 @@ checkConstParity();
 checkNoInline();
 checkCaseUsage();
 checkJsBridgeContract();
+checkHarmonyVectors();
 assertKotlinDocs(outputs);
 
 // 校验没过就不写文件：免得把半成品生成物写进工作区，掩盖真正的错误

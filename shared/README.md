@@ -42,6 +42,9 @@ node scripts/gen-shared.mjs --check  # 只校验（生成文件是否过期 + �
 - **加一条行为向量**：改 `cases/*.json`。**两端测试都遍历同一套向量**（鸿蒙 `ohosTest/*.test.ets`、
   安卓 `core/*Test.kt`），所以别在测试文件里再写一份期望值——生成器会拦（见下）。`paths.expect = null`
   表示「应当拒绝」（鸿蒙返回空串、安卓返回 `null`，各端测试自己换算）。
+- **`node scripts/check-harmony-vectors.mjs`**：把鸿蒙的纯函数从 `.ets` 里剪出来、在 Node 里喂同一批向量。
+  鸿蒙那几个套件只能跑在**设备**上（本机常常没有 `hdc` 设备），没它的话「鸿蒙侧实现是否满足向量」
+  在开发期就没人回答得了。`--check` 会顺带调用它（失败即构建失败）。
 - 生成器会做结构校验（id 唯一、分组存在、`min<max`、`default` 在区间内、labels 档位数、脚本必须
   `__onScene`/`__onPhase`、声明了 `param` 必须读 `__CHEAT_PARAMS__.<param.id>`、法律页占位符两边一对一等）。
 - **JS 里不得出现 `$` 或 `"""`**：Kotlin 的 `"""` raw string 会把 `$` 当模板插值。生成器会直接报错拦下。
@@ -100,7 +103,8 @@ node scripts/gen-shared.mjs --check  # 只校验（生成文件是否过期 + �
 | 安卓真机 | ✅ 装 debug 包 → 设置 → 法律与免责声明：10 章节全渲染、正文为安卓措辞、新增句「应用启动时会访问 Gitee…」在位；进游戏页正常（canvas 补丁 + Phaser v3.90.0 起来 ⇒ MIME 表端到端可用）。 |
 | 鸿蒙真机 | ⚠️ **未跑**（本机无 `hdc` 设备）：法律页渲染与游戏页注入链 / ArkWeb 日志判据都还没在设备上确认；鸿蒙侧目前只有「debug + release 编译通过 + 发布产物字面量抽查 + 用 Python 复跑 `LegalText` 那套断言」。 |
 | `LegalText.test.ets`（ohosTest） | ⚠️ 只编译通过（故意写坏能正确报错），**没在真机上执行过**（同样缺设备）。 |
-| 行为向量（两端） | ✅ 安卓 279 例单测全绿（`matchesTheSharedVectors` 等直接遍历向量）；鸿蒙侧把生成的 4 个纯函数 `resolveRequestPath / normalizeVersion / sameVersion / mimeOf` 与 `Format.ets` 按 `node` 复跑同一批向量 → **107 条全过**（与安卓同一批期望值）。 |
+| 行为向量（两端） | ✅ 安卓 279 例单测全绿（各套件直接遍历向量）；鸿蒙侧由 `scripts/check-harmony-vectors.mjs` 复跑同一批向量 → **113 条全过**（paths / format / version / mime，含 NaN / Infinity 四条手写边角）。 |
+| 该脚本挂在 `--check` 上 | ✅ 实测：改坏一条向量（`1048575 → "1023.9 KB"`）→ 两端构建都会失败在 `checkSharedCode`；去掉鸿蒙 `formatSpeed` 的 `isFinite` 兜底 → 同样失败（这条正是脚本第一次跑就抓出来的：`formatSpeed(NaN)` 会显示 `NaN KB/s`，已修）。 |
 | 向量护栏 | ✅ 实测：把 `cases/format.json` 里 `1048575 → "1024 KB"` 改成 `"1023.9 KB"` → 安卓 `FormatTest` 红、鸿蒙侧复跑也红（同一份期望值）；在两端测试里各手写回一条路径期望值 → `--check` 报「又手写了一份期望值」。 |
 | 向量在**鸿蒙真机**上跑 | ⚠️ **未跑**：`LocalHttpServer.test` / `Format.test` / `GameRepository.test` 都改成了遍历生成向量，只在编译期验证过（缺 `hdc` 设备）。 |
 | JS 桥 / 端点对账 | ✅ 实测 6 种改法全被拦（各只改一处、改完即还原）：安卓桥方法改名、`BRIDGE_METHODS` 里写不存在的方法、鸿蒙 `methodList` 少一项、鸿蒙注入链顺序调换、安卓端点改名、鸿蒙不再生成 `__CHEAT_PARAMS__`（这一条第一版写成 `includes` 被注释骗过，已收紧为 `var __CHEAT_PARAMS__ =` 正则）。 |

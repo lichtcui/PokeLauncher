@@ -3,9 +3,9 @@
  * 从 `pages/Index.ets` 抽出，避免首页继续膨胀，并纳入 ohosTest 覆盖。
  */
 
-/** 字节数 → 人类可读：0 B / 356 KB / 8.2 MB / 1.1 GB */
+/** 字节数 → 人类可读：0 B / 356 KB / 8.2 MB / 1.1 GB（非正数与非有限数一律 0 B） */
 export function formatBytes(n: number): string {
-  if (n <= 0) {
+  if (n <= 0 || !isFinite(n)) {
     return '0 B';
   }
   const gb: number = n / 1024 / 1024 / 1024;
@@ -19,9 +19,9 @@ export function formatBytes(n: number): string {
   return (n / 1024).toFixed(0) + ' KB';
 }
 
-/** 速度：8.2 MB/s / 356 KB/s；非正数返回空串 */
+/** 速度：8.2 MB/s / 356 KB/s；非正数与非有限数返回空串（`NaN <= 0` 为假，不判有限会输出 `NaN KB/s`） */
 export function formatSpeed(bytesPerSec: number): string {
-  if (bytesPerSec <= 0) {
+  if (bytesPerSec <= 0 || !isFinite(bytesPerSec)) {
     return '';
   }
   return formatBytes(bytesPerSec) + '/s';

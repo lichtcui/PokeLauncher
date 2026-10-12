@@ -35,10 +35,15 @@ export default function formatTest() {
       });
     });
 
-    it('formatDuration rejects non-finite input', 0, () => {
-      // NaN / Infinity 在 JSON 里表达不了，这两条只能各端手写
+    it('rejects non-finite input', 0, () => {
+      // NaN / Infinity 在 JSON 里表达不了，这几条只能各端手写
       expect(formatDuration(Number.NaN)).assertEqual('');
       expect(formatDuration(Number.POSITIVE_INFINITY)).assertEqual('');
+      expect(formatSpeed(Number.NaN)).assertEqual('');
+      expect(formatSpeed(Number.POSITIVE_INFINITY)).assertEqual('');
+      // 无效输入与「0 字节」同文案：写成关系式，免得又抄一份字面量
+      expect(formatBytes(Number.NaN)).assertEqual(formatBytes(0));
+      expect(formatBytes(Number.POSITIVE_INFINITY)).assertEqual(formatBytes(0));
     });
 
     it('formatErrorDetail matches the shared vectors', 0, () => {
