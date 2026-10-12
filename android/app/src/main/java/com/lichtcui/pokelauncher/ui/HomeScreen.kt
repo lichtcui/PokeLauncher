@@ -663,6 +663,13 @@ private fun AppUpdateDialog(result: AppUpdateResult, controller: SpikeController
                     }
                     if (downloading) {
                         ApkProgressBar(apk.progressPercent)
+                        // 进度条本身不显示数字；设置页那行写的是同一个百分比，两边对得上
+                        Text(
+                            "${apk.progressPercent}%",
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 6.dp)
+                        )
                     }
                     if (detail.isNotEmpty()) {
                         Text(
@@ -683,8 +690,8 @@ private fun AppUpdateDialog(result: AppUpdateResult, controller: SpikeController
             TextButton(
                 onClick = {
                     runApkUpdateAction(controller, context, result, action)
-                    // 普通更新按下去就关弹窗（进度会在设置页的「应用更新」行继续显示）
-                    if (dismissible) onDismiss()
+                    // 不关弹窗：按下去它自己就变成进度界面（见上方 KDoc）。
+                    // 关掉的话用户会以为更新已取消，而下载其实还在跑。
                 }
             ) {
                 Text(

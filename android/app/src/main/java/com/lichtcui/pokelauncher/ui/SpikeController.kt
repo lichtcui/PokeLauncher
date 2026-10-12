@@ -671,10 +671,14 @@ class SpikeController(private val app: Context) {
                 } else {
                     Log.w(Const.TAG, "apk update: invalid package bytes=$size")
                     runCatching { dest.delete() }
+                    // 无效包本身已删；顺带把上一次成功下载、却一直没安装的旧包也清掉
+                    // （它已经被这次更新取代了，留着只是白占 20MB）
+                    purgeApkLeftovers(name)
                     apkState.copy(phase = ApkUpdatePhase.FAILED, message = INVALID_APK_TEXT)
                 }
             } catch (c: ApkUpdateCancelled) {
                 Log.i(Const.TAG, "apk update: cancelled")
+                purgeApkLeftovers(name)
                 apkState = ApkUpdateState(
                     phase = ApkUpdatePhase.IDLE,
                     versionName = versionName,
@@ -682,12 +686,27 @@ class SpikeController(private val app: Context) {
                 )
             } catch (t: Throwable) {
                 Log.w(Const.TAG, "apk update failed: ${t.message}")
+                purgeApkLeftovers(name)
                 apkState = apkState.copy(
                     phase = ApkUpdatePhase.FAILED,
                     message = t.message ?: t.javaClass.simpleName
                 )
             }
         }
+    }
+
+    /**
+     * 取消 / 失败后清掉 `apk/` 里的半截包与旧安装包。
+     *
+     * [ApkUpdater.downloadApk] 自己已经会删本次的 `.part`；这里额外把**上一次**留下的安装包
+     * （用户下载成功却没装，之后又下载失败）也清掉 —— 否则每试一次就白占一份 20MB。
+     * 只保留 [keepName]，其余 `.apk` / `.part` 一律删除（与成功路径的 `pruneOldApks` 同一规则）。
+     */
+    private suspend fun purgeApkLeftovers(keepName: String) {
+        val removed = withContext(Dispatchers.IO) {
+            ApkUpdater.pruneOldApks(ApkUpdater.apkDir(app), keepName)
+        }
+        if (removed > 0) Log.i(Const.TAG, "apk update: purged $removed leftover files")
     }
 
     /** 取消自更新下载（下载循环每块检查一次，最多 64KB 后生效） */

@@ -82,9 +82,10 @@ object ApkUpdater {
     /**
      * 下载更新包。
      *
-     * 先写 `<name>.part`，校验通过后再 `renameTo` 覆盖正式文件：中途失败/被杀时目录里
-     * 只会留下一个 `.part`，**不会**出现「看起来像安装包但其实是半截」的 `xxx.apk`
-     * （用户点它会看到系统的「解析包时出现问题」，比没有更糟）。
+     * 先写 `<name>.part`，校验通过后再 `renameTo` 覆盖正式文件：这样**不会**出现
+     * 「看起来像安装包但其实是半截」的 `xxx.apk`（用户点它会看到系统的"解析包时出现问题"，
+     * 比没有更糟）。取消/失败时会**立刻删掉** `.part`（不留给用户 20MB 垃圾）；只有进程
+     * 被杀才可能留下它 —— 那种情况下它也不会被误认成安装包，且下次下载开始时会先清掉。
      *
      * @param onProgress 每写入一块回调一次（`doneBytes`, `totalBytes`；total 未知时为 0）
      * @param isCancelled 每个数据块检查一次；返回 true 时抛 [ApkUpdateCancelled]
@@ -109,6 +110,28 @@ object ApkUpdater {
             .build()
 
         var done = 0L
+        try {
+            done = fetchToPart(request, part, onProgress, isCancelled)
+        } catch (e: Throwable) {
+            // 主动失败/取消也要立刻清掉半截包：否则用户白占 20MB，要到下次点更新才被删。
+            // 进程被杀时 catch 不会执行，那才是 .part 唯一的合法残留场景。
+            part.delete()
+            throw e
+        }
+        if (dest.exists() && !dest.delete()) throw IOException("无法覆盖旧更新包")
+        if (!part.renameTo(dest)) throw IOException("无法保存更新包")
+        Log.i(Const.TAG, "apk download: done url=$url bytes=$done dest=${dest.name}")
+        return done
+    }
+
+    /** 把响应体流写入 `part`，返回写入字节数（rename / 清理语义由调用方负责） */
+    private fun fetchToPart(
+        request: Request,
+        part: File,
+        onProgress: (Long, Long) -> Unit,
+        isCancelled: () -> Boolean
+    ): Long {
+        var done = 0L
         client.newCall(request).execute().use { response ->
             if (!response.isSuccessful) throw IOException("HTTP ${response.code}")
             val body = response.body ?: throw IOException("响应为空")
@@ -130,9 +153,6 @@ object ApkUpdater {
             // 长度已知时对一下账：截断的下载（连接被掐）必须当失败，不能喂给安装器
             if (total > 0 && done != total) throw IOException("下载不完整（$done/$total）")
         }
-        if (dest.exists() && !dest.delete()) throw IOException("无法覆盖旧更新包")
-        if (!part.renameTo(dest)) throw IOException("无法保存更新包")
-        Log.i(Const.TAG, "apk download: done url=$url bytes=$done dest=${dest.name}")
         return done
     }
 
