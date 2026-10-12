@@ -56,9 +56,10 @@
 - 新增静态资源放 `entry/src/main/resources/base/media/`，引用 `$r('app.media.xxx')`。
 - **新增作弊条目只改 `shared/cheats.json` + 新增一个 `shared/js/cheats/<id>.js`**，然后跑 `node scripts/gen-shared.mjs`（见 [`docs/cheats.md`](./docs/cheats.md)、[`shared/README.md`](./shared/README.md)）。两端的注册表（`entry/src/main/ets/model/Cheats.ets`、`android/.../cheat/Cheats.kt`）是**生成物，不要手改**；UI/状态/注入会自动生效。
   - ⚠️ 命名：该功能在 **UI 上叫「参数调整」**（`作弊` 字样会触发应用商店审核风险），代码/文档沿用 `cheat` 命名。**新增任何用户可见文案都用「参数调整」**。
-- **跨端共享代码 = `shared/`（生成，不是引用）**：鸿蒙 ArkTS 与安卓 Kotlin 没有共同运行时（KMP 不支持 OHOS target），两端之间真正能共享的只有 **JS 字符串、注册表数据、文案与映射表**。`scripts/gen-shared.mjs` 从 `shared/**` 生成 **8 个文件**（两端各 4 个：`Cheats` / `SharedJs` / `LegalText` / `Mime`），生成物一律**不要手改**。
+- **跨端共享代码 = `shared/`（生成，不是引用）**：鸿蒙 ArkTS 与安卓 Kotlin 没有共同运行时（KMP 不支持 OHOS target），两端之间真正能共享的只有 **JS 字符串、注册表数据、文案与映射表**。`scripts/gen-shared.mjs` 从 `shared/**` 生成 **10 个文件**（每端 5 个：`Cheats` / `SharedJs` / `LegalText` / `Mime` + 测试用的行为向量 `Cases.gen.ets`（鸿蒙 ohosTest）/ `CasesGen.kt`（安卓单测）），生成物一律**不要手改**。
   - 护栏：`hvigorfile.ts` 的 `checkSharedCode` 插件与 Gradle 的 `:app:checkSharedCode`（`preBuild` 前置）都会跑 `node scripts/gen-shared.mjs --check`，**不一致直接构建失败**；它还会拦「把共享 JS 重新内联回某一端」与 `$` / `"""` / 反引号 这类会静默破坏 raw string 的字符，并对账 `common/Const.ets` ↔ `core/Const.kt`（端口 / 镜像列表 / 版本清单地址；这两份**不生成**，因为各自还有平台独有内容），以及**测速参数**（`PROBE_BYTES` / `PROBE_TIMEOUT_MS` / `RANK_TTL_MS`）、**存储预检系数**（鸿蒙 `requiredStorage()` 的 `2.4 / 3.2` ↔ 安卓 `Storage.FACTOR_FRESH / FACTOR_UPDATE`）、`USER_AGENT`（有意不同，白名单锁死）。
 - **跨端共用文案与映射表**：法律页正文改 [`shared/legal.json`](./shared/legal.json)（占位符只能出现在 `placeholders` 里，两端措辞差异不许写进正文）；MIME 表改 [`shared/mime.json`](./shared/mime.json)（`:js` 必须是 `text/javascript`，生成器硬断言）。改完跑 `node scripts/gen-shared.mjs`。
+- **纯函数的行为期望值也只写一份**：路径判定（安全边界）/ 展示格式化 / 版本比较两端各有一份实现，期望值放 [`shared/cases/`](./shared/cases)（`paths.json` / `format.json` / `version.json`），两端测试**遍历同一套向量**（鸿蒙 `LocalHttpServer.test` / `Format.test` / `GameRepository.test`，安卓 `PathsTest` / `FormatTest` / `VersionTest` / `MimeTest`）。**不要在测试里再手写一份期望值**——`--check` 会用正则拦（连两端手抖写回一条 `resolveRequestPath("/%2e%2e/x")` 都报错）。`paths.expect = null` = 应当拒绝。
 - **存档是 Web 的 `localStorage`，物理落在 `<沙箱>/cache/web/`**，会被「清除缓存」清掉。因此 `model/SaveGuard.ets` 会把它镜像到 `files/saves/` 并在清空时自动回填——**任何需要持久化的数据都不要放 `cache/`**，放 `files/`。
 
 ### 测试（ohosTest，跑在真机）

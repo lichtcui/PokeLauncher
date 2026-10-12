@@ -1,0 +1,25 @@
+{
+  "_comment": [
+    "版本号比较向量。zip 里的 currentVersion.txt 只存 commit，Release tag 是 `release-<commit>`，",
+    "比较前必须剥前缀（鸿蒙 GameRepository.normalizeVersion / sameVersion ↔ 安卓 core/Version.kt）。",
+    "same 的语义：**任一端是空串一律视为不相等**（避免把「资源未安装」误判成「已是最新」）。"
+  ],
+  "normalize": [
+    { "in": "release-abc1234", "out": "abc1234" },
+    { "in": "abc1234", "out": "abc1234" },
+    { "in": "", "out": "" },
+    { "in": "v1.2.3", "out": "v1.2.3" },
+    { "in": "my-release-1", "out": "my-release-1" },
+    { "in": "release-", "out": "" },
+    { "in": "release-release-x", "out": "release-x" }
+  ],
+  "same": [
+    { "local": "abc1234", "remote": "release-abc1234", "out": true },
+    { "local": "release-abc1234", "remote": "release-abc1234", "out": true },
+    { "local": "abc1234", "remote": "release-def5678", "out": false },
+    { "local": "", "remote": "release-abc1234", "out": false },
+    { "local": "abc1234", "remote": "", "out": false },
+    { "local": "", "remote": "", "out": false },
+    { "local": "release-", "remote": "", "out": false }
+  ]
+}

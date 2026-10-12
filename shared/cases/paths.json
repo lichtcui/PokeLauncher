@@ -1,0 +1,37 @@
+{
+  "_comment": [
+    "本地 HTTP 服务的请求路径判定向量（security boundary）。",
+    "expect 为 null 表示「应当拒绝」（403）：鸿蒙 resolveRequestPath 返回空串、安卓返回 null。",
+    "改这里之前先读 AGENTS.md：端口/路径穿越是安全边界，两端口径必须一致。",
+    "口径基准：JS decodeURIComponent 的语义——解码失败（非法转义或非法 UTF-8）时保留解码前的原串。"
+  ],
+  "cases": [
+    { "input": "/index.html", "expect": "/index.html" },
+    { "input": "/", "expect": "/index.html" },
+    { "input": "", "expect": "/index.html" },
+    { "input": "/js/main.js", "expect": "/js/main.js" },
+    { "input": "/assets/index-CVsVm5Lx.js", "expect": "/assets/index-CVsVm5Lx.js" },
+    { "input": "/data.folder/file.js", "expect": "/data.folder/file.js" },
+    { "input": "/a+b", "expect": "/a+b" },
+    { "input": "/a%20b", "expect": "/a b" },
+    { "input": "/%E4%B8%AD.txt", "expect": "/中.txt" },
+    { "input": "/index.html?v=1", "expect": "/index.html" },
+    { "input": "/main.js#x", "expect": "/main.js" },
+    { "input": "/index.html?x=1#y", "expect": "/index.html" },
+
+    { "input": "/../etc/passwd", "expect": null },
+    { "input": "/js/../main.js", "expect": null },
+    { "input": "/%2e%2e/x", "expect": null },
+    { "input": "/%2E%2E/index.html", "expect": null },
+    { "input": "/%2e./x", "expect": null },
+    { "input": "/.%2e/x", "expect": null },
+    { "input": "/..%2fx", "expect": null },
+    { "input": "/js/%2e%2e/main.js", "expect": null },
+
+    { "input": "/%252e%252e/", "expect": "/%2e%2e/" },
+
+    { "input": "/%zz", "expect": "/%zz" },
+    { "input": "/%4", "expect": "/%4" },
+    { "input": "/%E4%2e%2e/", "expect": "/%E4%2e%2e/" }
+  ]
+}

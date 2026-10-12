@@ -51,6 +51,20 @@ export function normalizeVersion(v: string): string {
 }
 
 /**
+ * 本地版本与远端 tag 是否表示同一个版本。
+ *
+ * 任一端为空串一律视为**不相等**（空版本 = 「没得比」，把它当成「已是最新」会让界面
+ * 在资源未装好时显示「已是最新」）；语义与安卓 `Version.same` 逐字对齐，
+ * 期望值由 `shared/cases/version.json` 的向量锁住。
+ */
+export function sameVersion(local: string, remote: string): boolean {
+  if (local.length === 0 || remote.length === 0) {
+    return false;
+  }
+  return normalizeVersion(local) === normalizeVersion(remote);
+}
+
+/**
  * Release 结果缓存（模块级）：首页与设置页各自 new 一个 GameRepository，
  * 用实例缓存会各请求一次 GitHub API；共享缓存后同一 asset 只查一次。
  */

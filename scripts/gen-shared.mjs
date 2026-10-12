@@ -19,6 +19,8 @@
  *   android/.../core/SharedJs.kt               （安卓）共享 JS 常量
  *   android/.../ui/LegalText.kt                （安卓）法律页正文
  *   android/.../core/Mime.kt                   （安卓）扩展名 → MIME
+ *   entry/src/ohosTest/ets/test/Cases.gen.ets  （鸿蒙）跨端行为向量（测试数据）
+ *   android/app/src/test/.../CasesGen.kt       （安卓）跨端行为向量（测试数据）
  *
  * 另有几份纯逻辑常量不生成、只对账（它们各自还有平台独有内容，见 `checkConstParity`）：
  *   entry/src/main/ets/common/Const.ets  ↔  android/.../core/Const.kt
@@ -51,6 +53,22 @@ const P = {
   ktConst: 'android/app/src/main/java/com/lichtcui/pokelauncher/core/Const.kt',
   legal: 'shared/legal.json',
   mime: 'shared/mime.json',
+  casesPaths: 'shared/cases/paths.json',
+  casesFormat: 'shared/cases/format.json',
+  casesVersion: 'shared/cases/version.json',
+  etsCases: 'entry/src/ohosTest/ets/test/Cases.gen.ets',
+  ktCases: 'android/app/src/test/java/com/lichtcui/pokelauncher/CasesGen.kt',
+  etsHttpTest: 'entry/src/ohosTest/ets/test/LocalHttpServer.test.ets',
+  etsFormatTest: 'entry/src/ohosTest/ets/test/Format.test.ets',
+  etsRepoTest: 'entry/src/ohosTest/ets/test/GameRepository.test.ets',
+  ktPathsTest: 'android/app/src/test/java/com/lichtcui/pokelauncher/core/PathsTest.kt',
+  ktFormatTest: 'android/app/src/test/java/com/lichtcui/pokelauncher/core/FormatTest.kt',
+  ktVersionTest: 'android/app/src/test/java/com/lichtcui/pokelauncher/core/VersionTest.kt',
+  ktMimeTest: 'android/app/src/test/java/com/lichtcui/pokelauncher/core/MimeTest.kt',
+  ktProguard: 'android/app/proguard-rules.pro',
+  etsGamePage: 'entry/src/main/ets/pages/GamePage.ets',
+  ktPokeWebView: 'android/app/src/main/java/com/lichtcui/pokelauncher/web/PokeWebView.kt',
+  etsAppUpdate: 'entry/src/main/ets/model/AppUpdate.ets',
   etsLegalText: 'entry/src/main/ets/model/LegalText.ets',
   etsLegalPage: 'entry/src/main/ets/pages/Legal.ets',
   etsMime: 'entry/src/main/ets/common/Mime.ets',
@@ -722,6 +740,329 @@ ${entries}
 `;
 }
 
+// ------------------------------------------------------------------ 校验 / 生成：跨端行为向量
+/**
+ * 行为向量（`shared/cases/*.json`）→ 两端测试数据。
+ *
+ * 为什么需要：这些纯函数（路径判定 / 展示格式化 / 版本比较）两端各写了一份实现，
+ * 以前也各写了一份**期望值**——于是「一边改了四舍五入、另一边没改」这种分叉
+ * 没人会发现（除非刚好有人同时看两个测试文件）。现在期望值只有一份。
+ *
+ * 生成的是**数据**不是断言：各端测试用自己语言的断言 API 遍历这些向量。
+ * 另：`checkCaseUsage` 反向要求各端测试确实引用了生成物（否则向量又变成摆设）。
+ */
+function assertCases(cases) {
+  const list = (name, arr, min) => {
+    if (!Array.isArray(arr) || arr.length < (min ?? 1)) {
+      fail(`cases: ${name} 必须是非空数组`);
+      return [];
+    }
+    return arr;
+  };
+  const str = (where, v) => {
+    if (typeof v !== 'string') fail(`cases: ${where} 必须是字符串`);
+    return typeof v === 'string' ? v : '';
+  };
+  const num = (where, v) => {
+    if (typeof v !== 'number' || !Number.isFinite(v)) fail(`cases: ${where} 必须是有限数字`);
+    return typeof v === 'number' ? v : 0;
+  };
+  const uniq = (where, values) => {
+    const seen = new Set();
+    for (const v of values) {
+      if (seen.has(v)) fail(`cases: ${where} 有重复项：${v}`);
+      seen.add(v);
+    }
+  };
+
+  // 路径判定
+  const paths = list('paths.cases', cases.paths?.cases, 10);
+  for (const c of paths) {
+    const input = str('paths.input', c.input);
+    if (c.expect !== null && typeof c.expect !== 'string') {
+      fail(`cases: paths.expect 只能是字符串或 null（${input}）`);
+      continue;
+    }
+    // 放行的期望值里不允许出现 `..`：那是安全边界，写错了等于白名单
+    if (typeof c.expect === 'string' && c.expect.includes('..')) {
+      fail(`cases: ${input} 被期望放行，但放行值里含 \`..\``);
+    }
+  }
+  uniq('paths.input', paths.map((c) => c.input));
+
+  // 展示格式化
+  const fmt = cases.format ?? {};
+  const bytes = list('format.bytes', fmt.bytes, 5);
+  const speed = list('format.speed', fmt.speed, 3);
+  const duration = list('format.duration', fmt.duration, 8);
+  const errorDetail = list('format.errorDetail', fmt.errorDetail, 3);
+  for (const [n, arr] of [['bytes', bytes], ['speed', speed], ['duration', duration]]) {
+    for (const c of arr) {
+      num(`format.${n}.in`, c.in);
+      str(`format.${n}.out`, c.out);
+    }
+    uniq(`format.${n}.in`, arr.map((c) => c.in));
+  }
+  for (const c of errorDetail) {
+    if (c.message !== null) str('format.errorDetail.message', c.message);
+    if (c.code !== null) num('format.errorDetail.code', c.code);
+    str('format.errorDetail.out', c.out);
+  }
+
+  // 版本比较
+  const ver = cases.version ?? {};
+  const normalize = list('version.normalize', ver.normalize, 3);
+  const same = list('version.same', ver.same, 4);
+  for (const c of normalize) {
+    str('version.normalize.in', c.in);
+    str('version.normalize.out', c.out);
+  }
+  uniq('version.normalize.in', normalize.map((c) => c.in));
+  for (const c of same) {
+    str('version.same.local', c.local);
+    str('version.same.remote', c.remote);
+    if (typeof c.out !== 'boolean') fail(`cases: version.same.out 必须是布尔（${c.local} vs ${c.remote}）`);
+  }
+  // 空串语义：`same` 里必须有「任一端为空 → false」的向量，否则那个坑没人守
+  const emptySide = same.filter((c) => c.local === '' || c.remote === '');
+  if (emptySide.length < 2 || emptySide.some((c) => c.out !== false)) {
+    fail('cases: version.same 必须包含「任一端为空 → false」的向量');
+  }
+
+  return { paths, fmt: { bytes, speed, duration, errorDetail }, ver: { normalize, same } };
+}
+
+/** mime.json → 两端共用的 MIME 向量（顺带把图里的每条映射都锁一遍） */
+function mimeCases(map, fallback) {
+  const cases = Object.entries(map).map(([ext, mime]) => ({ path: `/x.${ext}`, expect: mime }));
+  cases.push({ path: '/no-extension', expect: fallback });
+  cases.push({ path: '/x.unknownext', expect: fallback });
+  cases.push({ path: '/UPPER.PNG', expect: map.png });
+  return cases;
+}
+
+const CASES_DOC = [
+  '跨端行为向量（纯数据）。',
+  '',
+  '⚠️ **本文件由 `scripts/gen-shared.mjs` 自动生成，不要手改**：唯一真相在仓库根 `shared/cases/` 下的 JSON。',
+  '期望值只写一份，两端测试遍历同一套向量——这样才能抓住「一端改了、另一端没改」的分叉。',
+].join('\n');
+
+/** 把一段多行说明渲染成 JSDoc 体（每行前缀 ` * `） */
+const docBlock = (text) => text.split('\n').map((l) => (l ? ` * ${l}` : ' *')).join('\n');
+
+function genEtsCases(c, mimes) {
+  const lit = (v) => (v === null ? 'null' : typeof v === 'string' ? etsStr(v) : String(v));
+  const rows = (arr, fn) => arr.map((x) => `  ${fn(x)}`).join(',\n');
+  return `/**
+${docBlock(CASES_DOC)}
+ */
+
+export interface PathCase {
+  input: string;
+  /** null = 应当拒绝（鸿蒙返回空串、安卓返回 null） */
+  expect: string | null;
+}
+
+export interface NumberCase {
+  input: number;
+  expect: string;
+}
+
+export interface ErrorDetailCase {
+  message: string | null;
+  code: number | null;
+  expect: string;
+}
+
+export interface NormalizeCase {
+  input: string;
+  expect: string;
+}
+
+export interface SameCase {
+  local: string;
+  remote: string;
+  expect: boolean;
+}
+
+export interface MimeCase {
+  path: string;
+  expect: string;
+}
+
+/** 本地 HTTP 服务的路径判定（安全边界） */
+export const PATH_CASES: PathCase[] = [
+${rows(c.paths, (x) => `{ input: ${etsStr(x.input)}, expect: ${lit(x.expect)} }`)}
+];
+
+/** \`formatBytes\` */
+export const BYTES_CASES: NumberCase[] = [
+${rows(c.fmt.bytes, (x) => `{ input: ${x.in}, expect: ${etsStr(x.out)} }`)}
+];
+
+/** \`formatSpeed\` */
+export const SPEED_CASES: NumberCase[] = [
+${rows(c.fmt.speed, (x) => `{ input: ${x.in}, expect: ${etsStr(x.out)} }`)}
+];
+
+/** \`formatDuration\`（NaN / Infinity 在 JSON 里表达不了，由测试自己补） */
+export const DURATION_CASES: NumberCase[] = [
+${rows(c.fmt.duration, (x) => `{ input: ${x.in}, expect: ${etsStr(x.out)} }`)}
+];
+
+/** \`formatErrorDetail\` */
+export const ERROR_DETAIL_CASES: ErrorDetailCase[] = [
+${rows(c.fmt.errorDetail, (x) => `{ message: ${lit(x.message)}, code: ${lit(x.code)}, expect: ${etsStr(x.out)} }`)}
+];
+
+/** \`normalizeVersion\` */
+export const NORMALIZE_CASES: NormalizeCase[] = [
+${rows(c.ver.normalize, (x) => `{ input: ${etsStr(x.in)}, expect: ${etsStr(x.out)} }`)}
+];
+
+/** \`sameVersion\` */
+export const SAME_CASES: SameCase[] = [
+${rows(c.ver.same, (x) => `{ local: ${etsStr(x.local)}, remote: ${etsStr(x.remote)}, expect: ${x.out} }`)}
+];
+
+/** \`mimeOf\`（由 mime.json 生成） */
+export const MIME_CASES: MimeCase[] = [
+${rows(mimes, (x) => `{ path: ${etsStr(x.path)}, expect: ${etsStr(x.expect)} }`)}
+];
+`;
+}
+
+function genKtCases(c, mimes) {
+  const lit = (v) => (v === null ? 'null' : typeof v === 'string' ? ktStr(v) : String(v));
+  const num = (n) => (Number.isInteger(n) ? `${n}.0` : String(n));
+  const longLit = (n) => `${n}L`;
+  const rows = (arr, fn) => arr.map((x) => `        ${fn(x)}`).join(',\n');
+  return `package com.lichtcui.pokelauncher
+
+/**
+${docBlock(CASES_DOC)}
+ */
+object CasesGen {
+
+    data class PathCase(val input: String, val expect: String?)
+
+    data class LongCase(val input: Long, val expect: String)
+
+    data class DurationCase(val input: Double, val expect: String)
+
+    data class ErrorDetailCase(val message: String?, val code: Int?, val expect: String)
+
+    data class NormalizeCase(val input: String, val expect: String)
+
+    data class SameCase(val local: String, val remote: String, val expect: Boolean)
+
+    data class MimeCase(val path: String, val expect: String)
+
+    /** 本地 HTTP 服务的路径判定（安全边界） */
+    val PATH_CASES = listOf(
+${rows(c.paths, (x) => `PathCase(${ktStr(x.input)}, ${lit(x.expect)})`)}
+    )
+
+    /** \`Format.bytes\` */
+    val BYTES_CASES = listOf(
+${rows(c.fmt.bytes, (x) => `LongCase(${longLit(x.in)}, ${ktStr(x.out)})`)}
+    )
+
+    /** \`Format.speed\` */
+    val SPEED_CASES = listOf(
+${rows(c.fmt.speed, (x) => `LongCase(${longLit(x.in)}, ${ktStr(x.out)})`)}
+    )
+
+    /** \`Format.duration\`（NaN / Infinity 在 JSON 里表达不了，由测试自己补） */
+    val DURATION_CASES = listOf(
+${rows(c.fmt.duration, (x) => `DurationCase(${num(x.in)}, ${ktStr(x.out)})`)}
+    )
+
+    /** \`Format.errorDetail\` */
+    val ERROR_DETAIL_CASES = listOf(
+${rows(c.fmt.errorDetail, (x) => `ErrorDetailCase(${lit(x.message)}, ${lit(x.code)}, ${ktStr(x.out)})`)}
+    )
+
+    /** \`Version.normalize\` */
+    val NORMALIZE_CASES = listOf(
+${rows(c.ver.normalize, (x) => `NormalizeCase(${ktStr(x.in)}, ${ktStr(x.out)})`)}
+    )
+
+    /** \`Version.same\` */
+    val SAME_CASES = listOf(
+${rows(c.ver.same, (x) => `SameCase(${ktStr(x.local)}, ${ktStr(x.remote)}, ${x.out})`)}
+    )
+
+    /** \`Mime.mimeOf\`（由 mime.json 生成） */
+    val MIME_CASES = listOf(
+${rows(mimes, (x) => `MimeCase(${ktStr(x.path)}, ${ktStr(x.expect)})`)}
+    )
+}
+`;
+}
+
+/**
+ * 反向护栏：向量生成出来了，还得有人用。
+ * 各端测试文件必须引用生成物里的容器名，且不得再手写路径穿越向量的期望值
+ * （否则就是「测试看着还在，其实已经和 shared/ 脱钩」）。
+ */
+function checkCaseUsage() {
+  // need: 必须引用的生成容器名；forbidden: 正则（命中即报「又手写了一份期望值」）
+  const rules = [
+    [P.etsHttpTest, ['PATH_CASES'], ['/%2e%2e', '%2E%2E', '%E4%2e%2e', '%252e'], '鸿蒙路径向量'],
+    [
+      P.etsFormatTest,
+      ['BYTES_CASES', 'DURATION_CASES'],
+      ["'0 B'", "'1\\.0 MB'", '约 1 小时 1 分钟', '错误码 7'],
+      '鸿蒙格式化向量',
+    ],
+    [P.etsRepoTest, ['NORMALIZE_CASES', 'SAME_CASES', 'MIME_CASES'], ['text/javascript', 'image/png', 'release-'], '鸿蒙版本 / MIME 向量'],
+    [P.ktPathsTest, ['CasesGen.PATH_CASES'], ['resolveRequestPath\\("[^"]*(%|\\.\\.)'], '安卓路径向量'],
+    [
+      P.ktFormatTest,
+      ['CasesGen.BYTES_CASES', 'CasesGen.DURATION_CASES'],
+      ['"0 B"', '"1\\.0 MB"', '约 1 小时 1 分钟', '"错误码 7"'],
+      '安卓格式化向量',
+    ],
+    [P.ktVersionTest, ['CasesGen.NORMALIZE_CASES', 'CasesGen.SAME_CASES'], ['"release-'], '安卓版本向量'],
+    [P.ktMimeTest, ['CasesGen.MIME_CASES'], ['"text/javascript"', '"image/png"'], '安卓 MIME 向量'],
+  ];
+  for (const [file, need, forbidden, what] of rules) {
+    if (!existsSync(join(ROOT, file))) {
+      fail(`向量使用检查：找不到 ${file}`);
+      continue;
+    }
+    const text = read(file);
+    for (const n of need) {
+      if (!text.includes(n)) fail(`向量使用检查：${file} 没有引用 \`${n}\`（${what} 应当来自 shared/cases/）`);
+    }
+    for (const f of forbidden) {
+      const re = new RegExp(f);
+      const m = text.match(re);
+      if (m) fail(`向量使用检查：${file} 里又手写了一份期望值（命中 \`${m[0]}\`，模式 /${f}/），请改成遍历生成向量`);
+    }
+  }
+}
+
+/**
+ * Kotlin 的块注释**可以嵌套**（与 C/JS 不同）：生成的文档注释里只要出现一个 `/*`
+ * （比如写成 `shared/cases/*.json`），整个文件就会一路注释到结尾并报
+ * 「Unclosed comment」——这个坑踩过一次，用生成器拦住。
+ */
+function assertKotlinDocs(outputs) {
+  for (const [file, content] of outputs) {
+    if (!file.endsWith('.kt')) continue;
+    for (const line of content.split('\n')) {
+      const t = line.trimStart();
+      if (!t.startsWith('* ') && t !== '*') continue;
+      if (t.includes('/*') || t.includes('*/')) {
+        fail(`生成的 Kotlin 文档注释里出现了 /* 或 */（嵌套注释会让文件变成未闭合注释）：${file}\n    ${t}`);
+      }
+    }
+  }
+}
+
 // ------------------------------------------------------------------ 主流程
 
 const registry = JSON.parse(read(P.registry));
@@ -748,6 +1089,12 @@ const legal = JSON.parse(read(P.legal));
 assertLegal(legal);
 const mime = JSON.parse(read(P.mime));
 const mimeMap = assertMime(mime);
+const cases = assertCases({
+  paths: JSON.parse(read(P.casesPaths)),
+  format: JSON.parse(read(P.casesFormat)),
+  version: JSON.parse(read(P.casesVersion)),
+});
+const mimes = mimeCases(mimeMap, mime.fallback);
 
 const outputs = [
   [P.etsCheats, genEtsCheats(registry)],
@@ -758,10 +1105,14 @@ const outputs = [
   [P.ktLegalText, genKtLegalText(renderLegal(legal, 'android'))],
   [P.etsMime, genEtsMime(mimeMap, mime.fallback)],
   [P.ktMime, genKtMime(mimeMap, mime.fallback)],
+  [P.etsCases, genEtsCases(cases, mimes)],
+  [P.ktCases, genKtCases(cases, mimes)],
 ];
 
 checkConstParity();
 checkNoInline();
+checkCaseUsage();
+assertKotlinDocs(outputs);
 
 // 校验没过就不写文件：免得把半成品生成物写进工作区，掩盖真正的错误
 if (problems.length) {

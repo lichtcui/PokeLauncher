@@ -1,41 +1,27 @@
 import { describe, it, expect } from '@ohos/hypium';
 import { resolveRequestPath } from '../../../main/ets/model/LocalHttpServer';
+import { PATH_CASES, PathCase } from './Cases.gen';
 
 /**
  * 本地 HTTP 服务的路径穿越判拒：这是安全边界（把 gameDir 之外的文件挡在门外）。
- * 覆盖字面量与 URL 编码两种绕过方式。
+ *
+ * ⚠️ 期望值**不写在这里**：唯一真相是 `shared/cases/paths.json`（生成物 `Cases.gen.ets`），
+ * 与安卓 `PathsTest` 跑的是同一套向量。手写一份 → 两端分叉时没人发现。
  */
 export default function localHttpServerTest() {
   describe('resolveRequestPath', () => {
-    it('passes through ordinary asset paths', 0, () => {
-      expect(resolveRequestPath('/index.html')).assertEqual('/index.html');
-      expect(resolveRequestPath('/js/main.js')).assertEqual('/js/main.js');
-      expect(resolveRequestPath('/images/logo.png')).assertEqual('/images/logo.png');
+    it('matches the shared vectors', 0, () => {
+      PATH_CASES.forEach((c: PathCase) => {
+        const actual: string = resolveRequestPath(c.input);
+        // null = 应当拒绝；鸿蒙侧「拒绝」的约定是返回空串
+        expect(actual).assertEqual(c.expect === null ? '' : c.expect);
+      });
     });
 
-    it('strips query and fragment', 0, () => {
-      expect(resolveRequestPath('/index.html?v=1')).assertEqual('/index.html');
-      expect(resolveRequestPath('/main.js#x')).assertEqual('/main.js');
-    });
-
-    it('maps root and empty to index', 0, () => {
-      expect(resolveRequestPath('/')).assertEqual('/index.html');
-      expect(resolveRequestPath('')).assertEqual('/index.html');
-    });
-
-    it('rejects literal path traversal', 0, () => {
-      expect(resolveRequestPath('/../etc/passwd')).assertEqual('');
-      expect(resolveRequestPath('/js/../main.js')).assertEqual('');
-    });
-
-    it('rejects URL-encoded traversal', 0, () => {
-      expect(resolveRequestPath('/%2e%2e/%2e%2e/etc/passwd')).assertEqual('');
-      expect(resolveRequestPath('/js/%2e%2e/main.js')).assertEqual('');
-      expect(resolveRequestPath('/%2E%2E/index.html')).assertEqual('');
-    });
-
-    it('keeps harmless dotted segments', 0, () => {
-      expect(resolveRequestPath('/data.folder/file.js')).assertEqual('/data.folder/file.js');
+    it('still contains traversal rejections', 0, () => {
+      // 防止有人把向量里的拒绝项删光，变成「全部放行」还全绿
+      const rejected: number = PATH_CASES.filter((c: PathCase) => c.expect === null).length;
+      expect(rejected >= 8).assertTrue();
     });
   });
 }

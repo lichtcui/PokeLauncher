@@ -2,7 +2,7 @@ import { common } from '@kit.AbilityKit';
 import { router, promptAction } from '@kit.ArkUI';
 import { BusinessError } from '@kit.BasicServicesKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
-import { GameRepository, ReleaseInfo, normalizeVersion } from '../model/GameRepository';
+import { GameRepository, ReleaseInfo, normalizeVersion, sameVersion } from '../model/GameRepository';
 import {
   AppUpdateInfo,
   AppUpdateResult,
@@ -79,7 +79,7 @@ struct Settings {
       return;
     }
     if (!force && gameRemoteTag.length > 0 && Date.now() - gameCheckAt < CHECK_TTL_MS) {
-      this.gameUpdateAvailable = normalizeVersion(gameRemoteTag) !== normalizeVersion(this.gameVersion);
+      this.gameUpdateAvailable = !sameVersion(this.gameVersion, gameRemoteTag);
       return;
     }
     this.checkingGame = true;
@@ -88,7 +88,7 @@ struct Settings {
       .then((info: ReleaseInfo) => {
         gameRemoteTag = info.tag;
         gameCheckAt = Date.now();
-        this.gameUpdateAvailable = normalizeVersion(info.tag) !== normalizeVersion(this.gameVersion);
+        this.gameUpdateAvailable = !sameVersion(this.gameVersion, info.tag);
         this.checkingGame = false;
       })
       .catch((err: BusinessError) => {

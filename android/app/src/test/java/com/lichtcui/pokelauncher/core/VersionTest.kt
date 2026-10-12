@@ -1,40 +1,36 @@
 package com.lichtcui.pokelauncher.core
 
+import com.lichtcui.pokelauncher.CasesGen
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
  * zip 里的 `currentVersion.txt` 只存 commit，Release 的 tag 是 `release-<commit>`，
- * 两侧比较前必须先把前缀去掉（对齐鸿蒙版 `normalizeVersion`）。
+ * 两侧比较前必须先把前缀去掉（对齐鸿蒙版 `normalizeVersion` / `sameVersion`）。
+ *
+ * ⚠️ 期望值**不写在这里**：唯一真相是 `shared/cases/version.json`（生成物 `CasesGen`），
+ * 与鸿蒙 `GameRepository.test` 跑的是同一套向量。
  */
 class VersionTest {
 
     @Test
-    fun normalizeStripsReleasePrefix() {
-        assertEquals("abc1234", Version.normalize("release-abc1234"))
-        assertEquals("v1.2.3", Version.normalize("v1.2.3"))
-        assertEquals("", Version.normalize(""))
+    fun normalizeMatchesTheSharedVectors() {
+        for (c in CasesGen.NORMALIZE_CASES) {
+            assertEquals("normalize(${c.input})", c.expect, Version.normalize(c.input))
+        }
     }
 
     @Test
-    fun normalizeDoesNotTouchPrefixInTheMiddle() {
-        assertEquals("my-release-1", Version.normalize("my-release-1"))
+    fun sameMatchesTheSharedVectors() {
+        for (c in CasesGen.SAME_CASES) {
+            assertEquals("same(${c.local}, ${c.remote})", c.expect, Version.same(c.local, c.remote))
+        }
     }
 
     @Test
-    fun sameComparesAfterNormalize() {
-        assertTrue(Version.same("abc1234", "release-abc1234"))
-        assertTrue(Version.same("release-abc1234", "release-abc1234"))
-        assertFalse(Version.same("abc1234", "release-def5678"))
-    }
-
-    @Test
-    fun sameIsFalseForEmptySide() {
+    fun sameCoversEmptySides() {
         // 空串一律视为「没法比较」，避免把「资源未安装」误判成「已是最新」
-        assertFalse(Version.same("", "release-abc1234"))
-        assertFalse(Version.same("abc1234", ""))
-        assertFalse(Version.same("", ""))
+        val empty = CasesGen.SAME_CASES.filter { it.local.isEmpty() || it.remote.isEmpty() }
+        assertEquals(true, empty.size >= 2)
     }
 }

@@ -13,10 +13,11 @@
 仓库根有**两份独立工程**：鸿蒙（`entry/`，本文档主体）与安卓（`android/`，见 [`android-port.md`](./android-port.md)）。两者构建体系互不相干，共用的东西只有 [`shared/`](../shared/README.md)（由 `scripts/gen-shared.mjs` **生成**成两端源码，不是引用）。
 
 ```
-shared/                            # 跨端唯一真相（生成两端的 Cheats / SharedJs / LegalText / Mime）
+shared/                            # 跨端唯一真相（生成两端的 Cheats / SharedJs / LegalText / Mime + 测试向量）
 ├─ cheats.json                     # 参数调整注册表（分组 + 条目 + param）
 ├─ legal.json                      # 法律页正文（10 章节；{xxx} 是平台占位符）
 ├─ mime.json                       # 扩展名 → MIME（本地 HTTP 服务的 Content-Type）
+├─ cases/{paths,format,version}.json  # 纯函数行为向量（两端测试遍历同一套期望值）
 ├─ js/cheats/<id>.js               # 每条一条纯 JS 脚本
 └─ js/{scene-runtime.core,save-guard,canvas-patch}.js   # 两端逐字共享的注入 JS
 
@@ -34,7 +35,7 @@ entry/src/main/ets/
 │  ├─ PokeballLoader.ets           # 资源准备动画：精灵球左右摇晃↔逐帧打开（下载/解压共用）
 │  └─ LauncherViews.ets            # 首页各状态视图（NotDownloadedView / DownloadFlowView / ReadyView）
 ├─ model/
-│  ├─ GameRepository.ets           # 下载(request.agent+镜像) / 原子解压(zlib) / 恢复 / 删除 / 版本 / 接管
+│  ├─ GameRepository.ets           # 下载(request.agent+镜像) / 原子解压(zlib) / 恢复 / 删除 / 版本(normalizeVersion·sameVersion) / 接管
 │  ├─ LauncherSession.ets          # 首页下载器：下载/解压/接管/暂停/取消/导入/存储预检（页面只做渲染）
 │  ├─ AppUpdate.ets                # 应用自更新：本地版本读取 + version.json 比对 + 引导下载（见 app-update.md）
 │  ├─ LocalHttpServer.ets          # 本地 HTTP 服务(127.0.0.1:18787 固定端口) + index.html 注入 + /__cheats__.js
