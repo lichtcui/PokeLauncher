@@ -125,12 +125,12 @@ node scripts/gen-shared.mjs --check  # 只校验（生成文件是否过期 + �
 | 安卓真机 | ✅ 装 debug 包 → 设置 → 法律与免责声明：10 章节全渲染、正文为安卓措辞、新增句「应用启动时会访问 Gitee…」在位；进游戏页正常（canvas 补丁 + Phaser v3.90.0 起来 ⇒ MIME 表端到端可用）。 |
 | 鸿蒙真机 | ⚠️ **未跑**（本机无 `hdc` 设备）：法律页渲染与游戏页注入链 / ArkWeb 日志判据都还没在设备上确认；鸿蒙侧目前只有「debug + release 编译通过 + 发布产物字面量抽查 + 用 Python 复跑 `LegalText` 那套断言」。 |
 | `LegalText.test.ets`（ohosTest） | ⚠️ 只编译通过（故意写坏能正确报错），**没在真机上执行过**（同样缺设备）。 |
-| 行为向量（两端） | ✅ 安卓 280 例单测全绿（各套件直接遍历向量）；鸿蒙侧由 `scripts/check-harmony-vectors.mjs` 复跑同一批向量 → **128 条全过**（paths / format / version / cache / mime，含 6 条手写边角：formatDuration/formatSpeed/formatBytes 各喂 NaN 与 Infinity）。 |
+| 行为向量（两端） | ✅ 安卓 274 例单测全绿（各套件直接遍历向量）；鸿蒙侧由 `scripts/check-harmony-vectors.mjs` 复跑同一批向量 → **164 条全过**（paths / format / version / cache / download / mime，含 6 条手写边角：formatDuration/formatSpeed/formatBytes 各喂 NaN 与 Infinity）。 |
 | 下载源向量 | ✅ 实测 5 种改法全被拦（鸿蒙 `common/DownloadUrls.ets` 各改一处、改完即还原，安卓侧同一套向量由 `DownloadUrlsTest` 跑）：删掉「空 assetUrl → 无候选」守卫、超时（speed 0）不再当失败跳过、直连兜底不再排最后、本地调试包不再走单源、镜像前缀判断松成「以 `https://github.com` 开头」。 |
 | 缓存语义向量 | ✅ 实测 5 种改法全被拦：鸿蒙漏掉 `.htm` 判定、鸿蒙去掉大小写归一（`/INDEX.HTML` 会被缓存一年）、向量里删掉 `webmanifest` 那条、向量里长缓存期望被改掉、安卓 `HttpCache` 去掉大小写归一（`HttpCacheTest` 红）。 |
 | 该脚本挂在 `--check` 上 | ✅ 实测：改坏一条向量（`1048575 → "1023.9 KB"`）→ 两端构建都会失败在 `checkSharedCode`；去掉鸿蒙 `formatSpeed` 的 `isFinite` 兜底 → 同样失败（这条正是脚本第一次跑就抓出来的：`formatSpeed(NaN)` 会显示 `NaN KB/s`，已修）。 |
 | 向量护栏 | ✅ 实测：把 `cases/format.json` 里 `1048575 → "1024 KB"` 改成 `"1023.9 KB"` → 安卓 `FormatTest` 红、鸿蒙侧复跑也红（同一份期望值）；在两端测试里各手写回一条路径期望值 → `--check` 报「又手写了一份期望值」。 |
-| 向量在**鸿蒙真机**上跑 | ⚠️ **未跑**：`LocalHttpServer.test` / `Format.test` / `GameRepository.test` 都改成了遍历生成向量，只在编译期验证过（缺 `hdc` 设备）。 |
+| 向量在**鸿蒙真机**上跑 | ⚠️ **未跑**：`LocalHttpServer.test` / `Format.test` / `GameRepository.test` / `DownloadUrls.test` 都（改）成了遍历生成向量，只在编译期验证过（缺 `hdc` 设备）。 |
 | 版本号对齐 | ✅ 实测 6 种改法：清单落后于 `AppScope/app.json5`（拦）、清单超前（只提示、exit 0）、版本号相同而 `versionName` 不一致（拦）、安卓 `gradle versionCode=2` 而清单 `androidVersionCode=1`（拦）、安卓版本名不一致（拦）、安卓清单超前（只提示）。 |
 | 手写清单 `version.json` | ✅ 实测 6 种改法全被拦：键名打错（`androidVersioncode`）、写了 `android*` 却没有 `androidVersionName`、只写 `apkUrl`、`minVersionCode > versionCode`、`pageUrl` 缺协议、`versionName` 清空。 |
 | 原生目录 / 白名单 | ✅ 实测 8 种改法全被拦：鸿蒙摇晃幅度 14→15、安卓 `BURST_MS` 900→950、存档目录改名、备份规则多备 `external`、备份规则漏掉存档目录、数据提取只漏一块的 include、APK 目录改名、FileProvider 多放行一条 `cache-path`。 |
@@ -138,4 +138,4 @@ node scripts/gen-shared.mjs --check  # 只校验（生成文件是否过期 + �
 | JS 桥 / 端点对账 | ✅ 实测 6 种改法全被拦（各只改一处、改完即还原）：安卓桥方法改名、`BRIDGE_METHODS` 里写不存在的方法、鸿蒙 `methodList` 少一项、鸿蒙注入链顺序调换、安卓端点改名、鸿蒙不再生成 `__CHEAT_PARAMS__`（这一条第一版写成 `includes` 被注释骗过，已收紧为 `var __CHEAT_PARAMS__ =` 正则）。 |
 
 ⏭️ 待补：接上鸿蒙真机后跑「安装 → 法律页 → 游戏页抓 `ARKWEB-CONSOLE`」与 `hdc shell aa test … OpenHarmonyTestRunner`
-（后者会一次跑掉 `LegalText.test` 与三个改成遍历向量的套件）。
+（后者会一次跑掉 `LegalText.test` 与四个改成遍历向量的套件）。
