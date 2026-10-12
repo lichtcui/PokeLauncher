@@ -79,6 +79,12 @@ const P = {
   ktGameRepo: 'android/app/src/main/java/com/lichtcui/pokelauncher/install/GameRepository.kt',
   etsSession: 'entry/src/main/ets/model/LauncherSession.ets',
   ktStorage: 'android/app/src/main/java/com/lichtcui/pokelauncher/install/Storage.kt',
+  etsPokeball: 'entry/src/main/ets/components/PokeballLoader.ets',
+  ktHomeState: 'android/app/src/main/java/com/lichtcui/pokelauncher/ui/HomeState.kt',
+  ktApkUpdater: 'android/app/src/main/java/com/lichtcui/pokelauncher/appupdate/ApkUpdater.kt',
+  ktBackupRules: 'android/app/src/main/res/xml/backup_rules.xml',
+  ktExtractionRules: 'android/app/src/main/res/xml/data_extraction_rules.xml',
+  ktProviderPaths: 'android/app/src/main/res/xml/provider_paths.xml',
 };
 
 const problems = [];
@@ -480,6 +486,22 @@ function checkConstParity() {
     const b = normExpr(pick(read(P.ktGameRepo), new RegExp(`const val ${n} = ([^\\n]+)`)));
     if (a === undefined || b === undefined) fail(`常量对账：${n}（${what}）在某一端找不到（解析失败？）`);
     else if (a !== b) fail(`常量分叉：${n}（${what}）鸿蒙=${a} 安卓=${b}`);
+  }
+
+  // 精灵球动画节奏：两端各写一份，安卓那几行注释就写着「与鸿蒙版同值」——
+  // 靠注释维系的一致性迟早会漂（改一端忘另一端 → 两个 App 手感不一样，谁也不会去量）
+  const numLit = (v) => (v === undefined ? undefined : v.replace(/\s+/g, '').replace(/[LlFf]$/, ''));
+  const animPairs = [
+    ['SHAKE_INTERVAL_MS', '摇晃半周期（ms）'],
+    ['SHAKE_ANGLE', '摇晃幅度（度）'],
+    ['SHAKE_ANIM_MS', '单次摇晃的补间时长（ms）'],
+    ['BURST_MS', '解压完成 → 就绪页的停留（ms）'],
+  ];
+  for (const [n, what] of animPairs) {
+    const a = numLit(pick(read(P.etsPokeball), new RegExp(`const ${n}: number = ([^;]+);`)));
+    const b = numLit(pick(read(P.ktHomeState), new RegExp(`const val ${n} = ([^\\n]+)`)));
+    if (a === undefined || b === undefined) fail(`常量对账：动画常量 ${n}（${what}）在某一端找不到（解析失败？）`);
+    else if (a !== b) fail(`常量分叉：动画常量 ${n}（${what}）鸿蒙=${a} 安卓=${b}`);
   }
 
   // 存储预检系数：鸿蒙 `size * (updating ? 3.2 : 2.4)` ↔ 安卓 Storage.FACTOR_UPDATE / FACTOR_FRESH
@@ -1187,6 +1209,77 @@ function checkManifestSchema() {
   }
 }
 
+/**
+ * 安卓原生侧的「同一件事写在两个文件里」检查（AGENTS.md 点名的红线）。
+ *
+ * 这些不是跨端分叉，而是**同一端两份配置**必须对齐，错一处的代价都很大：
+ * - 存档快照目录（`Const.SAVE_DIR_NAME` ↔ `backup_rules.xml` / `data_extraction_rules.xml`）：
+ *   对不上 → 备份规则把存档排除在外，只有换机/重装时才被发现；
+ * - 自更新 APK 目录（`ApkUpdater.DIR_NAME` ↔ `provider_paths.xml`）：对不上 →
+ *   FileProvider 抛 `IllegalArgumentException`（安装流程直接断）。
+ */
+function checkNativePathRules() {
+  const saveDirKt = pick(read(P.ktConst), /const val SAVE_DIR_NAME = "([^"]+)"/);
+  const saveDirEts = pick(read(P.etsSaveGuard), /const SNAPSHOT_DIR: string = '([^']+)'/);
+  if (saveDirKt === undefined || saveDirEts === undefined) {
+    fail('存档目录：从 Const.SAVE_DIR_NAME / SaveGuard.SNAPSHOT_DIR 里读不到目录名（解析失败？）');
+  } else if (saveDirKt !== saveDirEts) {
+    fail(`存档快照目录两端不一致：鸿蒙 files/${saveDirEts}/ ↔ 安卓 filesDir/${saveDirKt}/`);
+  }
+  if (saveDirKt !== undefined) {
+    const rules = [
+      [P.ktBackupRules, 1, 'Auto Backup（API 30 及以下）'],
+      [P.ktExtractionRules, 2, '数据提取（API 31+，cloud-backup + device-transfer 两块）'],
+    ];
+    for (const [rel, blocks, what] of rules) {
+      const xml = read(rel);
+      const includes = [...xml.matchAll(/<include\s+domain="([^"]+)"\s+path="([^"]+)"\s*\/>/g)].map((m) => `${m[1]}:${m[2]}`);
+      const allowed = [`sharedpref:.`, `file:${saveDirKt}`];
+      const bad = includes.filter((x) => !allowed.includes(x));
+      if (bad.length > 0) {
+        fail(
+          `${rel}：备份白名单里出现不该备的东西（${bad.join(' / ')}）——` +
+            '游戏本体在外部存储有 1.5GB、Auto Backup 配额只有 25MB，整次备份会失败并连带丢掉存档。' +
+            '只允许 sharedpref + 存档目录。'
+        );
+      }
+      if (includes.length !== allowed.length * blocks) {
+        fail(
+          `${rel}：期望 ${blocks} 块 × [${allowed.join(', ')}] 共 ${allowed.length * blocks} 条 include，` +
+            `实际 ${includes.length} 条（${includes.join(' / ')}）——` +
+            '少一条就等于那一块不再备份存档。'
+        );
+      }
+    }
+  }
+
+  const apkDirName = pick(read(P.ktApkUpdater), /const val DIR_NAME = "([^"]+)"/);
+  if (apkDirName === undefined) {
+    fail('自更新目录：从 ApkUpdater.DIR_NAME 里读不到目录名（解析失败？）');
+  } else {
+    const xml = read(P.ktProviderPaths);
+    const entries = [...xml.matchAll(/<(external-files-path|files-path|cache-path|external-path|external-cache-path)\s+name="[^"]*"\s+path="([^"]*)"\s*\/>/g)].map(
+      (m) => `${m[1]}:${m[2]}`
+    );
+    const expected = [`external-files-path:${apkDirName}/`, `files-path:${apkDirName}/`];
+    const bad = entries.filter((x) => !expected.includes(x));
+    if (bad.length > 0) {
+      fail(
+        `${P.ktProviderPaths}：FileProvider 白名单里出现了不该放行的路径（${bad.join(' / ')}）——` +
+          '授出去的是一条 URI，接收方在授权期内可读该目录下任何文件；游戏资源（1.5GB）与存档都不该在里头。'
+      );
+    }
+    for (const e of expected) {
+      if (!entries.includes(e)) {
+        fail(
+          `${P.ktProviderPaths}：缺少 ${e}（ApkUpdater.DIR_NAME = "${apkDirName}"）——` +
+            'FileProvider 只认白名单里的路径，缺了会在安装时抛 IllegalArgumentException。'
+        );
+      }
+    }
+  }
+}
+
 /** 逐行扫 harmony 源码，返回 `{ rel, text }[]` */
 function harmonySources() {
   const out = [];
@@ -1490,6 +1583,7 @@ checkCaseUsage();
 checkJsBridgeContract();
 checkHarmonyKeepList();
 checkManifestSchema();
+checkNativePathRules();
 checkHarmonyVectors();
 assertKotlinDocs(outputs);
 

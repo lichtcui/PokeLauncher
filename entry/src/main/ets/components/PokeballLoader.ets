@@ -34,6 +34,8 @@ export const BURST_MS: number = 900;
 
 const SHAKE_INTERVAL_MS: number = 450;
 const SHAKE_ANGLE: number = 14;
+/** 单次摇晃的补间时长（安卓 `HomeState.SHAKE_ANIM_MS` 同值，--check 对账） */
+const SHAKE_ANIM_MS: number = 420;
 
 // ─────────────────────────── 组件 ───────────────────────────
 
@@ -94,6 +96,6 @@ export struct PokeballLoader {
       .height(this.iconSize)
       .objectFit(ImageFit.Contain)
       .rotate({ angle: this.angle })
-      .animation({ duration: 420, curve: Curve.EaseInOut })
+      .animation({ duration: SHAKE_ANIM_MS, curve: Curve.EaseInOut })
   }
 }
