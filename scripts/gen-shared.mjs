@@ -58,6 +58,7 @@ const P = {
   casesFormat: 'shared/cases/format.json',
   casesVersion: 'shared/cases/version.json',
   casesHttp: 'shared/cases/http.json',
+  casesDownload: 'shared/cases/download.json',
   etsCases: 'entry/src/ohosTest/ets/test/Cases.gen.ets',
   ktCases: 'android/app/src/test/java/com/lichtcui/pokelauncher/CasesGen.kt',
   etsHttpTest: 'entry/src/ohosTest/ets/test/LocalHttpServer.test.ets',
@@ -69,6 +70,9 @@ const P = {
   ktMimeTest: 'android/app/src/test/java/com/lichtcui/pokelauncher/core/MimeTest.kt',
   ktProguard: 'android/app/proguard-rules.pro',
   etsHttpCache: 'entry/src/main/ets/common/HttpCache.ets',
+  etsDownloadUrls: 'entry/src/main/ets/common/DownloadUrls.ets',
+  etsDownloadTest: 'entry/src/ohosTest/ets/test/DownloadUrls.test.ets',
+  ktDownloadTest: 'android/app/src/test/java/com/lichtcui/pokelauncher/install/DownloadUrlsTest.kt',
   ktHttpCacheTest: 'android/app/src/test/java/com/lichtcui/pokelauncher/server/HttpCacheTest.kt',
   etsGamePage: 'entry/src/main/ets/pages/GamePage.ets',
   ktPokeWebView: 'android/app/src/main/java/com/lichtcui/pokelauncher/web/PokeWebView.kt',
@@ -854,6 +858,73 @@ function assertCases(cases) {
     if (!cache.some((c) => c.expect === v)) fail(`cases: http.cacheControl 缺少 \`${v}\` 的期望值`);
   }
 
+  // 下载候选 / 选源排序
+  const strArr = (where, v) => {
+    if (!Array.isArray(v) || v.some((x) => typeof x !== 'string')) {
+      fail(`cases: ${where} 必须是字符串数组`);
+      return [];
+    }
+    return v;
+  };
+  const dl = cases.download ?? {};
+  const cand = list('download.candidates', dl.candidates, 5);
+  for (const c of cand) {
+    str('download.candidates.assetUrl', c.assetUrl);
+    str('download.candidates.debugAssetUrl', c.debugAssetUrl);
+    strArr('download.candidates.mirrors', c.mirrors);
+    strArr('download.candidates.expect', c.expect);
+  }
+  const split = list('download.split', dl.split, 4);
+  for (const c of split) {
+    strArr('download.split.candidates', c.candidates);
+    strArr('download.split.expectProbed', c.expectProbed);
+    if (c.expectFallback !== null) str('download.split.expectFallback', c.expectFallback);
+  }
+  const rank = list('download.rank', dl.rank, 6);
+  for (const c of rank) {
+    if (!Array.isArray(c.probed)) {
+      fail('cases: download.rank.probed 必须是数组');
+      continue;
+    }
+    for (const p of c.probed) {
+      str('download.rank.probed.url', p.url);
+      num('download.rank.probed.speed', p.speed);
+    }
+    if (c.fallback !== null) str('download.rank.fallback', c.fallback);
+    strArr('download.rank.expect', c.expect);
+  }
+  const hostOf = list('download.hostOf', dl.hostOf, 4);
+  for (const c of hostOf) {
+    str('download.hostOf.url', c.url);
+    str('download.hostOf.expect', c.expect);
+  }
+  const kindOf = list('download.kindOf', dl.kindOf, 4);
+  for (const c of kindOf) {
+    num('download.kindOf.index', c.index);
+    num('download.kindOf.count', c.count);
+    str('download.kindOf.expect', c.expect);
+  }
+  const mirrorOf = list('download.mirrorOf', dl.mirrorOf, 4);
+  for (const c of mirrorOf) {
+    str('download.mirrorOf.url', c.url);
+    strArr('download.mirrorOf.mirrors', c.mirrors);
+    str('download.mirrorOf.expect', c.expect);
+  }
+  // 关键的边界必须有向量，否则等于白抽：空地址、没配镜像、调试包单源、
+  // 「有兜底才跳过失败源」的两个方向、兜底永远最后
+  const has = (arr, fn, what) => {
+    if (!arr.some(fn)) fail(`cases: download 缺少「${what}」的向量`);
+  };
+  has(cand, (c) => c.assetUrl === '' && c.expect.length === 0, '空 assetUrl → 无候选');
+  has(cand, (c) => c.mirrors.length === 0, '没配镜像时只剩直连');
+  has(cand, (c) => c.assetUrl === c.debugAssetUrl && c.expect.length === 1, '本地调试包单源');
+  has(split, (c) => c.expectFallback === null && c.expectProbed.length === 1, '单源没有直连兜底');
+  has(rank, (c) => c.fallback !== null && c.probed.some((p) => p.speed <= 0) && !c.expect.some((u) => c.probed.some((p) => p.url === u && p.speed <= 0)), '有兜底时跳过测速失败的镜像');
+  has(rank, (c) => c.fallback === null && c.probed.some((p) => p.speed <= 0) && c.expect.includes(c.probed[0].url), '单源不跳过测速失败的源');
+  has(rank, (c) => c.fallback !== null && c.expect[c.expect.length - 1] === c.fallback, '直连兜底排在最后');
+  has(rank, (c) => c.probed.length >= 3 && new Set(c.probed.map((p) => p.speed)).size === 1, '同速稳定排序');
+  has(kindOf, (c) => c.expect === kindOf[0].expect, '最后一个候选算直连');
+
   // 版本比较
   const ver = cases.version ?? {};
   const normalize = list('version.normalize', ver.normalize, 3);
@@ -874,7 +945,13 @@ function assertCases(cases) {
     fail('cases: version.same 必须包含「任一端为空 → false」的向量');
   }
 
-  return { paths, fmt: { bytes, speed, duration, errorDetail }, ver: { normalize, same }, cache };
+  return {
+    paths,
+    fmt: { bytes, speed, duration, errorDetail },
+    ver: { normalize, same },
+    cache,
+    dl: { candidates: cand, split, rank, hostOf, kindOf, mirrorOf },
+  };
 }
 
 /** mime.json → 两端共用的 MIME 向量（顺带把图里的每条映射都锁一遍） */
@@ -898,6 +975,7 @@ const docBlock = (text) => text.split('\n').map((l) => (l ? ` * ${l}` : ' *')).j
 
 function genEtsCases(c, mimes) {
   const lit = (v) => (v === null ? 'null' : typeof v === 'string' ? etsStr(v) : String(v));
+  const etsArr = (arr) => `[${arr.map((x) => etsStr(x)).join(', ')}]`;
   const rows = (arr, fn) => arr.map((x) => `  ${fn(x)}`).join(',\n');
   return `/**
 ${docBlock(CASES_DOC)}
@@ -939,6 +1017,49 @@ export interface MimeCase {
 export interface CacheCase {
   path: string;
   /** 完整的 \`Cache-Control\` 头值 */
+  expect: string;
+}
+
+export interface DownloadCandidateCase {
+  assetUrl: string;
+  mirrors: string[];
+  debugAssetUrl: string;
+  expect: string[];
+}
+
+export interface DownloadSplitCase {
+  candidates: string[];
+  expectProbed: string[];
+  /** null = 没有直连兜底 */
+  expectFallback: string | null;
+}
+
+export interface DownloadProbeCase {
+  url: string;
+  /** bytes/ms；<= 0 表示测速失败或超时 */
+  speed: number;
+}
+
+export interface DownloadRankCase {
+  probed: DownloadProbeCase[];
+  fallback: string | null;
+  expect: string[];
+}
+
+export interface DownloadHostCase {
+  url: string;
+  expect: string;
+}
+
+export interface DownloadKindCase {
+  index: number;
+  count: number;
+  expect: string;
+}
+
+export interface DownloadMirrorCase {
+  url: string;
+  mirrors: string[];
   expect: string;
 }
 
@@ -986,15 +1107,48 @@ ${rows(mimes, (x) => `{ path: ${etsStr(x.path)}, expect: ${etsStr(x.expect)} }`)
 export const CACHE_CASES: CacheCase[] = [
 ${rows(c.cache, (x) => `{ path: ${etsStr(x.path)}, expect: ${etsStr(x.expect)} }`)}
 ];
+
+/** 下载候选地址（镜像前缀 + 直连兜底） */
+export const DOWNLOAD_CANDIDATE_CASES: DownloadCandidateCase[] = [
+${rows(c.dl.candidates, (x) => `{ assetUrl: ${etsStr(x.assetUrl)}, mirrors: ${etsArr(x.mirrors)}, debugAssetUrl: ${etsStr(x.debugAssetUrl)}, expect: ${etsArr(x.expect)} }`)}
+];
+
+/** 候选地址拆分：参与测速的源 + 直连兜底（null = 没有兜底） */
+export const DOWNLOAD_SPLIT_CASES: DownloadSplitCase[] = [
+${rows(c.dl.split, (x) => `{ candidates: ${etsArr(x.candidates)}, expectProbed: ${etsArr(x.expectProbed)}, expectFallback: ${lit(x.expectFallback)} }`)}
+];
+
+/** 测速排序：快 → 慢 → 失败，兜底最后 */
+export const DOWNLOAD_RANK_CASES: DownloadRankCase[] = [
+${rows(c.dl.rank, (x) => `{ probed: [${x.probed.map((p) => `{ url: ${etsStr(p.url)}, speed: ${p.speed} }`).join(', ')}], fallback: ${lit(x.fallback)}, expect: ${etsArr(x.expect)} }`)}
+];
+
+/** 域名提取（日志/界面只显示 host） */
+export const DOWNLOAD_HOST_CASES: DownloadHostCase[] = [
+${rows(c.dl.hostOf, (x) => `{ url: ${etsStr(x.url)}, expect: ${etsStr(x.expect)} }`)}
+];
+
+/** 候选角色：最后一个候选是直连，其余是镜像 */
+export const DOWNLOAD_KIND_CASES: DownloadKindCase[] = [
+${rows(c.dl.kindOf, (x) => `{ index: ${x.index}, count: ${x.count}, expect: ${etsStr(x.expect)} }`)}
+];
+
+/** 加速镜像前缀套用（首页「下载太慢？」） */
+export const DOWNLOAD_MIRROR_CASES: DownloadMirrorCase[] = [
+${rows(c.dl.mirrorOf, (x) => `{ url: ${etsStr(x.url)}, mirrors: ${etsArr(x.mirrors)}, expect: ${etsStr(x.expect)} }`)}
+];
 `;
 }
 
 function genKtCases(c, mimes) {
   const lit = (v) => (v === null ? 'null' : typeof v === 'string' ? ktStr(v) : String(v));
+  const ktArr = (arr) => `listOf(${arr.map((x) => ktStr(x)).join(', ')})`;
   const num = (n) => (Number.isInteger(n) ? `${n}.0` : String(n));
   const longLit = (n) => `${n}L`;
   const rows = (arr, fn) => arr.map((x) => `        ${fn(x)}`).join(',\n');
   return `package com.lichtcui.pokelauncher
+
+import com.lichtcui.pokelauncher.install.ProbeResult
 
 /**
 ${docBlock(CASES_DOC)}
@@ -1016,6 +1170,31 @@ object CasesGen {
     data class MimeCase(val path: String, val expect: String)
 
     data class CacheCase(val path: String, val expect: String)
+
+    data class DownloadCandidateCase(
+        val assetUrl: String,
+        val mirrors: List<String>,
+        val debugAssetUrl: String,
+        val expect: List<String>
+    )
+
+    data class DownloadSplitCase(
+        val candidates: List<String>,
+        val expectProbed: List<String>,
+        val expectFallback: String?
+    )
+
+    data class DownloadRankCase(
+        val probed: List<ProbeResult>,
+        val fallback: String?,
+        val expect: List<String>
+    )
+
+    data class DownloadHostCase(val url: String, val expect: String)
+
+    data class DownloadKindCase(val index: Int, val count: Int, val expect: String)
+
+    data class DownloadMirrorCase(val url: String, val mirrors: List<String>, val expect: String)
 
     /** 本地 HTTP 服务的路径判定（安全边界） */
     val PATH_CASES = listOf(
@@ -1061,6 +1240,36 @@ ${rows(mimes, (x) => `MimeCase(${ktStr(x.path)}, ${ktStr(x.expect)})`)}
     val CACHE_CASES = listOf(
 ${rows(c.cache, (x) => `CacheCase(${ktStr(x.path)}, ${ktStr(x.expect)})`)}
     )
+
+    /** 下载候选地址（镜像前缀 + 直连兜底） */
+    val DOWNLOAD_CANDIDATE_CASES = listOf(
+${rows(c.dl.candidates, (x) => `DownloadCandidateCase(${ktStr(x.assetUrl)}, ${ktArr(x.mirrors)}, ${ktStr(x.debugAssetUrl)}, ${ktArr(x.expect)})`)}
+    )
+
+    /** 候选地址拆分：参与测速的源 + 直连兜底 */
+    val DOWNLOAD_SPLIT_CASES = listOf(
+${rows(c.dl.split, (x) => `DownloadSplitCase(${ktArr(x.candidates)}, ${ktArr(x.expectProbed)}, ${lit(x.expectFallback)})`)}
+    )
+
+    /** 测速排序：快 → 慢 → 失败，兜底最后 */
+    val DOWNLOAD_RANK_CASES = listOf(
+${rows(c.dl.rank, (x) => `DownloadRankCase(listOf(${x.probed.map((p) => `ProbeResult(${ktStr(p.url)}, ${num(p.speed)})`).join(', ')}), ${lit(x.fallback)}, ${ktArr(x.expect)})`)}
+    )
+
+    /** 域名提取（日志里只显示 host） */
+    val DOWNLOAD_HOST_CASES = listOf(
+${rows(c.dl.hostOf, (x) => `DownloadHostCase(${ktStr(x.url)}, ${ktStr(x.expect)})`)}
+    )
+
+    /** 候选角色：最后一个候选是直连，其余是镜像 */
+    val DOWNLOAD_KIND_CASES = listOf(
+${rows(c.dl.kindOf, (x) => `DownloadKindCase(${x.index}, ${x.count}, ${ktStr(x.expect)})`)}
+    )
+
+    /** 加速镜像前缀套用（首页「下载太慢？」） */
+    val DOWNLOAD_MIRROR_CASES = listOf(
+${rows(c.dl.mirrorOf, (x) => `DownloadMirrorCase(${ktStr(x.url)}, ${ktArr(x.mirrors)}, ${ktStr(x.expect)})`)}
+    )
 }
 `;
 }
@@ -1092,6 +1301,18 @@ function checkCaseUsage() {
     [P.ktMimeTest, ['CasesGen.MIME_CASES'], ['"text/javascript"', '"image/png"'], '安卓 MIME 向量'],
     [P.etsHttpTest, ['CACHE_CASES'], ["'no-cache'", "'max-age=31536000'"], '鸿蒙缓存语义向量'],
     [P.ktHttpCacheTest, ['CasesGen.CACHE_CASES'], ['"no-cache"', '"max-age=31536000"'], '安卓缓存语义向量'],
+    [
+      P.etsDownloadTest,
+      ['DOWNLOAD_CANDIDATE_CASES', 'DOWNLOAD_SPLIT_CASES', 'DOWNLOAD_RANK_CASES', 'DOWNLOAD_HOST_CASES', 'DOWNLOAD_KIND_CASES', 'DOWNLOAD_MIRROR_CASES'],
+      ["'镜像'", "'直连'"],
+      '鸿蒙下载源向量',
+    ],
+    [
+      P.ktDownloadTest,
+      ['CasesGen.DOWNLOAD_CANDIDATE_CASES', 'CasesGen.DOWNLOAD_SPLIT_CASES', 'CasesGen.DOWNLOAD_RANK_CASES'],
+      ['"镜像"', '"直连"'],
+      '安卓下载源向量',
+    ],
   ];
   for (const [file, need, forbidden, what] of rules) {
     if (!existsSync(join(ROOT, file))) {
@@ -1656,6 +1877,7 @@ const cases = assertCases({
   format: JSON.parse(read(P.casesFormat)),
   version: JSON.parse(read(P.casesVersion)),
   http: JSON.parse(read(P.casesHttp)),
+  download: JSON.parse(read(P.casesDownload)),
 });
 const mimes = mimeCases(mimeMap, mime.fallback);
 

@@ -54,6 +54,7 @@
 - **ArkUI 坑**：`@Builder` 的**值参数**不会触发重渲染，动态文案要直接在 `build()` 里读 `@State`（见 `Settings.ets` 的「检查更新」「删除本地数据」行）；需要随状态刷新时用 `@Component` + `@Prop`。
 - **release 已开混淆**（`entry/build-profile.json5` + `entry/obfuscation-rules.txt`）。新增 JSON 解析字段或 `javaScriptProxy` 的 `methodList` 方法名时，必须把对应属性名加进 `-keep-property-name`，否则 release 包会静默读不到值。未开 `-enable-filename-obfuscation`（会破坏 `main_pages.json` 静态路由）。
 - 新增静态资源放 `entry/src/main/resources/base/media/`，引用 `$r('app.media.xxx')`。
+- **下载候选地址 / 测速排序 / 源的 host 与角色判定只在 `common/DownloadUrls.ets` 里写一份**（对应安卓 `install/DownloadUrls.kt`，规则向量 `shared/cases/download.json`）：本地调试包走单源、有直连兜底才跳过测速失败的镜像、兜底永远排最后、空 assetUrl 无候选——这几条改错都只在真机下载时才看得出来。
 - **新增作弊条目只改 `shared/cheats.json` + 新增一个 `shared/js/cheats/<id>.js`**，然后跑 `node scripts/gen-shared.mjs`（见 [`docs/cheats.md`](./docs/cheats.md)、[`shared/README.md`](./shared/README.md)）。两端的注册表（`entry/src/main/ets/model/Cheats.ets`、`android/.../cheat/Cheats.kt`）是**生成物，不要手改**；UI/状态/注入会自动生效。
   - ⚠️ 命名：该功能在 **UI 上叫「参数调整」**（`作弊` 字样会触发应用商店审核风险），代码/文档沿用 `cheat` 命名。**新增任何用户可见文案都用「参数调整」**。
 - **跨端共享代码 = `shared/`（生成，不是引用）**：鸿蒙 ArkTS 与安卓 Kotlin 没有共同运行时（KMP 不支持 OHOS target），两端之间真正能共享的只有 **JS 字符串、注册表数据、文案与映射表**。`scripts/gen-shared.mjs` 从 `shared/**` 生成 **10 个文件**（每端 5 个：`Cheats` / `SharedJs` / `LegalText` / `Mime` + 测试用的行为向量 `Cases.gen.ets`（鸿蒙 ohosTest）/ `CasesGen.kt`（安卓单测）），生成物一律**不要手改**。
@@ -63,7 +64,7 @@
 - **`version.json` 是手写的**（发版第 2 步）：`--check` 会校验它——键名必须被某一端解析器认识、`minVersionCode ≤ versionCode`、写了 `android*`/`apkUrl` 就必须有 `androidVersionCode` + `androidVersionName`、URL 要带协议。手写清单的错字两端都会当它不存在，不拦就只能等用户反馈。
 - **清单版本号要和应用自己的版本号对齐**（发版第 1、2 步是同一件事的两处）：`--check` 会对比 `version.json` ↔ `AppScope/app.json5`（鸿蒙）、`androidVersionCode` ↔ `android/app/build.gradle.kts`（安卓）。清单**落后** = 新版本永远不提示（静默，直接构建失败）；清单**超前**只打印提示（发布窗口/本地测自更新期间的正常中间态）；版本号相同则 `versionName` 也必须一致（界面展示的是清单里的名字）。
 - **release 混淆白名单也要同步**：鸿蒙 `JSON.parse(...) as T` 解析出的字段（含 `assets: ReleaseAsset[]` 这类嵌套）与 `javaScriptProxy` 的 `methodList`，都必须在 `entry/obfuscation-rules.txt` 的 `-keep-property-name` 里——漏一个，release 包**静默读不到值**（debug 正常）。`--check` 会从源码递归收集字段名逐个核对，别再靠人记。
-- **纯函数的行为期望值也只写一份**：路径判定（安全边界）/ 展示格式化 / 版本比较两端各有一份实现，期望值放 [`shared/cases/`](./shared/cases)（`paths.json` / `format.json` / `version.json`），两端测试**遍历同一套向量**（鸿蒙 `LocalHttpServer.test` / `Format.test` / `GameRepository.test`，安卓 `PathsTest` / `FormatTest` / `VersionTest` / `MimeTest`）。**不要在测试里再手写一份期望值**——`--check` 会用正则拦（连两端手抖写回一条 `resolveRequestPath("/%2e%2e/x")` 都报错）。`paths.expect = null` = 应当拒绝。鸿蒙那几个套件只能跑在设备上，所以另有 `node scripts/check-harmony-vectors.mjs`（把鸿蒙纯函数剪出来在 Node 里喂同一批向量，`--check` 会顺带跑）——**它只是无设备时的替代证据，真机在手仍要跑 `entry@ohosTest`**。
+- **纯函数的行为期望值也只写一份**：路径判定（安全边界）/ 展示格式化 / 版本比较 / 下载选源两端各有一份实现，期望值放 [`shared/cases/`](./shared/cases)（`paths.json` / `format.json` / `version.json` / `mime.json` / `download.json`），两端测试**遍历同一套向量**（鸿蒙 `LocalHttpServer.test` / `Format.test` / `GameRepository.test` / `DownloadUrls.test`，安卓 `PathsTest` / `FormatTest` / `VersionTest` / `MimeTest` / `DownloadUrlsTest`）。**不要在测试里再手写一份期望值**——`--check` 会用正则拦（连两端手抖写回一条 `resolveRequestPath("/%2e%2e/x")` 都报错）。`paths.expect = null` = 应当拒绝。鸿蒙那几个套件只能跑在设备上，所以另有 `node scripts/check-harmony-vectors.mjs`（把鸿蒙纯函数剪出来在 Node 里喂同一批向量，`--check` 会顺带跑）——**它只是无设备时的替代证据，真机在手仍要跑 `entry@ohosTest`**。
 - **存档是 Web 的 `localStorage`，物理落在 `<沙箱>/cache/web/`**，会被「清除缓存」清掉。因此 `model/SaveGuard.ets` 会把它镜像到 `files/saves/` 并在清空时自动回填——**任何需要持久化的数据都不要放 `cache/`**，放 `files/`。
 
 ### 测试（ohosTest，跑在真机）
@@ -112,7 +113,7 @@ export ANDROID_HOME=/usr/local/share/android-commandlinetools
 export PATH="$JAVA_HOME/bin:$PATH"
 cd android
 ./gradlew assembleDebug        # → app/build/outputs/apk/debug/app-debug.apk
-./gradlew testDebugUnitTest    # JVM 纯函数单测 280 例（core / install / cheat / server / web / appupdate / ui）
+./gradlew testDebugUnitTest    # JVM 纯函数单测 274 例（core / install / cheat / server / web / appupdate / ui）
 ./gradlew :app:lintDebug       # 需 0 error（MissingPermission 等）
 ```
 

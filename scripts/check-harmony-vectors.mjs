@@ -29,6 +29,7 @@ const SRC = {
   mime: 'entry/src/main/ets/common/Mime.ets',
   format: 'entry/src/main/ets/common/Format.ets',
   cache: 'entry/src/main/ets/common/HttpCache.ets',
+  download: 'entry/src/main/ets/common/DownloadUrls.ets',
 };
 
 /**
@@ -70,6 +71,8 @@ function stripTypes(text) {
     // `const x: T` / `let x: T`（要求声明关键字，避免误伤三元）
     .replace(new RegExp(`\\b(const|let|var)\\s+([A-Za-z_$][\\w$]*)\\s*:\\s*${TYPE}`, 'g'), '$1 $2')
     // 泛型实参（只认 `new Map<...>`，别的 `<` 可能是比较运算）
+    // 箭头函数的参数表：（`idx.sort((a: number, b: number) => ...)` 这种回调）
+    .replace(/\(([^()]*)\)\s*=>/g, (_m, params) => `(${noAnn(params)}) =>`)
     .replace(/new Map<[^<>]*>/g, 'new Map')
     .replace(/\bas\s+[A-Za-z_$][\w$.]*/g, '')
     .replace(/^export /gm, '');
@@ -83,7 +86,7 @@ function stripTypes(text) {
  * 所以连带剪出来是安全的；不是字面量（数组 / Map / 调用）的常量故意不取，
  * 需要时再把整个文件喂进来（像 `Mime.ets` 那样）。
  */
-const CONST_SOURCES = ['cache'];
+const CONST_SOURCES = ['cache', 'download'];
 
 /**
  * 剪出模块级字面量常量声明（行首 + 以 `;` 结尾 + 初值是字符串/数字/布尔）。
@@ -105,6 +108,12 @@ const FUNCS = {
   formatErrorDetail: ['format', 'formatErrorDetail'],
   formatDuration: ['format', 'formatDuration'],
   cacheControl: ['cache', 'cacheControl'],
+  downloadCandidates: ['download', 'downloadCandidates'],
+  splitCandidates: ['download', 'splitCandidates'],
+  rankSourcesByProbe: ['download', 'rankSourcesByProbe'],
+  hostOf: ['download', 'hostOf'],
+  kindOf: ['download', 'kindOf'],
+  mirrorOf: ['download', 'mirrorOf'],
 };
 
 function buildContext() {
@@ -134,6 +143,7 @@ function main() {
     version: JSON.parse(read('shared/cases/version.json')),
     http: JSON.parse(read('shared/cases/http.json')),
     mime: JSON.parse(read('shared/mime.json')),
+    download: JSON.parse(read('shared/cases/download.json')),
   };
 
   let total = 0;
@@ -141,6 +151,12 @@ function main() {
   const check = (what, got, want) => {
     total++;
     if (got !== want) {
+      failures.push(`${what}\n      实际: ${JSON.stringify(got)}\n      期望: ${JSON.stringify(want)}`);
+    }
+  };
+  const checkArr = (what, got, want) => {
+    total++;
+    if (JSON.stringify(got) !== JSON.stringify(want)) {
       failures.push(`${what}\n      实际: ${JSON.stringify(got)}\n      期望: ${JSON.stringify(want)}`);
     }
   };
@@ -183,6 +199,36 @@ function main() {
     check(`sameVersion(${JSON.stringify(c.local)}, ${JSON.stringify(c.remote)})`, context.sameVersion(c.local, c.remote), c.out);
   }
 
+  // 下载候选 / 选源排序：鸿蒙侧 `null` 兜底 = 空串（与 ohosTest 里的换算一致）
+  for (const c of cases.download.candidates) {
+    checkArr(
+      `downloadCandidates(${JSON.stringify(c.assetUrl)}, ${JSON.stringify(c.mirrors)}, ${JSON.stringify(c.debugAssetUrl)})`,
+      context.downloadCandidates(c.assetUrl, c.mirrors, c.debugAssetUrl),
+      c.expect
+    );
+  }
+  for (const c of cases.download.split) {
+    const split = context.splitCandidates(c.candidates);
+    checkArr(`splitCandidates(${JSON.stringify(c.candidates)}).probed`, split.probed, c.expectProbed);
+    check(
+      `splitCandidates(${JSON.stringify(c.candidates)}).fallback`,
+      split.fallback,
+      c.expectFallback === null ? '' : c.expectFallback
+    );
+  }
+  for (const c of cases.download.rank) {
+    checkArr(
+      `rankSourcesByProbe(${JSON.stringify(c.probed)}, ${JSON.stringify(c.fallback)})`,
+      context.rankSourcesByProbe(c.probed, c.fallback === null ? '' : c.fallback),
+      c.expect
+    );
+  }
+  for (const c of cases.download.hostOf) check(`hostOf(${JSON.stringify(c.url)})`, context.hostOf(c.url), c.expect);
+  for (const c of cases.download.kindOf) check(`kindOf(${c.index}, ${c.count})`, context.kindOf(c.index, c.count), c.expect);
+  for (const c of cases.download.mirrorOf) {
+    check(`mirrorOf(${JSON.stringify(c.url)}, ${JSON.stringify(c.mirrors)})`, context.mirrorOf(c.url, c.mirrors), c.expect);
+  }
+
   // MIME：与生成器 mimeCases() 同一组用例（每条映射 + 三条退化）
   for (const [ext, mime] of Object.entries(cases.mime.map)) check(`mimeOf('/x.${ext}')`, context.mimeOf(`/x.${ext}`), mime);
   check("mimeOf('/no-extension')", context.mimeOf('/no-extension'), cases.mime.fallback);
@@ -195,7 +241,7 @@ function main() {
     console.error('  ⚠️ 注意：这**只是**无设备时的替代证据，真机在手时要跑 entry@ohosTest 的 HAP。');
     process.exit(1);
   }
-  console.log(`✓ 鸿蒙侧纯函数满足 shared/ 向量：${total} 条（paths / format / version / cache / mime）`);
+  console.log(`✓ 鸿蒙侧纯函数满足 shared/ 向量：${total} 条（paths / format / version / cache / download / mime）`);
   console.log('  ⚠️ 无设备时的替代证据，不能替代 entry@ohosTest 在真机上的运行结果。');
 }
 

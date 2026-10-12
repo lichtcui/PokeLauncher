@@ -1,0 +1,197 @@
+{
+  "_comment": [
+    "下载候选地址 / 选源排序向量。",
+    "这两个实现以前是「鸿蒙内联在 GameRepository + LauncherSession + Index 里，安卓抽成 install/DownloadUrls.kt」：",
+    "安卓那份文件头就写着「对应鸿蒙版 buildDownloadUrls / rankSources」「与鸿蒙版 Index.mirrorOf 同规则」——",
+    "靠注释维系的一致性，改一端漏另一端时没有任何东西会红（候选地址少一个镜像 / 失败源没被跳过 /",
+    "单源 debug 包被当成「没测速结果」跳过，都是真机才看得出的问题）。",
+    "现在鸿蒙侧也抽成 common/DownloadUrls.ets，两端测试遍历同一套向量。",
+    "约定：`null` 的 fallback 表示「没有直连兜底」（鸿蒙侧用空串表示，与 paths 向量的 null↔空串同口径）。",
+    "输入里的 mirror / asset 地址都是合成的，向量只锁**规则**，不锁 Const 里配了哪些镜像。"
+  ],
+  "candidates": [
+    {
+      "why": "常规：镜像逐个前缀 + 最后 GitHub 直连兜底",
+      "assetUrl": "https://github.com/a/b/releases/download/v1/game.zip",
+      "mirrors": ["https://m1/", "https://m2/"],
+      "debugAssetUrl": "",
+      "expect": [
+        "https://m1/https://github.com/a/b/releases/download/v1/game.zip",
+        "https://m2/https://github.com/a/b/releases/download/v1/game.zip",
+        "https://github.com/a/b/releases/download/v1/game.zip"
+      ]
+    },
+    {
+      "why": "没配镜像时只剩直连（不能变成空列表）",
+      "assetUrl": "https://github.com/a/b/releases/download/v1/game.zip",
+      "mirrors": [],
+      "debugAssetUrl": "",
+      "expect": ["https://github.com/a/b/releases/download/v1/game.zip"]
+    },
+    {
+      "why": "本地调试包：地址本身可达，镜像也代理不了 → 单源",
+      "assetUrl": "http://127.0.0.1:8000/game.zip",
+      "mirrors": ["https://m1/", "https://m2/"],
+      "debugAssetUrl": "http://127.0.0.1:8000/game.zip",
+      "expect": ["http://127.0.0.1:8000/game.zip"]
+    },
+    {
+      "why": "空地址 → 无候选（否则会去下载「镜像前缀 + 空串」这种网址）",
+      "assetUrl": "",
+      "mirrors": ["https://m1/", "https://m2/"],
+      "debugAssetUrl": "",
+      "expect": []
+    },
+    {
+      "why": "调试地址没配（空串）时不走单源分支，即使 assetUrl 也是空串",
+      "assetUrl": "https://github.com/a/b/releases/download/v1/game.zip",
+      "mirrors": ["https://m1/"],
+      "debugAssetUrl": "",
+      "expect": [
+        "https://m1/https://github.com/a/b/releases/download/v1/game.zip",
+        "https://github.com/a/b/releases/download/v1/game.zip"
+      ]
+    },
+    {
+      "why": "调试地址是「相等」判断而非前缀：同域名的别的包不算调试包",
+      "assetUrl": "http://127.0.0.1:8000/other.zip",
+      "mirrors": ["https://m1/"],
+      "debugAssetUrl": "http://127.0.0.1:8000/game.zip",
+      "expect": [
+        "https://m1/http://127.0.0.1:8000/other.zip",
+        "http://127.0.0.1:8000/other.zip"
+      ]
+    }
+  ],
+  "split": [
+    {
+      "why": "多个候选：最后一个当兜底，其余参与测速",
+      "candidates": ["https://m1/x", "https://m2/x", "https://github.com/x"],
+      "expectProbed": ["https://m1/x", "https://m2/x"],
+      "expectFallback": "https://github.com/x"
+    },
+    {
+      "why": "两个候选也一样：前缀一个 + 兜底一个",
+      "candidates": ["https://m1/x", "https://github.com/x"],
+      "expectProbed": ["https://m1/x"],
+      "expectFallback": "https://github.com/x"
+    },
+    {
+      "why": "单源（调试包）没有兜底：它失败了就没有别的源，不能因为「没测速结果」被跳过",
+      "candidates": ["http://127.0.0.1:8000/game.zip"],
+      "expectProbed": ["http://127.0.0.1:8000/game.zip"],
+      "expectFallback": null
+    },
+    {
+      "why": "空候选（assetUrl 为空）：没有兜底，也没有要测速的源",
+      "candidates": [],
+      "expectProbed": [],
+      "expectFallback": null
+    }
+  ],
+  "rank": [
+    {
+      "why": "快 → 慢，兜底永远最后",
+      "probed": [
+        { "url": "slow", "speed": 10 },
+        { "url": "fast", "speed": 900 },
+        { "url": "mid", "speed": 100 }
+      ],
+      "fallback": "https://github.com/x",
+      "expect": ["fast", "mid", "slow", "https://github.com/x"]
+    },
+    {
+      "why": "有兜底时跳过测速失败（-1）与超时（0）的镜像，别在下载阶段再撞一次死源",
+      "probed": [
+        { "url": "dead", "speed": -1 },
+        { "url": "timeout", "speed": 0 },
+        { "url": "ok", "speed": 50 }
+      ],
+      "fallback": "https://github.com/x",
+      "expect": ["ok", "https://github.com/x"]
+    },
+    {
+      "why": "单源（无兜底）不跳过：它是唯一候选，仍要尝试下载",
+      "probed": [{ "url": "only", "speed": -1 }],
+      "fallback": null,
+      "expect": ["only"]
+    },
+    {
+      "why": "同速保持传入顺序（两端都必须用稳定排序）",
+      "probed": [
+        { "url": "first", "speed": 5 },
+        { "url": "second", "speed": 5 },
+        { "url": "third", "speed": 5 }
+      ],
+      "fallback": null,
+      "expect": ["first", "second", "third"]
+    },
+    {
+      "why": "镜像全灭时还能靠兜底（这就是兜底存在的意义）",
+      "probed": [
+        { "url": "dead1", "speed": -1 },
+        { "url": "dead2", "speed": -1 }
+      ],
+      "fallback": "https://github.com/x",
+      "expect": ["https://github.com/x"]
+    },
+    {
+      "why": "没有要测速的源（+直连兜底）：只剩兜底",
+      "probed": [],
+      "fallback": "https://github.com/x",
+      "expect": ["https://github.com/x"]
+    },
+    {
+      "why": "既没源也没兜底：空列表（调用方按「所有下载源都失败」处理）",
+      "probed": [],
+      "fallback": null,
+      "expect": []
+    }
+  ],
+  "hostOf": [
+    { "why": "加速镜像：显示镜像域名，不是里面那层 github.com", "url": "https://gh-proxy.com/https://github.com/a/b.zip", "expect": "gh-proxy.com" },
+    { "why": "带端口的本地调试包", "url": "http://127.0.0.1:8000/game.zip", "expect": "127.0.0.1:8000" },
+    { "why": "没有协议头也能取", "url": "bare.host/path", "expect": "bare.host" },
+    { "why": "空串不报错", "url": "", "expect": "" },
+    { "why": "只有协议头", "url": "https://", "expect": "" }
+  ],
+  "kindOf": [
+    { "why": "最后一个候选是 GitHub 直连，其余都是镜像", "index": 0, "count": 4, "expect": "镜像" },
+    { "index": 2, "count": 4, "expect": "镜像" },
+    { "index": 3, "count": 4, "expect": "直连" },
+    { "why": "单源（调试包）就是直连", "index": 0, "count": 1, "expect": "直连" },
+    { "why": "退化输入不越界", "index": 0, "count": 0, "expect": "直连" }
+  ],
+  "mirrorOf": [
+    {
+      "why": "GitHub 直链套首个镜像（首页「下载太慢？」复制给用户的那一行）",
+      "url": "https://github.com/a/b/releases/download/v1/game.zip",
+      "mirrors": ["https://m1/", "https://m2/"],
+      "expect": "https://m1/https://github.com/a/b/releases/download/v1/game.zip"
+    },
+    {
+      "why": "非 GitHub 地址不套镜像（镜像基本只代理 github.com）",
+      "url": "https://gitee.com/a/b.zip",
+      "mirrors": ["https://m1/"],
+      "expect": ""
+    },
+    {
+      "why": "前缀必须是完整的 `https://github.com/`：同前缀域名不算",
+      "url": "https://github.com.evil.com/a/b.zip",
+      "mirrors": ["https://m1/"],
+      "expect": ""
+    },
+    {
+      "why": "没配镜像时为空（调用方据此只显示原始直链）",
+      "url": "https://github.com/a/b.zip",
+      "mirrors": [],
+      "expect": ""
+    },
+    {
+      "why": "空地址不报错，也不会变成「镜像前缀 + 空串」",
+      "url": "",
+      "mirrors": ["https://m1/"],
+      "expect": ""
+    }
+  ]
+}

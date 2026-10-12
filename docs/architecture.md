@@ -17,7 +17,7 @@ shared/                            # 跨端唯一真相（生成两端的 Cheats
 ├─ cheats.json                     # 参数调整注册表（分组 + 条目 + param）
 ├─ legal.json                      # 法律页正文（10 章节；{xxx} 是平台占位符）
 ├─ mime.json                       # 扩展名 → MIME（本地 HTTP 服务的 Content-Type）
-├─ cases/{paths,format,version}.json  # 纯函数行为向量（两端测试遍历同一套期望值）
+├─ cases/{paths,format,version,download,http}.json  # 纯函数行为向量（两端测试遍历同一套期望值）
 ├─ js/cheats/<id>.js               # 每条一条纯 JS 脚本
 └─ js/{scene-runtime.core,save-guard,canvas-patch}.js   # 两端逐字共享的注入 JS
 
@@ -30,6 +30,7 @@ entry/src/main/ets/
 │  ├─ Prefs.ets                    # 共享 preferences 库名 + 实例缓存（getStore）
 │  ├─ Http.ets                     # 共享 GET 文本请求 requestText()
 │  ├─ WebCache.ets                 # clearWebCache()：清 Web HTTP/JS 缓存
+│  ├─ DownloadUrls.ets             # 下载候选地址/测速排序/host·角色判定（纯函数，与安卓 install/DownloadUrls.kt 共用向量）
 │  └─ Format.ets                   # 纯展示格式化（字节/速度/时长，有单测）
 ├─ components/
 │  ├─ PokeballLoader.ets           # 资源准备动画：精灵球左右摇晃↔逐帧打开（下载/解压共用）
@@ -68,6 +69,8 @@ entry/src/main/ets/
 ```
 fetchRelease(GitHub API，失败回退 API 镜像)
    └─ rankSources：并发探测 4 个镜像 + 直连（Range 取 128KB；每源 4s 上限）
+        （候选地址构造 / 排序 / host 与角色判定是纯函数，在 `common/DownloadUrls.ets`；
+         与安卓 `install/DownloadUrls.kt` 共用一套向量 `shared/cases/download.json`）
         └─ 按速度排序，依次尝试：任一下载失败才换下一个源
              └─ download(request.agent 后台任务，可暂停/继续/取消)
                   └─ extract：解压到 game.new → 校验 index.html → 写 .extract-complete

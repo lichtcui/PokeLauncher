@@ -44,6 +44,49 @@ export interface CacheCase {
   expect: string;
 }
 
+export interface DownloadCandidateCase {
+  assetUrl: string;
+  mirrors: string[];
+  debugAssetUrl: string;
+  expect: string[];
+}
+
+export interface DownloadSplitCase {
+  candidates: string[];
+  expectProbed: string[];
+  /** null = 没有直连兜底 */
+  expectFallback: string | null;
+}
+
+export interface DownloadProbeCase {
+  url: string;
+  /** bytes/ms；<= 0 表示测速失败或超时 */
+  speed: number;
+}
+
+export interface DownloadRankCase {
+  probed: DownloadProbeCase[];
+  fallback: string | null;
+  expect: string[];
+}
+
+export interface DownloadHostCase {
+  url: string;
+  expect: string;
+}
+
+export interface DownloadKindCase {
+  index: number;
+  count: number;
+  expect: string;
+}
+
+export interface DownloadMirrorCase {
+  url: string;
+  mirrors: string[];
+  expect: string;
+}
+
 /** 本地 HTTP 服务的路径判定（安全边界） */
 export const PATH_CASES: PathCase[] = [
   { input: '/index.html', expect: '/index.html' },
@@ -200,4 +243,60 @@ export const CACHE_CASES: CacheCase[] = [
   { path: '/assets/bg.png', expect: 'max-age=31536000' },
   { path: '/data/en.json', expect: 'max-age=31536000' },
   { path: '/', expect: 'max-age=31536000' }
+];
+
+/** 下载候选地址（镜像前缀 + 直连兜底） */
+export const DOWNLOAD_CANDIDATE_CASES: DownloadCandidateCase[] = [
+  { assetUrl: 'https://github.com/a/b/releases/download/v1/game.zip', mirrors: ['https://m1/', 'https://m2/'], debugAssetUrl: '', expect: ['https://m1/https://github.com/a/b/releases/download/v1/game.zip', 'https://m2/https://github.com/a/b/releases/download/v1/game.zip', 'https://github.com/a/b/releases/download/v1/game.zip'] },
+  { assetUrl: 'https://github.com/a/b/releases/download/v1/game.zip', mirrors: [], debugAssetUrl: '', expect: ['https://github.com/a/b/releases/download/v1/game.zip'] },
+  { assetUrl: 'http://127.0.0.1:8000/game.zip', mirrors: ['https://m1/', 'https://m2/'], debugAssetUrl: 'http://127.0.0.1:8000/game.zip', expect: ['http://127.0.0.1:8000/game.zip'] },
+  { assetUrl: '', mirrors: ['https://m1/', 'https://m2/'], debugAssetUrl: '', expect: [] },
+  { assetUrl: 'https://github.com/a/b/releases/download/v1/game.zip', mirrors: ['https://m1/'], debugAssetUrl: '', expect: ['https://m1/https://github.com/a/b/releases/download/v1/game.zip', 'https://github.com/a/b/releases/download/v1/game.zip'] },
+  { assetUrl: 'http://127.0.0.1:8000/other.zip', mirrors: ['https://m1/'], debugAssetUrl: 'http://127.0.0.1:8000/game.zip', expect: ['https://m1/http://127.0.0.1:8000/other.zip', 'http://127.0.0.1:8000/other.zip'] }
+];
+
+/** 候选地址拆分：参与测速的源 + 直连兜底（null = 没有兜底） */
+export const DOWNLOAD_SPLIT_CASES: DownloadSplitCase[] = [
+  { candidates: ['https://m1/x', 'https://m2/x', 'https://github.com/x'], expectProbed: ['https://m1/x', 'https://m2/x'], expectFallback: 'https://github.com/x' },
+  { candidates: ['https://m1/x', 'https://github.com/x'], expectProbed: ['https://m1/x'], expectFallback: 'https://github.com/x' },
+  { candidates: ['http://127.0.0.1:8000/game.zip'], expectProbed: ['http://127.0.0.1:8000/game.zip'], expectFallback: null },
+  { candidates: [], expectProbed: [], expectFallback: null }
+];
+
+/** 测速排序：快 → 慢 → 失败，兜底最后 */
+export const DOWNLOAD_RANK_CASES: DownloadRankCase[] = [
+  { probed: [{ url: 'slow', speed: 10 }, { url: 'fast', speed: 900 }, { url: 'mid', speed: 100 }], fallback: 'https://github.com/x', expect: ['fast', 'mid', 'slow', 'https://github.com/x'] },
+  { probed: [{ url: 'dead', speed: -1 }, { url: 'timeout', speed: 0 }, { url: 'ok', speed: 50 }], fallback: 'https://github.com/x', expect: ['ok', 'https://github.com/x'] },
+  { probed: [{ url: 'only', speed: -1 }], fallback: null, expect: ['only'] },
+  { probed: [{ url: 'first', speed: 5 }, { url: 'second', speed: 5 }, { url: 'third', speed: 5 }], fallback: null, expect: ['first', 'second', 'third'] },
+  { probed: [{ url: 'dead1', speed: -1 }, { url: 'dead2', speed: -1 }], fallback: 'https://github.com/x', expect: ['https://github.com/x'] },
+  { probed: [], fallback: 'https://github.com/x', expect: ['https://github.com/x'] },
+  { probed: [], fallback: null, expect: [] }
+];
+
+/** 域名提取（日志/界面只显示 host） */
+export const DOWNLOAD_HOST_CASES: DownloadHostCase[] = [
+  { url: 'https://gh-proxy.com/https://github.com/a/b.zip', expect: 'gh-proxy.com' },
+  { url: 'http://127.0.0.1:8000/game.zip', expect: '127.0.0.1:8000' },
+  { url: 'bare.host/path', expect: 'bare.host' },
+  { url: '', expect: '' },
+  { url: 'https://', expect: '' }
+];
+
+/** 候选角色：最后一个候选是直连，其余是镜像 */
+export const DOWNLOAD_KIND_CASES: DownloadKindCase[] = [
+  { index: 0, count: 4, expect: '镜像' },
+  { index: 2, count: 4, expect: '镜像' },
+  { index: 3, count: 4, expect: '直连' },
+  { index: 0, count: 1, expect: '直连' },
+  { index: 0, count: 0, expect: '直连' }
+];
+
+/** 加速镜像前缀套用（首页「下载太慢？」） */
+export const DOWNLOAD_MIRROR_CASES: DownloadMirrorCase[] = [
+  { url: 'https://github.com/a/b/releases/download/v1/game.zip', mirrors: ['https://m1/', 'https://m2/'], expect: 'https://m1/https://github.com/a/b/releases/download/v1/game.zip' },
+  { url: 'https://gitee.com/a/b.zip', mirrors: ['https://m1/'], expect: '' },
+  { url: 'https://github.com.evil.com/a/b.zip', mirrors: ['https://m1/'], expect: '' },
+  { url: 'https://github.com/a/b.zip', mirrors: [], expect: '' },
+  { url: '', mirrors: ['https://m1/'], expect: '' }
 ];

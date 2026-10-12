@@ -138,7 +138,7 @@ android/                                   Gradle 8.14.3 / AGP 8.11.0 / Kotlin 2
 │  ├─ install/ GameInstaller.kt            原子解压切换 + recover() + readVersion() + 存储预检
 │  ├─ install/ GameRepository.kt           Release 查询 / 镜像并发测速 / Range 续传 / 交棒解压
 │  ├─ install/ ReleaseInfo.kt              Release JSON 解析（字段名都是字符串字面量，R8 安全）
-│  ├─ install/ DownloadUrls.kt             候选地址构造 + 测速排序（纯函数）
+│  ├─ install/ DownloadUrls.kt             候选地址构造 + 测速排序（纯函数，与鸿蒙 common/DownloadUrls.ets 共用向量）
 │  ├─ install/ DownloadState.kt            `.download.json` 状态 + ResumePolicy + RangePolicy（纯函数）
 │  ├─ install/ Storage.kt                  空间预检（纯函数）：首次 2.4× / 更新 3.2×（与鸿蒙同值，`--check` 对账）
 │  ├─ install/ DownloadStatus.kt           状态快照 / DownloadBus / ProgressMeter / 通知文案（纯逻辑）
@@ -164,11 +164,11 @@ android/                                   Gradle 8.14.3 / AGP 8.11.0 / Kotlin 2
 │     ├─ SpikeController.kt                应用级控制器（首页 / 设置页 / 打靶页共用同一实例）
 │     ├─ SpikeScreen.kt / CheatScreen.kt   开发者诊断页；参数调整页（纯注册表驱动）
 │     └─ SettingsScreen.kt / LegalText.kt / LegalScreen.kt   设置页；法律正文（⚠️ 生成物）；法律页
-├─ app/src/test/java/.../                  **270 个 JVM 单测**（core 31：Paths 7 / Format 6 / Mime 5 / Version 4 / OrientationPref 7 / Prefs 2；
-│                                          install 50：DownloadUrls 12 / DownloadState 16 / DownloadStatus 16 / ReleaseInfo 6；
-│                                          cheat 71：CheatFormat 27 / CheatScripts 14 / CheatState 13 / Cheats 17；
-│                                          server 20：InjectScripts 10 / ServerDiag 10；web 36：SaveGuard 22 / DownloadBridge 14；
-│                                          appupdate 33：AppUpdate 18 / ApkUpdate 15；ui 29：HomeState 13 / GameState 9 / LegalText 7）
+├─ app/src/test/java/.../                  **274 个 JVM 单测**（core 28：Paths 6 / Format 7 / Mime 3 / Version 3 / OrientationPref 7 / Prefs 2；
+│                                          install 48：DownloadUrls 6 / DownloadState 16 / DownloadStatus 16 / ReleaseInfo 6 / GameInstallerStream 4；
+│                                          cheat 74：CheatFormat 30 / CheatScripts 14 / CheatState 13 / Cheats 17；
+│                                          server 21：InjectScripts 10 / ServerDiag 10 / HttpCache 1；web 36：SaveGuard 22 / DownloadBridge 14；
+│                                          appupdate 33：AppUpdate 18 / ApkUpdate 15；ui 34：HomeState 18 / GameState 9 / LegalText 7）
 └─ app/src/main/res/                       图标（品牌红环）/ 通知图标 ic_download / 精灵球 ic_pokeball / 主题 / network_security_config
                                           / xml/backup_rules.xml + xml/data_extraction_rules.xml（Auto Backup：只备设置偏好 + files/saves）
                                           / xml/provider_paths.xml（自更新：只放行 apk/ 两个路径）
@@ -180,7 +180,7 @@ android/                                   Gradle 8.14.3 / AGP 8.11.0 / Kotlin 2
 | --- | --- |
 | `./gradlew assembleDebug` | ✅ `app-debug.apk` 10 MB |
 | `./gradlew assembleRelease`（R8 + 资源收缩） | ✅ `app-release-unsigned.apk` 1.3 MB（含 OkHttp/Okio） |
-| `./gradlew testDebugUnitTest` | ✅ **270 tests, 0 failures** |
+| `./gradlew testDebugUnitTest` | ✅ **274 tests, 0 failures** |
 | `./gradlew :app:lintDebug` | ✅ **0 errors**（27 warnings / 11 hints，均为依赖版本提示与 autoboxing 建议类，不阻塞；新增 1 条 `UseKtx String.toUri`，与 `AppUpdateRepository` 同类） |
 | release 包 JS 桥是否存活 | ✅ 反编译 dex：`PokeNative` / `reportTiming` / `reportState` / **`PokeSaveGuard`** / **`load` / `save` / `notifyRestored`** 均在（`o1.g.load`：类名可混淆，方法名由 `-keepclassmembers @JavascriptInterface` 保住） |
 | release 包新链路常量是否存活 | ✅ dex 里仍有 `tag_name` / `browser_download_url` / `receivedBytes` / `bytes=0-` / `If-Range` / `Content-Range` / `game.zip.download.json` / `pokerogue-download` |

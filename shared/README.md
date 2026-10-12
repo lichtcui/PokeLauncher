@@ -20,6 +20,7 @@
 | 法律页正文 | `legal.json` | 同一份免责声明，各拄一份时改一边就漏另一边；平台差异（启动器名 / 设备 / 技术栈 / 中文接拉丁的空格）只允许写在 `placeholders` 里 |
 | 扩展名 → MIME | `mime.json` | 本地 HTTP 服务的 `Content-Type`；`.js` 回错 MIME 会让 Chromium 拒绝执行模块脚本 → 白屏 |
 | 纯函数行为向量 | `cases/paths.json`、`cases/format.json`、`cases/version.json` | 路径判定 / 展示格式 / 版本比较两端各写一份实现，**期望值也只该有一份**；否则「一端改了、另一端没改」只能靠人眼比对两个测试文件 |
+| 下载候选 / 选源排序 | `cases/download.json` | 候选地址（镜像前缀 + 直连兜底）、测速排序、host / 角色展示两端各写一份，安卓那份文件头写着「对应鸿蒙版 `buildDownloadUrls` / `rankSources`」「与鸿蒙版 `Index.mirrorOf` 同规则」——注释不算护栏。分叉症状是「某个镜像没被用上 / 失败的源又撞一次 / 单源调试包被当成没测速结果跳过」，全都要真机下载才看得出来 |
 | 本地服务缓存语义 | `cases/http.json` | `Cache-Control` 也是两端各写一份（安卓那边注释写着「与鸿蒙版 `cacheControl()` 一致」——注释不算护栏）；HTML / service-worker 被缓存住的症状是「改了注入内容却看不到变化」，只有真机看得出来 |
 
 **不放这里**的东西（有意为之）：平台 API 层（`LocalHttpServer` / `GameServer` / `Prefs` / 安装器）、UI 页面、
@@ -125,6 +126,7 @@ node scripts/gen-shared.mjs --check  # 只校验（生成文件是否过期 + �
 | 鸿蒙真机 | ⚠️ **未跑**（本机无 `hdc` 设备）：法律页渲染与游戏页注入链 / ArkWeb 日志判据都还没在设备上确认；鸿蒙侧目前只有「debug + release 编译通过 + 发布产物字面量抽查 + 用 Python 复跑 `LegalText` 那套断言」。 |
 | `LegalText.test.ets`（ohosTest） | ⚠️ 只编译通过（故意写坏能正确报错），**没在真机上执行过**（同样缺设备）。 |
 | 行为向量（两端） | ✅ 安卓 280 例单测全绿（各套件直接遍历向量）；鸿蒙侧由 `scripts/check-harmony-vectors.mjs` 复跑同一批向量 → **128 条全过**（paths / format / version / cache / mime，含 6 条手写边角：formatDuration/formatSpeed/formatBytes 各喂 NaN 与 Infinity）。 |
+| 下载源向量 | ✅ 实测 5 种改法全被拦（鸿蒙 `common/DownloadUrls.ets` 各改一处、改完即还原，安卓侧同一套向量由 `DownloadUrlsTest` 跑）：删掉「空 assetUrl → 无候选」守卫、超时（speed 0）不再当失败跳过、直连兜底不再排最后、本地调试包不再走单源、镜像前缀判断松成「以 `https://github.com` 开头」。 |
 | 缓存语义向量 | ✅ 实测 5 种改法全被拦：鸿蒙漏掉 `.htm` 判定、鸿蒙去掉大小写归一（`/INDEX.HTML` 会被缓存一年）、向量里删掉 `webmanifest` 那条、向量里长缓存期望被改掉、安卓 `HttpCache` 去掉大小写归一（`HttpCacheTest` 红）。 |
 | 该脚本挂在 `--check` 上 | ✅ 实测：改坏一条向量（`1048575 → "1023.9 KB"`）→ 两端构建都会失败在 `checkSharedCode`；去掉鸿蒙 `formatSpeed` 的 `isFinite` 兜底 → 同样失败（这条正是脚本第一次跑就抓出来的：`formatSpeed(NaN)` 会显示 `NaN KB/s`，已修）。 |
 | 向量护栏 | ✅ 实测：把 `cases/format.json` 里 `1048575 → "1024 KB"` 改成 `"1023.9 KB"` → 安卓 `FormatTest` 红、鸿蒙侧复跑也红（同一份期望值）；在两端测试里各手写回一条路径期望值 → `--check` 报「又手写了一份期望值」。 |

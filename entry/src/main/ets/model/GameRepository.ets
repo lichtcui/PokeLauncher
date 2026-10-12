@@ -8,6 +8,9 @@ import {
   DEBUG_ASSET_URL, apiAtLeast
 } from '../common/Const';
 import { requestText } from '../common/Http';
+import {
+  ProbeResult, SourceSplit, downloadCandidates, splitCandidates, rankSourcesByProbe
+} from '../common/DownloadUrls';
 
 const DOMAIN: number = 0x0000;
 const TAG: string = 'GameRepository';
@@ -194,22 +197,8 @@ export class GameRepository {
     throw lastErr !== null ? lastErr : new Error('fetchRelease failed');
   }
 
-  /** 构造下载候选地址：镜像优先，最后回退 GitHub 直连 */
-  private buildDownloadUrls(assetUrl: string): string[] {
-    // 本地调试包不走镜像（地址本身就是可达的）
-    if (DEBUG_ASSET_URL.length > 0 && assetUrl === DEBUG_ASSET_URL) {
-      return [assetUrl];
-    }
-    const urls: string[] = [];
-    for (let i = 0; i < DOWNLOAD_MIRRORS.length; i++) {
-      urls.push(DOWNLOAD_MIRRORS[i] + assetUrl);
-    }
-    urls.push(assetUrl);
-    return urls;
-  }
-
   /**
-   * 并发探测各源速度，按“快 → 慢 → 失败”排序。
+   * 并发探测各源速度，按“快 → 慢 → 失败”排序（排序规则在 common/DownloadUrls.ets，两端共用向量）。
    * 最后一个候选是 GitHub 直连兜底：不参与测速（白读 128KB 且通常最慢），
    * 镜像都不可用时才会用到它。
    */
@@ -219,35 +208,30 @@ export class GameRepository {
       hilog.info(DOMAIN, TAG, '%{public}s', 'rank cache hit');
       return rankCacheUrls.slice();
     }
-    const hasFallback: boolean = urls.length > 1;
-    const targets: string[] = hasFallback ? urls.slice(0, urls.length - 1) : urls;
+    const split: SourceSplit = splitCandidates(urls);
+    const targets: string[] = split.probed;
     const probes: Promise<number>[] = [];
     for (let i = 0; i < targets.length; i++) {
       probes.push(this.probe(targets[i]));
     }
     const speeds: number[] = await Promise.all(probes);
-    const idx: number[] = [];
+    const probed: ProbeResult[] = [];
     for (let i = 0; i < targets.length; i++) {
-      idx.push(i);
-    }
-    idx.sort((a: number, b: number) => speeds[b] - speeds[a]);
-    const sorted: string[] = [];
-    for (let i = 0; i < idx.length; i++) {
-      const sp: number = speeds[idx[i]];
-      // 有直连兜底时跳过测速失败/超时的镜像，避免下载阶段再试一次死源；
-      // 单源（debug 包）不跳过——它是唯一候选，仍要尝试下载。
-      if (hasFallback && sp <= 0) {
-        hilog.info(DOMAIN, TAG, 'skip source (probe failed): %{public}s', targets[idx[i]]);
-        continue;
-      }
-      sorted.push(targets[idx[i]]);
       // 注意：hilog 不支持 %f，必须用 %s + 格式化后的字符串
       hilog.info(DOMAIN, TAG, 'source[%{public}d] speed=%{public}s KB/ms',
-        idx[i], (sp / 1024).toFixed(2));
+        i, (speeds[i] / 1024).toFixed(2));
+      probed.push({ url: targets[i], speed: speeds[i] });
     }
-    if (hasFallback) {
-      sorted.push(urls[urls.length - 1]);
+    // 有直连兜底时排序函数会跳过测速失败/超时的镜像，这里只把「跳过了谁」写进日志；
+    // 单源（debug 包）不跳过——它是唯一候选，仍要尝试下载。
+    if (split.fallback.length > 0) {
+      for (let i = 0; i < probed.length; i++) {
+        if (probed[i].speed <= 0) {
+          hilog.info(DOMAIN, TAG, 'skip source (probe failed): %{public}s', probed[i].url);
+        }
+      }
     }
+    const sorted: string[] = rankSourcesByProbe(probed, split.fallback);
     rankCacheKey = key;
     rankCacheAt = Date.now();
     rankCacheUrls = sorted.slice();
@@ -327,7 +311,7 @@ export class GameRepository {
     this.cancelled = false;
     this.paused = false;
     this.stopPolling();
-    const urls: string[] = await this.rankSources(this.buildDownloadUrls(info.assetUrl));
+    const urls: string[] = await this.rankSources(downloadCandidates(info.assetUrl, DOWNLOAD_MIRRORS, DEBUG_ASSET_URL));
     let lastErr: Error | null = null;
     for (let i = 0; i < urls.length; i++) {
       if (this.cancelled) {

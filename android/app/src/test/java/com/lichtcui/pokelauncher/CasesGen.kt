@@ -1,5 +1,7 @@
 package com.lichtcui.pokelauncher
 
+import com.lichtcui.pokelauncher.install.ProbeResult
+
 /**
  * 跨端行为向量（纯数据）。
  *
@@ -23,6 +25,31 @@ object CasesGen {
     data class MimeCase(val path: String, val expect: String)
 
     data class CacheCase(val path: String, val expect: String)
+
+    data class DownloadCandidateCase(
+        val assetUrl: String,
+        val mirrors: List<String>,
+        val debugAssetUrl: String,
+        val expect: List<String>
+    )
+
+    data class DownloadSplitCase(
+        val candidates: List<String>,
+        val expectProbed: List<String>,
+        val expectFallback: String?
+    )
+
+    data class DownloadRankCase(
+        val probed: List<ProbeResult>,
+        val fallback: String?,
+        val expect: List<String>
+    )
+
+    data class DownloadHostCase(val url: String, val expect: String)
+
+    data class DownloadKindCase(val index: Int, val count: Int, val expect: String)
+
+    data class DownloadMirrorCase(val url: String, val mirrors: List<String>, val expect: String)
 
     /** 本地 HTTP 服务的路径判定（安全边界） */
     val PATH_CASES = listOf(
@@ -180,5 +207,61 @@ object CasesGen {
         CacheCase("/assets/bg.png", "max-age=31536000"),
         CacheCase("/data/en.json", "max-age=31536000"),
         CacheCase("/", "max-age=31536000")
+    )
+
+    /** 下载候选地址（镜像前缀 + 直连兜底） */
+    val DOWNLOAD_CANDIDATE_CASES = listOf(
+        DownloadCandidateCase("https://github.com/a/b/releases/download/v1/game.zip", listOf("https://m1/", "https://m2/"), "", listOf("https://m1/https://github.com/a/b/releases/download/v1/game.zip", "https://m2/https://github.com/a/b/releases/download/v1/game.zip", "https://github.com/a/b/releases/download/v1/game.zip")),
+        DownloadCandidateCase("https://github.com/a/b/releases/download/v1/game.zip", listOf(), "", listOf("https://github.com/a/b/releases/download/v1/game.zip")),
+        DownloadCandidateCase("http://127.0.0.1:8000/game.zip", listOf("https://m1/", "https://m2/"), "http://127.0.0.1:8000/game.zip", listOf("http://127.0.0.1:8000/game.zip")),
+        DownloadCandidateCase("", listOf("https://m1/", "https://m2/"), "", listOf()),
+        DownloadCandidateCase("https://github.com/a/b/releases/download/v1/game.zip", listOf("https://m1/"), "", listOf("https://m1/https://github.com/a/b/releases/download/v1/game.zip", "https://github.com/a/b/releases/download/v1/game.zip")),
+        DownloadCandidateCase("http://127.0.0.1:8000/other.zip", listOf("https://m1/"), "http://127.0.0.1:8000/game.zip", listOf("https://m1/http://127.0.0.1:8000/other.zip", "http://127.0.0.1:8000/other.zip"))
+    )
+
+    /** 候选地址拆分：参与测速的源 + 直连兜底 */
+    val DOWNLOAD_SPLIT_CASES = listOf(
+        DownloadSplitCase(listOf("https://m1/x", "https://m2/x", "https://github.com/x"), listOf("https://m1/x", "https://m2/x"), "https://github.com/x"),
+        DownloadSplitCase(listOf("https://m1/x", "https://github.com/x"), listOf("https://m1/x"), "https://github.com/x"),
+        DownloadSplitCase(listOf("http://127.0.0.1:8000/game.zip"), listOf("http://127.0.0.1:8000/game.zip"), null),
+        DownloadSplitCase(listOf(), listOf(), null)
+    )
+
+    /** 测速排序：快 → 慢 → 失败，兜底最后 */
+    val DOWNLOAD_RANK_CASES = listOf(
+        DownloadRankCase(listOf(ProbeResult("slow", 10.0), ProbeResult("fast", 900.0), ProbeResult("mid", 100.0)), "https://github.com/x", listOf("fast", "mid", "slow", "https://github.com/x")),
+        DownloadRankCase(listOf(ProbeResult("dead", -1.0), ProbeResult("timeout", 0.0), ProbeResult("ok", 50.0)), "https://github.com/x", listOf("ok", "https://github.com/x")),
+        DownloadRankCase(listOf(ProbeResult("only", -1.0)), null, listOf("only")),
+        DownloadRankCase(listOf(ProbeResult("first", 5.0), ProbeResult("second", 5.0), ProbeResult("third", 5.0)), null, listOf("first", "second", "third")),
+        DownloadRankCase(listOf(ProbeResult("dead1", -1.0), ProbeResult("dead2", -1.0)), "https://github.com/x", listOf("https://github.com/x")),
+        DownloadRankCase(listOf(), "https://github.com/x", listOf("https://github.com/x")),
+        DownloadRankCase(listOf(), null, listOf())
+    )
+
+    /** 域名提取（日志里只显示 host） */
+    val DOWNLOAD_HOST_CASES = listOf(
+        DownloadHostCase("https://gh-proxy.com/https://github.com/a/b.zip", "gh-proxy.com"),
+        DownloadHostCase("http://127.0.0.1:8000/game.zip", "127.0.0.1:8000"),
+        DownloadHostCase("bare.host/path", "bare.host"),
+        DownloadHostCase("", ""),
+        DownloadHostCase("https://", "")
+    )
+
+    /** 候选角色：最后一个候选是直连，其余是镜像 */
+    val DOWNLOAD_KIND_CASES = listOf(
+        DownloadKindCase(0, 4, "镜像"),
+        DownloadKindCase(2, 4, "镜像"),
+        DownloadKindCase(3, 4, "直连"),
+        DownloadKindCase(0, 1, "直连"),
+        DownloadKindCase(0, 0, "直连")
+    )
+
+    /** 加速镜像前缀套用（首页「下载太慢？」） */
+    val DOWNLOAD_MIRROR_CASES = listOf(
+        DownloadMirrorCase("https://github.com/a/b/releases/download/v1/game.zip", listOf("https://m1/", "https://m2/"), "https://m1/https://github.com/a/b/releases/download/v1/game.zip"),
+        DownloadMirrorCase("https://gitee.com/a/b.zip", listOf("https://m1/"), ""),
+        DownloadMirrorCase("https://github.com.evil.com/a/b.zip", listOf("https://m1/"), ""),
+        DownloadMirrorCase("https://github.com/a/b.zip", listOf(), ""),
+        DownloadMirrorCase("", listOf("https://m1/"), "")
     )
 }

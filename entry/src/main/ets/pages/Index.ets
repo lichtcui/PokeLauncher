@@ -14,6 +14,7 @@ import {
 } from '../model/AppUpdate';
 import { Notifier } from '../model/Notifier';
 import { DOWNLOAD_MIRRORS } from '../common/Const';
+import { mirrorOf } from '../common/DownloadUrls';
 import { LauncherSession, LauncherStage, ProgressView } from '../model/LauncherSession';
 import { setWindowBackground, setOrientation, isTablet, HOME_BG_COLOR } from '../model/WindowHolder';
 import { isMasterEnabled } from '../model/CheatState';
@@ -23,14 +24,6 @@ import { NotDownloadedView, DownloadFlowView, ReadyView } from '../components/La
 
 const DOMAIN: number = 0x0000;
 const TAG: string = 'Home';
-
-/** 给 GitHub 原始直链套上首个加速镜像；非 GitHub 地址或镜像为空时返回空串 */
-function mirrorOf(url: string): string {
-  if (DOWNLOAD_MIRRORS.length === 0 || !url.startsWith('https://github.com/')) {
-    return '';
-  }
-  return DOWNLOAD_MIRRORS[0] + url;
-}
 
 /**
  * 首页启动器：未下载 / 下载中 / 解压中 / 已就绪。
@@ -89,7 +82,7 @@ struct Index {
       },
       setAssetUrl: (url: string) => {
         this.assetUrl = url;
-        this.mirrorUrl = mirrorOf(url);
+        this.mirrorUrl = mirrorOf(url, DOWNLOAD_MIRRORS);
       }
     });
     this.session.start();

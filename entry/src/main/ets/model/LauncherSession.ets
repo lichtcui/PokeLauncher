@@ -10,6 +10,7 @@ import { getStore } from '../common/Prefs';
 import { clearWebCache } from '../common/WebCache';
 import { formatBytes, formatSpeed, formatDuration, formatErrorDetail } from '../common/Format';
 import { PrepPhase, SHRINK_MS, BURST_MS } from '../components/PokeballLoader';
+import { hostOf, kindOf } from '../common/DownloadUrls';
 
 const DOMAIN: number = 0x0000;
 const TAG: string = 'Launcher';
@@ -162,17 +163,9 @@ export class LauncherSession {
             if (this.prepPhase === PrepPhase.PROBING) {
               this.setPrepPhase(PrepPhase.DOWNLOADING);
             }
-            // 下载源只写日志，不在界面上展示
-            let host: string = url;
-            const schemeAt: number = url.indexOf('://');
-            if (schemeAt >= 0) {
-              const rest: string = url.substring(schemeAt + 3);
-              const slash: number = rest.indexOf('/');
-              host = slash >= 0 ? rest.substring(0, slash) : rest;
-            }
-            const kind: string = sourceIndex < sourceCount - 1 ? '镜像' : '直连';
+            // 下载源只写日志，不在界面上展示（host / 角色判定与安卓同规则）
             hilog.info(DOMAIN, TAG, 'download source %{public}d/%{public}d %{public}s %{public}s',
-              sourceIndex + 1, sourceCount, kind, host);
+              sourceIndex + 1, sourceCount, kindOf(sourceIndex, sourceCount), hostOf(url));
           }
         );
       })
