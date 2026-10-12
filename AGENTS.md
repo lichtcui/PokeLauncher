@@ -56,13 +56,14 @@
 - 新增静态资源放 `entry/src/main/resources/base/media/`，引用 `$r('app.media.xxx')`。
 - **新增作弊条目只改 `shared/cheats.json` + 新增一个 `shared/js/cheats/<id>.js`**，然后跑 `node scripts/gen-shared.mjs`（见 [`docs/cheats.md`](./docs/cheats.md)、[`shared/README.md`](./shared/README.md)）。两端的注册表（`entry/src/main/ets/model/Cheats.ets`、`android/.../cheat/Cheats.kt`）是**生成物，不要手改**；UI/状态/注入会自动生效。
   - ⚠️ 命名：该功能在 **UI 上叫「参数调整」**（`作弊` 字样会触发应用商店审核风险），代码/文档沿用 `cheat` 命名。**新增任何用户可见文案都用「参数调整」**。
-- **跨端共享代码 = `shared/`（生成，不是引用）**：鸿蒙 ArkTS 与安卓 Kotlin 没有共同运行时（KMP 不支持 OHOS target），两端之间真正能共享的只有 **JS 字符串与注册表数据**。`scripts/gen-shared.mjs` 从 `shared/**` 生成 4 个文件（两个 `Cheats` + 两个 `SharedJs`），生成物一律**不要手改**。
-  - 护栏：`hvigorfile.ts` 的 `checkSharedCode` 插件与 Gradle 的 `:app:checkSharedCode`（`preBuild` 前置）都会跑 `node scripts/gen-shared.mjs --check`，**不一致直接构建失败**；它还会拦「把共享 JS 重新内联回某一端」与 `$` / `"""` / 反引号 这类会静默破坏 raw string 的字符，并对账 `common/Const.ets` ↔ `core/Const.kt` 的端口 / 镜像列表 / 版本清单地址（这两份**不生成**，因为各自还有平台独有内容）。
+- **跨端共享代码 = `shared/`（生成，不是引用）**：鸿蒙 ArkTS 与安卓 Kotlin 没有共同运行时（KMP 不支持 OHOS target），两端之间真正能共享的只有 **JS 字符串、注册表数据、文案与映射表**。`scripts/gen-shared.mjs` 从 `shared/**` 生成 **8 个文件**（两端各 4 个：`Cheats` / `SharedJs` / `LegalText` / `Mime`），生成物一律**不要手改**。
+  - 护栏：`hvigorfile.ts` 的 `checkSharedCode` 插件与 Gradle 的 `:app:checkSharedCode`（`preBuild` 前置）都会跑 `node scripts/gen-shared.mjs --check`，**不一致直接构建失败**；它还会拦「把共享 JS 重新内联回某一端」与 `$` / `"""` / 反引号 这类会静默破坏 raw string 的字符，并对账 `common/Const.ets` ↔ `core/Const.kt`（端口 / 镜像列表 / 版本清单地址；这两份**不生成**，因为各自还有平台独有内容），以及**测速参数**（`PROBE_BYTES` / `PROBE_TIMEOUT_MS` / `RANK_TTL_MS`）、**存储预检系数**（鸿蒙 `requiredStorage()` 的 `2.4 / 3.2` ↔ 安卓 `Storage.FACTOR_FRESH / FACTOR_UPDATE`）、`USER_AGENT`（有意不同，白名单锁死）。
+- **跨端共用文案与映射表**：法律页正文改 [`shared/legal.json`](./shared/legal.json)（占位符只能出现在 `placeholders` 里，两端措辞差异不许写进正文）；MIME 表改 [`shared/mime.json`](./shared/mime.json)（`:js` 必须是 `text/javascript`，生成器硬断言）。改完跑 `node scripts/gen-shared.mjs`。
 - **存档是 Web 的 `localStorage`，物理落在 `<沙箱>/cache/web/`**，会被「清除缓存」清掉。因此 `model/SaveGuard.ets` 会把它镜像到 `files/saves/` 并在清空时自动回填——**任何需要持久化的数据都不要放 `cache/`**，放 `files/`。
 
 ### 测试（ohosTest，跑在真机）
 
-测试源码在 `entry/src/ohosTest/ets/test/`（hypium，项目根 `oh-package.json5` 的 `devDependencies`）。**新增套件要在 `List.test.ets` 里注册**。只放纯函数/无副作用逻辑（当前覆盖 `normalizeVersion` / `mimeOf` / `common/Format.ets` 的三个格式化函数）。
+测试源码在 `entry/src/ohosTest/ets/test/`（hypium，项目根 `oh-package.json5` 的 `devDependencies`）。**新增套件要在 `List.test.ets` 里注册**。只放纯函数/无副作用逻辑（当前覆盖 `normalizeVersion` / `mimeOf` / `common/Format.ets` 的三个格式化函数 / `model/LegalText.ets` 的法律页正文——与安卓侧 `LegalTextTest` 同一套判据）。
 
 ```bash
 export DEVECO_SDK_HOME=/Applications/DevEco-Studio.app/Contents/sdk
@@ -118,7 +119,7 @@ Android 侧的红线（改之前先读）：
 - **`keystore.properties` / `*.jks` / `*.keystore` 绝不入库**（已加进 `android/.gitignore`，同 `signature/` 的红线）。
 - **release 已开 R8**：新增 JS 桥方法名（`@JavascriptInterface`）或 `JSONObject` 解析的字段名时，要同步 `app/proguard-rules.pro`；写完后用 `./gradlew assembleRelease` 验证，并确认 debug/release 的 dex 行为一致（`PokeNative` 等字符串两边都要在）。注：下载链路的 JSON 全部用**字符串字面量**（`optString("tag_name")`）解析，不要改成反射式/序列化框架式的“属性名当 key”。
 - **断点续传不能拼坏包**：服务端忽略 `Range` 返回 200 时必须 `setLength(0)` 从头重下；只有**下载失败**才换源，解压失败不换源（重下 507MB 白亏）。
-- **通用代码对齐两套实现**：`core/Const.kt` 与 `common/Const.ets`（端口、镜像列表、资源来源）必须同步修改，否则两端行为分叉——这份**由 `node scripts/gen-shared.mjs --check` 自动对账**（两端构建都会跑，不一致就失败）。
+- **通用代码对齐两套实现**：`core/Const.kt` 与 `common/Const.ets`（端口、镜像列表、资源来源）必须同步修改，否则两端行为分叉——这份**由 `node scripts/gen-shared.mjs --check` 自动对账**（两端构建都会跑，不一致就失败）；同一道对账还盯着测速参数（`PROBE_*` / `RANK_TTL_MS`）与存储预检系数（两端的 `2.4 / 3.2` 曾分叉过：安卓恒用 3.2，会同设备上比鸿蒙更早报空间不足）。
 - **`window.Phaser` 的属性描述符只能由 `/__pk_boot.js` 持有**：「参数调整」运行时（`cheat/CheatScripts.kt`）只往 `window.__pkGameHooks` 里压回调，**不得**再 `Object.defineProperty(window,'Phaser',…)`（写两次会静默覆盖，先注册的一方 setter 永不触发）；两边都用 `x = x || []` 复用数组。注入顺序固定为 **存档守卫 → 参数调整 → 引导脚本**（`server/InjectScripts.kt`，`InjectScriptsTest` 锁住）。
 - **WebView 缓存只用 `clearCache(true)`，**绝不能**用 `clearStorage`/`deleteAllData()`**（会连 localStorage 存档一起干掉）；`clearCache` 必须主线程（统一走 `web/WebCache.kt`）。资源包版本变了要清一次（偏好键 `lastCachedGameVersion`，覆盖「后台服务里装完时游戏页从未打开」的时机）。
 - **参数调整（cheat）**：UI 文案一律叫「**参数调整**」（不得出现「作弊」字样，审核风险）；`cheat/Cheats.kt` 与 `entry/.../model/Cheats.ets` 都是 `shared/` 的**生成物**（改一边即可、由 `scripts/gen-shared.mjs` 同步两边），共享 JS **不得出现 `$`**（Kotlin raw string 会当模板插值，生成器与单测都有断言）；声明了 `param` 就必须真的读 `__CHEAT_PARAMS__`。开关是「总开关 && 至少一条启用」才注入 `/__cheats__.js`。参数调整页（`ui/CheatScreen.kt`）完全由注册表驱动，**新增条目不需要改 UI**（只改 `shared/`）；总开关在参数调整页顶部（与鸿蒙的「设置页」位置不同），开启前有账号风险确认弹窗，设置页里**只加入口行**（显示已开启/已关闭），不重复放开关。

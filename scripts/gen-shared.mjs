@@ -13,11 +13,16 @@
  * 生成物（**不要手改**）：
  *   entry/src/main/ets/model/Cheats.ets        （鸿蒙）参数调整注册表
  *   entry/src/main/ets/common/SharedJs.ets     （鸿蒙）共享 JS 常量
+ *   entry/src/main/ets/model/LegalText.ets     （鸿蒙）法律页正文
+ *   entry/src/main/ets/common/Mime.ets         （鸿蒙）扩展名 → MIME
  *   android/.../cheat/Cheats.kt                （安卓）参数调整注册表
  *   android/.../core/SharedJs.kt               （安卓）共享 JS 常量
+ *   android/.../ui/LegalText.kt                （安卓）法律页正文
+ *   android/.../core/Mime.kt                   （安卓）扩展名 → MIME
  *
- * 另有两份纯逻辑常量不生成、只对账（它们各自还有平台独有内容，见 `checkConstParity`）：
+ * 另有几份纯逻辑常量不生成、只对账（它们各自还有平台独有内容，见 `checkConstParity`）：
  *   entry/src/main/ets/common/Const.ets  ↔  android/.../core/Const.kt
+ *   测速参数、存储预检系数、USER_AGENT（有意不同，白名单锁死）
  */
 import { readFileSync, writeFileSync, existsSync, readdirSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
@@ -44,6 +49,17 @@ const P = {
   ktSaveGuard: 'android/app/src/main/java/com/lichtcui/pokelauncher/web/SaveGuard.kt',
   ktInjectScripts: 'android/app/src/main/java/com/lichtcui/pokelauncher/server/InjectScripts.kt',
   ktConst: 'android/app/src/main/java/com/lichtcui/pokelauncher/core/Const.kt',
+  legal: 'shared/legal.json',
+  mime: 'shared/mime.json',
+  etsLegalText: 'entry/src/main/ets/model/LegalText.ets',
+  etsLegalPage: 'entry/src/main/ets/pages/Legal.ets',
+  etsMime: 'entry/src/main/ets/common/Mime.ets',
+  ktLegalText: 'android/app/src/main/java/com/lichtcui/pokelauncher/ui/LegalText.kt',
+  ktMime: 'android/app/src/main/java/com/lichtcui/pokelauncher/core/Mime.kt',
+  etsGameRepo: 'entry/src/main/ets/model/GameRepository.ets',
+  ktGameRepo: 'android/app/src/main/java/com/lichtcui/pokelauncher/install/GameRepository.kt',
+  etsSession: 'entry/src/main/ets/model/LauncherSession.ets',
+  ktStorage: 'android/app/src/main/java/com/lichtcui/pokelauncher/install/Storage.kt',
 };
 
 const problems = [];
@@ -433,6 +449,37 @@ function checkConstParity() {
   const portKt = pick(kt, /const val GAME_PORT = (\d+)/);
   if (portEts === undefined || portKt === undefined) fail('常量对账：游戏端口解析失败');
   else if (portEts !== portKt) fail(`常量分叉：游戏端口 鸿蒙=${portEts} 安卓=${portKt}（改端口会丢存档！）`);
+
+  // 测速参数：两端各写一份（不在 Const 里），值必须一致，否则「测速选源」行为分叉
+  const numPairs = [
+    ['PROBE_BYTES', '测速读取字节数'],
+    ['PROBE_TIMEOUT_MS', '单源测速超时'],
+    ['RANK_TTL_MS', '测速排序缓存 TTL'],
+  ];
+  for (const [n, what] of numPairs) {
+    const a = normExpr(pick(read(P.etsGameRepo), new RegExp(`const ${n}: number = ([^;]+);`)));
+    const b = normExpr(pick(read(P.ktGameRepo), new RegExp(`const val ${n} = ([^\\n]+)`)));
+    if (a === undefined || b === undefined) fail(`常量对账：${n}（${what}）在某一端找不到（解析失败？）`);
+    else if (a !== b) fail(`常量分叉：${n}（${what}）鸿蒙=${a} 安卓=${b}`);
+  }
+
+  // 存储预检系数：鸿蒙 `size * (updating ? 3.2 : 2.4)` ↔ 安卓 Storage.FACTOR_UPDATE / FACTOR_FRESH
+  // （安卓曾经恒用 3.2，导致同设备上比鸿蒙更早报「空间不足」——这个对账就是防它再漂回去）
+  const upd = read(P.etsSession).match(/updating \? ([\d.]+) : ([\d.]+)\);/);
+  const factorUpdate = pick(read(P.ktStorage), /const val FACTOR_UPDATE = ([\d.]+)/);
+  const factorFresh = pick(read(P.ktStorage), /const val FACTOR_FRESH = ([\d.]+)/);
+  if (!upd) fail('常量对账：解析 LauncherSession.requiredStorage 的 updating 分支失败');
+  else {
+    if (upd[1] !== factorUpdate) fail(`常量分叉：更新时的存储系数 鸿蒙=${upd[1]} 安卓=${factorUpdate}`);
+    if (upd[2] !== factorFresh) fail(`常量分叉：首次安装的存储系数 鸿蒙=${upd[2]} 安卓=${factorFresh}`);
+  }
+
+  // USER_AGENT **有意不同**（两端各自标识自己）：这里显式锁死期望值，
+  // 免得它悄悄被改成同一个、或改成别的串（GitHub API 会 403）
+  const uaEts = pick(read(P.etsConst), /export const USER_AGENT: string = '([^']*)'/);
+  const uaKt = pick(kt, /const val USER_AGENT = "([^"]*)"/);
+  if (uaEts !== 'PokeLauncher-Harmony') fail(`USER_AGENT 变了：鸿蒙=${uaEts}（期望 PokeLauncher-Harmony）`);
+  if (uaKt !== 'PokeLauncher-Android') fail(`USER_AGENT 变了：安卓=${uaKt}（期望 PokeLauncher-Android）`);
 }
 
 /**
@@ -449,6 +496,8 @@ function checkNoInline() {
     [P.ktSaveGuard, 'SAVE_GUARD_JS', ['__sgInstalled'], '存档守卫 JS'],
     [P.etsHttpServer, 'CANVAS_PATCH_JS', ['HTMLCanvasElement.prototype.getContext=function'], 'canvas 补丁'],
     [P.ktInjectScripts, 'CANVAS_PATCH_JS', ['HTMLCanvasElement.prototype.getContext=function'], 'canvas 补丁'],
+    // 法律页正文：页面只负责渲染，正文必须来自生成物
+    [P.etsLegalPage, 'LEGAL_SECTIONS', ['本项目是第三方、非官方的'], '法律页正文'],
   ];
   for (const [file, marker, inlined, what] of rules) {
     if (!existsSync(join(ROOT, file))) {
@@ -458,9 +507,219 @@ function checkNoInline() {
     const text = read(file);
     if (!text.includes(marker)) fail(`防内联检查：${file} 没有引用 \`${marker}\`（${what} 应当来自 shared/）`);
     for (const frag of inlined) {
-      if (text.includes(frag)) fail(`防内联检查：${file} 里重新内联了${what}（命中 \`${frag}\`），请改用 SharedJs`);
+      if (text.includes(frag)) fail(`防内联检查：${file} 里重新内联了${what}（命中 \`${frag}\`），请改用 shared/ 生成物`);
     }
   }
+}
+
+// ------------------------------------------------------------------ 校验 shared/legal.json
+
+const PLATFORMS = ['harmony', 'android'];
+
+/**
+ * 法律页正文的占位符契约：
+ * - 两端必须定义**同一组**占位符 key（少一个会在渲染时报错，多一个说明正文删了没同步）；
+ * - 每个 key 必须真的被正文用到（防止改完正文忘了删占位符，看着像还有差异）；
+ * - 段落里不允许出现未命名/未闭合的花括号（`{` 写错会静默输出给用户）。
+ */
+function assertLegal(legal) {
+  const tables = legal.placeholders ?? {};
+  const platforms = Object.keys(tables);
+  if (platforms.length !== PLATFORMS.length || PLATFORMS.some((p) => !platforms.includes(p))) {
+    fail(`legal.json: placeholders 必须恰好是 ${PLATFORMS.join(' / ')}（当前 ${platforms.join(' / ') || '空'}）`);
+    return null;
+  }
+  const keySets = PLATFORMS.map((p) => Object.keys(tables[p]).sort());
+  const first = keySets[0].join('|');
+  if (keySets.some((k) => k.join('|') !== first)) {
+    fail(`legal.json: 两端占位符 key 不一致\n    鸿蒙: ${keySets[0].join(', ')}\n    安卓: ${keySets[1].join(', ')}`);
+  }
+
+  const used = new Set();
+  const ids = new Set();
+  const sections = legal.sections ?? [];
+  if (sections.length === 0) fail('legal.json: sections 为空');
+  for (const s of sections) {
+    if (!s.id) fail('legal.json: 章节缺 id');
+    else if (ids.has(s.id)) fail(`legal.json: 章节 id 重复：${s.id}`);
+    else ids.add(s.id);
+    if (!s.title || !s.title.trim()) fail(`legal.json: ${s.id} 缺 title`);
+    if (!Array.isArray(s.body) || s.body.length === 0) fail(`legal.json: ${s.id} 的 body 为空`);
+    for (const t of s.body ?? []) {
+      if (!t.trim()) fail(`legal.json: ${s.id} 有空段落`);
+      for (const m of t.matchAll(/\{(\w+)\}/g)) used.add(m[1]);
+      if (/[{}]/.test(t.replace(/\{\w+\}/g, ''))) {
+        fail(`legal.json: ${s.id} 段落里有未命名/未闭合的花括号：${t.slice(0, 40)}`);
+      }
+    }
+  }
+  for (const k of used) {
+    if (!(k in tables[PLATFORMS[0]])) fail(`legal.json: 正文用了占位符 {${k}}，但 placeholders 里没定义`);
+  }
+  for (const k of keySets[0]) {
+    if (!used.has(k)) fail(`legal.json: placeholders 里的 {${k}} 没有任何段落用到（改正文时把它删掉）`);
+  }
+  return tables;
+}
+
+/** 按平台渲染占位符；渲染后残留花括号即报错（不允许把原始占位符发到用户眼前） */
+function renderLegal(legal, platform) {
+  const table = legal.placeholders[platform];
+  const render = (text) => {
+    const out = text.replace(/\{(\w+)\}/g, (_, k) => {
+      if (!(k in table)) fail(`legal.json: 平台 ${platform} 缺占位符 {${k}}`);
+      return table[k];
+    });
+    if (/[{}]/.test(out)) fail(`legal.json: 平台 ${platform} 渲染后残留花括号：${out.slice(0, 40)}`);
+    return out;
+  };
+  return {
+    banner: render(legal.banner),
+    updatedAt: render(legal.updatedAt),
+    sections: legal.sections.map((s) => ({
+      id: s.id,
+      title: render(s.title),
+      body: s.body.map(render),
+    })),
+  };
+}
+
+// ------------------------------------------------------------------ 生成：法律页正文
+
+/**
+ * ArkTS 字面量：统一用单引号（与仓库原有 .ets 风格一致，diff 更小）。
+ * 不用 JSON.stringify——它会输出双引号，把一个「换内容」的 diff 变成整个文件的 diff。
+ */
+const etsStr = (s) => `'${s.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`;
+
+/** Kotlin 字面量：`$` 会被当模板插值，必须转义（ArkTS 侧用 etsStr，不用管） */
+const ktStr = (s) => `"${s.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\$/g, '\\$')}"`;
+
+const LEGAL_DOC_HEADER = `/**
+ * 法律与免责声明页的正文（纯数据，无 UI 依赖，可单测）。
+ *
+ * ⚠️ **本文件由 \`scripts/gen-shared.mjs\` 自动生成，不要手改**：唯一真相在仓库根 \`shared/legal.json\`。
+ * 改文案跑 \`node scripts/gen-shared.mjs\`，两侧（鸿蒙 / 安卓）一起更新。
+ *
+ * 两端唯一的措辞差异只允许放在 legal.json 的 \`placeholders\` 里（如平台名、技术栈），
+ * 正文段落一律共用——这样改一次措辞不会漏掉另一边。
+ * ⚠️ 全部文案不得出现「作弊」字样（应用商店审核风险），统一叫「参数调整」。
+ */`;
+
+function genEtsLegalText(r) {
+  const sections = r.sections
+    .map(
+      (s) =>
+        `  {\n    id: ${etsStr(s.id)},\n    title: ${etsStr(s.title)},\n    body: [\n${s.body
+          .map((b) => `      ${etsStr(b)}`)
+          .join(',\n')}\n    ]\n  }`
+    )
+    .join(',\n');
+
+  return `${LEGAL_DOC_HEADER}\n\nexport interface LegalSection {\n  id: string;\n  title: string;\n  body: string[];\n}\n\n/** 页面顶部常驻提示条 */\nexport const LEGAL_BANNER: string = ${etsStr(r.banner)};\n\n/** 页脚日期 */\nexport const LEGAL_UPDATED_AT: string = ${etsStr(r.updatedAt)};\n\n/** 章节顺序即页面展示顺序 */\nexport const LEGAL_SECTIONS: LegalSection[] = [\n${sections}\n];\n`;
+}
+
+function genKtLegalText(r) {
+  const sections = r.sections
+    .map(
+      (s) =>
+        `    LegalSection(\n        id = ${ktStr(s.id)},\n        title = ${ktStr(s.title)},\n        body = listOf(\n${s.body
+          .map((b) => `            ${ktStr(b)}`)
+          .join(',\n')}\n        )\n    )`
+    )
+    .join(',\n');
+
+  return `package com.lichtcui.pokelauncher.ui
+
+${LEGAL_DOC_HEADER}
+
+/** 一条免责章节 */
+data class LegalSection(val id: String, val title: String, val body: List<String>)
+
+/** 页面顶部常驻提示条 */
+const val LEGAL_BANNER: String = ${ktStr(r.banner)}
+
+/** 页脚日期 */
+const val LEGAL_UPDATED_AT: String = ${ktStr(r.updatedAt)}
+
+/** 章节顺序即页面展示顺序（\`LegalTextTest\` 锁住 id 集合与顺序） */
+val LEGAL_SECTIONS: List<LegalSection> = listOf(
+${sections}
+)
+`;
+}
+
+// ------------------------------------------------------------------ 校验 / 生成：MIME 表
+
+/**
+ * 本地 HTTP 服务的 Content-Type 表。
+ * Chromium 对 `<script type="module">` 做**严格 MIME 校验**：`.js` 回错 MIME 直接白屏，
+ * 所以 `js` 这一条是硬断言，不是注释里的提醒。
+ */
+function assertMime(mime) {
+  const map = mime.map ?? {};
+  const keys = Object.keys(map);
+  if (keys.length === 0) fail('mime.json: map 为空');
+  for (const [k, v] of Object.entries(map)) {
+    if (k !== k.toLowerCase()) fail(`mime.json: 扩展名必须小写：${k}`);
+    if (!/^[a-z0-9]+$/.test(k)) fail(`mime.json: 扩展名字符可疑（不要带点）：${k}`);
+    if (!/^[\w.+-]+\/[\w.+-]+$/.test(v)) fail(`mime.json: ${k} 的值不像 MIME：${v}`);
+  }
+  if (map.js !== 'text/javascript') fail(`mime.json: js 必须是 text/javascript（当前 ${map.js}）—— 回错会白屏`);
+  for (const k of ['html', 'css', 'json', 'wasm', 'webmanifest']) {
+    if (!map[k]) fail(`mime.json: 缺少关键扩展名 ${k}（游戏资源里确实用到）`);
+  }
+  if (!mime.fallback) fail('mime.json: 缺 fallback');
+  return map;
+}
+
+const MIME_DOC_HEADER_ETS = `/**
+ * 扩展名 → MIME 映射（本地 HTTP 服务的 Content-Type）。
+ *
+ * ⚠️ **本文件由 \`scripts/gen-shared.mjs\` 自动生成，不要手改**：唯一真相在仓库根 \`shared/mime.json\`。
+ *
+ * 关键：ArkWeb 基于 Chromium，对 <script type="module"> 有严格 MIME 校验，
+ * 若 .js 返回错误的 MIME 会导致白屏，必须返回 text/javascript。
+ */`;
+
+function genEtsMime(map, fallback) {
+  const entries = Object.entries(map)
+    .map(([k, v]) => `  [${etsStr(k)}, ${etsStr(v)}]`)
+    .join(',\n');
+  return `${MIME_DOC_HEADER_ETS}\n\nconst MIME_MAP: Map<string, string> = new Map<string, string>([\n${entries}\n]);\n\n/** 无扩展名 / 未知扩展名的退化值 */\nconst MIME_FALLBACK: string = ${etsStr(fallback)};\n\nexport function mimeOf(path: string): string {\n  const dot: number = path.lastIndexOf('.');\n  if (dot < 0) {\n    return MIME_FALLBACK;\n  }\n  const ext: string = path.substring(dot + 1).toLowerCase();\n  const mime: string | undefined = MIME_MAP.get(ext);\n  return mime !== undefined ? mime : MIME_FALLBACK;\n}\n`;
+}
+
+function genKtMime(map, fallback) {
+  const entries = Object.entries(map)
+    .map(([k, v]) => `        ${ktStr(k)} to ${ktStr(v)}`)
+    .join(',\n');
+  return `package com.lichtcui.pokelauncher.core
+
+/**
+ * 扩展名 → MIME 映射（本地 HTTP 服务的 Content-Type）。
+ *
+ * ⚠️ **本文件由 \`scripts/gen-shared.mjs\` 自动生成，不要手改**：唯一真相在仓库根 \`shared/mime.json\`。
+ *
+ * 关键：WebView 基于 Chromium，对 \`<script type="module">\` 做严格 MIME 校验，
+ * \`.js\` 返回错 MIME 会导致白屏，必须返回 \`text/javascript\`。
+ */
+object Mime {
+
+    /** 无扩展名 / 未知扩展名的退化值 */
+    const val FALLBACK = ${ktStr(fallback)}
+
+    private val MAP = mapOf(
+${entries}
+    )
+
+    fun mimeOf(path: String): String {
+        val dot = path.lastIndexOf('.')
+        if (dot < 0) return FALLBACK
+        val ext = path.substring(dot + 1).lowercase()
+        return MAP[ext] ?: FALLBACK
+    }
+}
+`;
 }
 
 // ------------------------------------------------------------------ 主流程
@@ -485,15 +744,31 @@ const sharedJs = {
 for (const [k, v] of Object.entries(sharedJs)) assertJsEmbeddable(`${k}.js`, v);
 assertScriptContracts(registry.cheats.filter((c) => c.__js !== undefined));
 
+const legal = JSON.parse(read(P.legal));
+assertLegal(legal);
+const mime = JSON.parse(read(P.mime));
+const mimeMap = assertMime(mime);
+
 const outputs = [
   [P.etsCheats, genEtsCheats(registry)],
   [P.etsSharedJs, genEtsSharedJs(sharedJs)],
   [P.ktCheats, genKtCheats(registry)],
   [P.ktSharedJs, genKtSharedJs(sharedJs)],
+  [P.etsLegalText, genEtsLegalText(renderLegal(legal, 'harmony'))],
+  [P.ktLegalText, genKtLegalText(renderLegal(legal, 'android'))],
+  [P.etsMime, genEtsMime(mimeMap, mime.fallback)],
+  [P.ktMime, genKtMime(mimeMap, mime.fallback)],
 ];
 
 checkConstParity();
 checkNoInline();
+
+// 校验没过就不写文件：免得把半成品生成物写进工作区，掩盖真正的错误
+if (problems.length) {
+  console.error(`\n✗ shared/ 校验失败（${problems.length} 项），生成物**未写入**：`);
+  for (const p of problems) console.error(`  - ${p}`);
+  process.exit(1);
+}
 
 let stale = 0;
 for (const [file, content] of outputs) {
@@ -511,11 +786,6 @@ for (const [file, content] of outputs) {
   }
 }
 
-if (problems.length) {
-  console.error(`\n✗ shared/ 校验失败（${problems.length} 项）：`);
-  for (const p of problems) console.error(`  - ${p}`);
-  process.exit(1);
-}
 if (CHECK) {
   if (stale) {
     console.error(`\n✗ ${stale} 个生成文件与 shared/ 不一致，跑一下：node scripts/gen-shared.mjs`);

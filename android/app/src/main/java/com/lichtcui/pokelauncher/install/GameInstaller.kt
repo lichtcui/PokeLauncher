@@ -145,13 +145,14 @@ class GameInstaller(root: File) {
     }
 
     private fun precheckSpace(zipLength: Long) {
-        // 更新期间要同时容纳「旧包 + 新包 + zip」，与鸿蒙版一致按 3.2× 估算（判定逻辑在 Storage，可单测）
+        // 更新期间要同时容纳「旧包 + 新包 + zip」；系数与鸿蒙版同值（gen-shared 对账，判定逻辑在 Storage，可单测）
+        val updating = isReady()
         val free = availableBytes()
-        val problem = Storage.check(free, zipLength)
+        val problem = Storage.check(free, zipLength, updating)
         if (problem != null) throw IOException(problem)
         Log.i(
             Const.TAG,
-            "space precheck ok: need ${Storage.requiredBytes(zipLength) / 1024 / 1024}MB, free ${free / 1024 / 1024}MB"
+            "space precheck ok: need ${Storage.requiredBytes(zipLength, updating) / 1024 / 1024}MB, free ${free / 1024 / 1024}MB"
         )
     }
 

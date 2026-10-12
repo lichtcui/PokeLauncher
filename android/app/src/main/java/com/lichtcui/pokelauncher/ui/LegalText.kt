@@ -1,25 +1,26 @@
 package com.lichtcui.pokelauncher.ui
 
 /**
- * 法律与免责声明页的正文（对应鸿蒙版 `pages/Legal.ets` 的 `LEGAL_SECTIONS`）。
+ * 法律与免责声明页的正文（纯数据，无 UI 依赖，可单测）。
  *
- * 单独放一个不依赖 Compose 的文件，好处有二：能被 JVM 单测覆盖（比如扫「审核红线文案」），
- * 也让「改文案」这件事不必碰界面代码。
+ * ⚠️ **本文件由 `scripts/gen-shared.mjs` 自动生成，不要手改**：唯一真相在仓库根 `shared/legal.json`。
+ * 改文案跑 `node scripts/gen-shared.mjs`，两侧（鸿蒙 / 安卓）一起更新。
  *
- * 与鸿蒙版的差异只在两处措辞：本项目现在同时有鸿蒙与安卓两个客户端；
- * 自更新的载体不同（鸿蒙是 HAP，安卓是 APK）。免责边界本身逐条对齐。
+ * 两端唯一的措辞差异只允许放在 legal.json 的 `placeholders` 里（如平台名、技术栈），
+ * 正文段落一律共用——这样改一次措辞不会漏掉另一边。
+ * ⚠️ 全部文案不得出现「作弊」字样（应用商店审核风险），统一叫「参数调整」。
  */
 
 /** 一条免责章节 */
 data class LegalSection(val id: String, val title: String, val body: List<String>)
 
 /** 页面顶部常驻提示条 */
-const val LEGAL_BANNER: String =
-    "本项目为第三方非官方启动器，仅供个人学习交流与离线游玩使用，与 PokeRogue 官方无关。"
+const val LEGAL_BANNER: String = "本项目为第三方非官方启动器，仅供个人学习交流与离线游玩使用，与 PokeRogue 官方无关。"
 
 /** 页脚日期 */
 const val LEGAL_UPDATED_AT: String = "最近更新：2026-09-18"
 
+/** 章节顺序即页面展示顺序（`LegalTextTest` 锁住 id 集合与顺序） */
 val LEGAL_SECTIONS: List<LegalSection> = listOf(
     LegalSection(
         id = "positioning",
@@ -45,7 +46,7 @@ val LEGAL_SECTIONS: List<LegalSection> = listOf(
         body = listOf(
             "本启动器除下载游戏资源与检查自身更新外，不访问其他网络服务，也不收集、上传任何个人信息。",
             "游戏资源：在你主动点击「开始下载」后，应用会访问 PokeRogue 公开仓库的发布接口（api.github.com / github.com）获取资源包信息并下载资源包；为此可能使用第三方加速镜像（gh-proxy.com、ghfast.top、ghproxy.net），并在镜像不可用时回退到 GitHub 直连。",
-            "应用更新：应用会定期访问 Gitee（gitee.com）上的版本清单，以检查启动器自身是否有新版本，不会上传任何设备或使用数据。",
+            "应用更新：应用启动时会访问 Gitee（gitee.com）上的版本清单，以检查启动器自身是否有新版本，不会上传任何设备或使用数据。",
             "下载的资源与你的存档均保存在设备本地应用沙箱内，卸载应用即随之删除；本应用不设服务器，不向任何第三方共享你的数据。"
         )
     ),

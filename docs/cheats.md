@@ -14,7 +14,7 @@
 | --- | --- |
 | `shared/cheats.json` | **唯一真相**：分组 + 条目（`id` / `name` / `desc` / `group` / `script` 引用 / `param`） |
 | `shared/js/cheats/<id>.js` | **唯一真相**：每条一条纯 JS 脚本（文件本身就是脚本，不涉及字符串转义） |
-| `scripts/gen-shared.mjs` | 生成器 + 校验器：产出两端注册表与共享 JS 常量，并对账两端常量/注入链（`--check` 供构建使用） |
+| `scripts/gen-shared.mjs` | 生成器 + 校验器：产出两端注册表、共享 JS 常量、法律页正文与 MIME 表，并对账两端常量/注入链（`--check` 供构建使用） |
 | `model/Cheats.ets` | **生成物**（不要手改）：鸿蒙注册表 `CHEATS: Cheat[]`，每条 `{ id, name, desc, group, script, param? }` |
 | `common/SharedJs.ets` | **生成物**：共享注入 JS 常量（场景捕获运行时 / 存档守卫 / canvas 补丁） |
 | `model/CheatState.ets` | 内存单例 + 持久化（`pokelauncher_settings` 的 `cheatMaster` / `cheatEnabledIds` / `cheatParams`）+ `buildBootScript()`（注入 `__CHEAT_PARAMS__` + **场景捕获运行时** + 按启用清单拼接 script） |

@@ -96,7 +96,7 @@ class GameRepository(
     /** 存储预检：下载**开始前**就拦住，而不是等解压到一半失败 */
     fun storageProblem(assetSize: Long): String? =
         // partial 已占用的空间会被复用，先加回来，避免续传时判得比实际更严
-        Storage.check(installer.availableBytes() + fileLength(partZipFile), assetSize)
+        Storage.check(installer.availableBytes() + fileLength(partZipFile), assetSize, installer.isReady())
 
     /** 有可续传的未完成下载（启动时用于提示「继续下载」）；不可用的残留会被顺手清掉 */
     fun inspectPending(): PendingDownload? {

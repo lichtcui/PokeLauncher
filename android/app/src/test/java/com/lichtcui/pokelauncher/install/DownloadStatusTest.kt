@@ -203,20 +203,28 @@ class DownloadStatusTest {
     // ------------------------------------------------------------ 存储预检
 
     @Test
-    fun storageFactorIsThreePointTwo() {
-        assertEquals(3.2, Storage.FACTOR, 1e-9)
+    fun storageFactorsMatchHarmony() {
+        // 与鸿蒙 `LauncherSession.requiredStorage()` 的 `updating ? 3.2 : 2.4` 同值
+        // （值本身由 scripts/gen-shared.mjs 对账，这里锁住「两个分支确实分别用了这两个数」）
+        assertEquals(3.2, Storage.FACTOR_UPDATE, 1e-9)
+        assertEquals(2.4, Storage.FACTOR_FRESH, 1e-9)
+        val asset = 100L
+        assertEquals(320L, Storage.requiredBytes(asset, updating = true))
+        assertEquals(240L, Storage.requiredBytes(asset, updating = false))
     }
 
     @Test
     fun storageCheckBoundaryAndMessage() {
         val asset = 507_000_000L
-        val need = Storage.requiredBytes(asset)
-        assertNull(Storage.check(need, asset))
-        val problem = Storage.check(need - 1, asset)
-        assertTrue(problem != null)
-        assertTrue(problem!!, problem!!.contains("存储空间不足"))
-        assertTrue(problem, problem.contains("MB"))
+        for (updating in listOf(false, true)) {
+            val need = Storage.requiredBytes(asset, updating)
+            assertNull(Storage.check(need, asset, updating))
+            val problem = Storage.check(need - 1, asset, updating)
+            assertTrue(problem != null)
+            assertTrue(problem!!, problem!!.contains("存储空间不足"))
+            assertTrue(problem, problem.contains("MB"))
+        }
         // 大小未知（调试包）不做预检，否则会被误拦
-        assertNull(Storage.check(0, 0))
+        assertNull(Storage.check(0, 0, updating = false))
     }
 }

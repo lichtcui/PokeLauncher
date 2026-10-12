@@ -1,12 +1,17 @@
 package com.lichtcui.pokelauncher.core
 
 /**
- * 扩展名 → MIME 映射。
+ * 扩展名 → MIME 映射（本地 HTTP 服务的 Content-Type）。
  *
- * 关键：WebView 基于 Chromium，对 `<script type="module">` 有严格 MIME 校验，
- * `.js` 返回错误 MIME 会导致白屏，必须返回 `text/javascript`。
+ * ⚠️ **本文件由 `scripts/gen-shared.mjs` 自动生成，不要手改**：唯一真相在仓库根 `shared/mime.json`。
+ *
+ * 关键：WebView 基于 Chromium，对 `<script type="module">` 做严格 MIME 校验，
+ * `.js` 返回错 MIME 会导致白屏，必须返回 `text/javascript`。
  */
 object Mime {
+
+    /** 无扩展名 / 未知扩展名的退化值 */
+    const val FALLBACK = "application/octet-stream"
 
     private val MAP = mapOf(
         "html" to "text/html",
@@ -41,8 +46,8 @@ object Mime {
 
     fun mimeOf(path: String): String {
         val dot = path.lastIndexOf('.')
-        if (dot < 0) return "application/octet-stream"
+        if (dot < 0) return FALLBACK
         val ext = path.substring(dot + 1).lowercase()
-        return MAP[ext] ?: "application/octet-stream"
+        return MAP[ext] ?: FALLBACK
     }
 }

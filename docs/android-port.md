@@ -47,7 +47,9 @@
 - 场景捕获运行时（`__onScene` / `__onPhase` / `Array.prototype.push` hook）与存档守卫、canvas 补丁 JS：[`shared/js/`](../shared/js) → **生成** `core/SharedJs.kt` 与 `common/SharedJs.ets`；拼接逻辑 `buildBootScript()` → `cheat/CheatScripts.kt`，纯编解码 → `cheat/CheatFormat.kt`
 - `FORCE_WILL_READ_FREQUENTLY` 的 2D canvas 补丁（**Chromium 通病，Android WebView 同样需要**，启动 28s → 4s 的收益照样拿）→ `server/InjectScripts.kt`
 - `SaveGuard` 的 JS 片段（保留；Android 侧它不再是「抢救存档」，而是 Auto Backup / 导出兜底，见 §4.3.2）→ `web/SaveGuard.kt`
-- `resolveRequestPath()` 路径穿越判定、镜像列表、测速策略（这些是**纯逻辑、两份手写**，由 `--check` 对账）
+- 法律页正文（10 章节）：[`shared/legal.json`](../shared/legal.json) → **生成** [`ui/LegalText.kt`](../android/app/src/main/java/com/lichtcui/pokelauncher/ui/LegalText.kt) 与 [`model/LegalText.ets`](../entry/src/main/ets/model/LegalText.ets)（两端措辞差异只允许写在 `placeholders` 里）
+- 扩展名 → MIME：[`shared/mime.json`](../shared/mime.json) → **生成** `core/Mime.kt` 与 `common/Mime.ets`（`.js` 回错 MIME 会白屏，生成器硬断言 `text/javascript`）
+- `resolveRequestPath()` 路径穿越判定、镜像列表、测速策略、存储预检系数（这些是**纯逻辑、两份手写**，由 `--check` 对账）
 - 原子安装状态机（`game.new` → `.extract-complete` 标记 → 两次 rename → `recover()`）
 - `Format.ets` 三个格式化函数（改为 Kotlin JVM 单测）
 
@@ -120,7 +122,8 @@ android/                                   Gradle 8.14.3 / AGP 8.11.0 / Kotlin 2
 ├─ app/src/main/java/.../
 │  ├─ App.kt                               Application：启动日志 + 仅 debug 开远程调试 + 偏好/参数调整状态/存档目录初始化
 │  ├─ MainActivity.kt                      唯一 Activity（singleTask + configChanges 不重建）
-│  ├─ core/ Const / Paths / Mime / Format  无 Android 依赖，可 JVM 单测
+│  ├─ core/ Const / Paths / Format        无 Android 依赖，可 JVM 单测
+│  ├─ core/ Mime.kt                       ⚠️ 生成物：扩展名 → MIME（唯一真相在 shared/mime.json）
 │  ├─ core/ SharedJs.kt                    ⚠️ 生成物：共享注入 JS（场景捕获运行时 / 存档守卫 / canvas 补丁）
 │  ├─ core/ Version.kt                     release-<commit> 归一化（与鸿蒙 normalizeVersion 一致）
 │  ├─ core/ Prefs.kt                       SharedPreferences 封装（库名 pokelauncher_settings）
@@ -137,7 +140,7 @@ android/                                   Gradle 8.14.3 / AGP 8.11.0 / Kotlin 2
 │  ├─ install/ ReleaseInfo.kt              Release JSON 解析（字段名都是字符串字面量，R8 安全）
 │  ├─ install/ DownloadUrls.kt             候选地址构造 + 测速排序（纯函数）
 │  ├─ install/ DownloadState.kt            `.download.json` 状态 + ResumePolicy + RangePolicy（纯函数）
-│  ├─ install/ Storage.kt                  3.2× 空间预检（纯函数）
+│  ├─ install/ Storage.kt                  空间预检（纯函数）：首次 2.4× / 更新 3.2×（与鸿蒙同值，`--check` 对账）
 │  ├─ install/ DownloadStatus.kt           状态快照 / DownloadBus / ProgressMeter / 通知文案（纯逻辑）
 │  ├─ install/ DownloadService.kt          前台服务：通知进度 + 暂停/继续/取消 action + onTimeout
 │  ├─ cheat/ Cheats.kt                     ⚠️ 生成物：参数调整注册表（唯一真相在 shared/）
@@ -160,7 +163,7 @@ android/                                   Gradle 8.14.3 / AGP 8.11.0 / Kotlin 2
 │     ├─ GameScreen.kt                     游戏页：WebView + 返回按钮（3s 淡出）+ 加载/错误浮层 + 悬浮指标面板
 │     ├─ SpikeController.kt                应用级控制器（首页 / 设置页 / 打靶页共用同一实例）
 │     ├─ SpikeScreen.kt / CheatScreen.kt   开发者诊断页；参数调整页（纯注册表驱动）
-│     └─ SettingsScreen.kt / LegalText.kt / LegalScreen.kt   设置页；法律正文（纯数据）；法律页
+│     └─ SettingsScreen.kt / LegalText.kt / LegalScreen.kt   设置页；法律正文（⚠️ 生成物）；法律页
 ├─ app/src/test/java/.../                  **270 个 JVM 单测**（core 31：Paths 7 / Format 6 / Mime 5 / Version 4 / OrientationPref 7 / Prefs 2；
 │                                          install 50：DownloadUrls 12 / DownloadState 16 / DownloadStatus 16 / ReleaseInfo 6；
 │                                          cheat 71：CheatFormat 27 / CheatScripts 14 / CheatState 13 / Cheats 17；
@@ -358,7 +361,7 @@ adb logcat -s PokeLauncher          # 全部日志统一 tag
 9. **SaveGuard 在 Android 的定位与鸿蒙不同**：鸿蒙是因为 localStorage 落在 `cache/web/`（会被「清除缓存」清）而必须镜像；Android 的 localStorage 本来就在应用数据目录。这里保留它的目的是 **Auto Backup / 存档导出（P4）的兜底**，并且**只在 localStorage 整体为空时回填**，不覆盖玩家现有存档。落盘到 `filesDir/saves/`（内部存储，Auto Backup 默认覆盖；不用 external）。
 10. **持久化用 SharedPreferences 而不是本文原先写的 DataStore**：服务端在第 N 个资源请求上需要**同步**读 `hasAnyEnabled()` 才能决定注入哪些标签；DataStore 只有异步 API，会逼出一层「内存快照 + 首帧竞态」的额外状态机。偏好项很少，同步读写足够，且零新依赖（工具链仍是 Kotlin 2.0.21）。
 11. **写存档的策略**：去重（与 `diskContent` / `queuedContent` 比）+ 单线程串行 executor + 写前把主文件 `rename` 成 `.bak`。游戏内每 60s 无条件 flush 一次，没变化时不应产生任何 IO（`SaveGuardTest` 覆盖）。
-12. **共享 JS 不再靠「逐字复制」，而靠生成**：`shared/js/**` + `shared/cheats.json` 由 `scripts/gen-shared.mjs` 生成两端源码，`--check` 接在两端构建上（`hvigorfile.ts` 的 `checkSharedCode` / Gradle 的 `:app:checkSharedCode`）。单测仍锁住两条易错约束：**脚本里不得出现 `$`**（Kotlin raw string 会当模板插值）、**声明了 param 就必须真的读 `__CHEAT_PARAMS__.<id>`**（否则是假旋钮），另外还多了「生成物与 `shared/` 一致」「两端 `Const` 常量不分叉」两条。
+12. **共享 JS 不再靠「逐字复制」，而靠生成**：`shared/**`（`js/**` + `cheats.json` + `legal.json` + `mime.json`）由 `scripts/gen-shared.mjs` 生成**两端共 8 个**文件，`--check` 接在两端构建上（`hvigorfile.ts` 的 `checkSharedCode` / Gradle 的 `:app:checkSharedCode`）。生成器还锁住：**脚本里不得出现 `$`**（Kotlin raw string 会当模板插值）、**声明了 param 就必须真的读 `__CHEAT_PARAMS__.<id>`**（否则是假旋钮）、法律页占位符两端一对一（防止把平台差异写回正文）、`.js` 必须是 `text/javascript`（白屏）；「生成物与 `shared/` 一致」「两端常量不分叉」（含端口 / 测速参数 / **存储预检系数** / `USER_AGENT` 白名单）也由它对准——存储系数曾经真的分叉过（安卓恒用 3.2×），同一台机器上会比鸿蒙更早报「空间不足」。
 13. **`PokeSaveGuard` 桥的混淆边界**：类名可以被 R8 改名（JS 侧用的是传给 `addJavascriptInterface` 的字符串），但方法名必须保留——靠既有的 `-keepclassmembers class * { @android.webkit.JavascriptInterface <methods>; }` 规则；release dex 已验 `load` / `save` / `notifyRestored` 未被改名。
 
 ### 4.3.3 P3（UI）实现期决定
@@ -384,7 +387,7 @@ adb logcat -s PokeLauncher          # 全部日志统一 tag
 5. **屏幕方向由根组件套用，且只对游戏页生效**：`ApplyPageOrientation(gamePageActive)`——游戏页用偏好（竖屏/横屏/跟随系统 → `PORTRAIT` / `SENSOR_LANDSCAPE` / `UNSPECIFIED`），其余页面手机恒竖屏、平板（`smallestScreenWidthDp ≥ 600`）跟随系统。放根组件而不是 `MainActivity`：进/出游戏页要**立即**生效，而 Activity 只创建一次；`configChanges` 已声明，改 `requestedOrientation` 不会重建 Activity。设置方向包了 `runCatching`（多窗口等场景会抛异常）。
 6. **设置页不新建 Controller**：方向/参数调整/资源版本都在 `remember` 里直接读现有单例，只有「应用更新的检查结果」是模块级缓存（避开每次进出重发请求）。副产物：从设置页进参数调整再返回时设置页是**重建**的（状态重新读过，显示的就是最新的，不会出现两份状态）。
 7. **「删除本地数据」改成异步**（顺带修了打靶页的同名按钮）：`deleteGame(onDone)` 把删目录树（~1.5GB）切到 `Dispatchers.IO`，Compose 状态回写仍在主线程；完成时额外清掉偏好里的 `lastCachedGameVersion`（资源没了，下次装回同一版本还得再清一次 WebView 缓存）。删除完成 → Toast + 回首页（与鸿蒙一致）。
-8. **法律页文案双平台化，但章节集合必须与鸿蒙一致**：只改两处措辞（平台列举 / 更新载体 HAP↔APK），免责边界逐条对齐 `pages/Legal.ets`；正文单独放 `ui/LegalText.kt`（不依赖 Compose，所以能被 `LegalTextTest` 扫「无『作弊』」红线与章节 id 顺序）。
+8. **法律页文案双平台化，但章节集合必须与鸿蒙一致**：正文的唯一真相是 [`shared/legal.json`](../shared/legal.json)（生成 `ui/LegalText.kt` 与 `model/LegalText.ets`），两端措辞差异**只允许写成 `placeholders`**（平台列举 / 技术栈 / 中文接拉丁的空格），章节集合与顺序由生成器 + `LegalTextTest`（含「无『作弊』」红线）双重锁住。
 9. **「关于」直接读运行时值**：应用版本用 `BuildConfig`（当前 `0.1.0-p0 (1)`）、资源版本用 `SpikeController.installedVersion`、GitHub 用 `Const.PROJECT_GITHUB_URL`。安卓的 `versionCode/versionName` 现在还是 P0 的占位值，要在发版前与 `version.json` 的 `android*` 字段对齐（§8）。
 
 ### 4.3.5 P3（首页四态 / 下载流 / 精灵球）实现期决定

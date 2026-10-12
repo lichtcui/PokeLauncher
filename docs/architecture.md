@@ -13,8 +13,10 @@
 仓库根有**两份独立工程**：鸿蒙（`entry/`，本文档主体）与安卓（`android/`，见 [`android-port.md`](./android-port.md)）。两者构建体系互不相干，共用的东西只有 [`shared/`](../shared/README.md)（由 `scripts/gen-shared.mjs` **生成**成两端源码，不是引用）。
 
 ```
-shared/                            # 跨端唯一真相（生成两端的 Cheats / SharedJs）
+shared/                            # 跨端唯一真相（生成两端的 Cheats / SharedJs / LegalText / Mime）
 ├─ cheats.json                     # 参数调整注册表（分组 + 条目 + param）
+├─ legal.json                      # 法律页正文（10 章节；{xxx} 是平台占位符）
+├─ mime.json                       # 扩展名 → MIME（本地 HTTP 服务的 Content-Type）
 ├─ js/cheats/<id>.js               # 每条一条纯 JS 脚本
 └─ js/{scene-runtime.core,save-guard,canvas-patch}.js   # 两端逐字共享的注入 JS
 
@@ -23,7 +25,7 @@ entry/src/main/ets/
 ├─ common/
 │  ├─ Const.ets                    # 常量（URL/镜像/DEBUG_UI/FORCE_WILL_READ_FREQUENTLY 等）
 │  ├─ SharedJs.ets                 # ⚠️ 生成物：共享注入 JS（场景捕获运行时/存档守卫/canvas 补丁）
-│  ├─ Mime.ets                     # 扩展名 → MIME
+│  ├─ Mime.ets                     # ⚠️ 生成物：扩展名 → MIME（唯一真相在 shared/mime.json）
 │  ├─ Prefs.ets                    # 共享 preferences 库名 + 实例缓存（getStore）
 │  ├─ Http.ets                     # 共享 GET 文本请求 requestText()
 │  ├─ WebCache.ets                 # clearWebCache()：清 Web HTTP/JS 缓存
@@ -39,6 +41,7 @@ entry/src/main/ets/
 │  ├─ Notifier.ets                 # 通知权限 + 完成/失败通知
 │  ├─ WindowHolder.ets             # 主窗口引用 + setWindowBackgroundColor + setOrientation
 │  ├─ OrientationPref.ets          # 屏幕方向偏好（竖屏/横屏/跟随系统）读写
+│  ├─ LegalText.ets                # ⚠️ 生成物：法律页正文（唯一真相在 shared/legal.json）
 │  ├─ Cheats.ets                   # ⚠️ 生成物：作弊注册表（唯一真相在 shared/，见 shared/README.md）
 │  └─ CheatState.ets               # 作弊状态单例 + 持久化 + 生成注入脚本 buildBootScript()
 └─ pages/

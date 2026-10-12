@@ -271,9 +271,11 @@ private fun NotDownloadedView(
     val assetUrl = controller.releaseInfo?.assetUrl.orEmpty()
     val mirrorUrl = DownloadUrls.mirrorOf(assetUrl)
     val totalText = if (assetSize > 0) Format.bytes(assetSize) else "约 531 MB"
-    val requiredText = if (assetSize > 0) Format.bytes(Storage.requiredBytes(assetSize)) else "约 1.7 GB"
+    // 磁盘里还有旧包（更新资源）= 更新系数 3.2×，否则 2.4×；与鸿蒙 LauncherSession 同值（gen-shared 对账）
+    val updating = controller.gameReady
+    val requiredText = if (assetSize > 0) Format.bytes(Storage.requiredBytes(assetSize, updating)) else "约 1.7 GB"
     // 预检是纯函数：空间不足时禁用主按钮并给出「需要多少 / 可用多少」
-    val storageProblem = if (assetSize > 0) Storage.check(controller.freeBytes, assetSize) else null
+    val storageProblem = if (assetSize > 0) Storage.check(controller.freeBytes, assetSize, updating) else null
 
     val pending = controller.pendingDownload
     val failed = controller.download.phase == DownloadPhase.FAILED
