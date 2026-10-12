@@ -582,7 +582,7 @@ adb logcat -s PokeLauncher          # 全部日志统一 tag
 | P4-12 | 弹窗与设置页进度同源 | 首页弹窗点「去更新」后就地变进度（此时只能「取消下载」，点外面关不掉）；关掉弹窗后设置页那行显示同一个百分比；下载完两处都变「安装更新」 | |
 | P4-13 | 真机安装闭环（最终判据） | 用**够老**的一版包 + 清单指向新包 → 应用内更新 → 系统安装器装完点「打开」→ 「应用版本」显示新版本号，且**存档还在**（存档在 `getExternalFilesDir()/game` 与 `localStorage`，升级不清） | |
 
-**实测结论（P4）**：导出/导入闭环通过 ✅；其余拦在「没有第二台机型 / 没有 GMS / 清单里没有安卓更新」
+**实测结论（P4）**：导出/导入闭环通过 ✅；自更新整链（P4-8 ~ P4-13）第四轮用本地模拟清单全线通过 ✅；P4-5/6/7 受机型限制本机不可测
 
 - **P4-1 ✅（端到端）**：游戏内触发导出 → `PKDL saved data.prsv #1` → `export request: name=data.prsv mime=application/octet-stream bytes=96` → `exported save to Downloads: data.prsv (72 bytes)` → 文件系统 `/storage/emulated/0/Download/data.prsv`（72 B，非 0 字节）→ **MediaStore 查询** `_display_name=data.prsv, _size=72, relative_path=Download/, mime_type=application/octet-stream`。`window.__pkDlInstalled=true`。
 - **P4-2 ✅**：游戏内「导入数据」→ 系统选择器启动（`mResumedActivity: com.android.documentsui/.picker.PickActivity`），即 `onShowFileChooser` + `params.createIntent()` 真的生效；**选回来后内容是否正确未验**（`data.prsv` 不在系统「最近」里，那是媒体库视图）。
@@ -590,7 +590,7 @@ adb logcat -s PokeLauncher          # 全部日志统一 tag
 - **P4-4 ✅**：`a.download='../../../evil.prsv'` → 日志 `export request: name=../../../evil.prsv`，实际写入 **`evil.prsv`**（`/storage/emulated/0/Download/evil.prsv` 8 B，MediaStore `relative_path=Download/`）→ `safeFileName` 把路径分量剥掉了。测试文件已删。
 - **P4-5 ⚠️ 本机不可测**：需 API 26–28 设备（本机 API 31 走 `MediaStore.Downloads` 分支）。
 - **P4-6 / P4-7 ⚠️ 本机不可测**：华为无 GMS，`bmgr enabled` 能打开，但 `bmgr backupnow` 直接 `Backup finished with result: Transport error` → Auto Backup 规则（只备 `sharedpref` + `file/saves`）**只能靠 lint 的 `FullBackupContent` 检查 + 规则文件本身保证**（对应 §6-#35）。
-- **P4-8 – P4-13 ⏭️ 未测**：需要一份带 `androidVersionCode` + `apkUrl` 的 `version.json`（当前清单安卓字段为 0），P4-13 还需要「够老的一版包」。
+- **P4-8 ~ P4-13 ✅ 全通**（第四轮，见下节）。
 - 顺带确认：APK 下载**不走前台服务**在真机无副作用——只有下载游戏资源时才起 `DownloadService`。
 
 **第三轮补测新暴露的两个缺陷（已修，`f91f75a`）**
@@ -616,6 +616,25 @@ adb logcat -s PokeLauncher          # 全部日志统一 tag
   ```
   即服务端不支持 Range 时**从头重下并顺利完成**：不挂起、不无限重试、不产坏包。注：预置分片是 `adb push` 进去的（属主 `shell`），第一次重试撞了 `EACCES` —— 那是测试手法问题（`chmod 666` 后即通过），不是产品缺陷。
 
+**第四轮补测：P4 自更新整链（P3-15 + P4-8 ~ P4-13）**
+
+在线清单的安卓字段一直是 0，所以这条链一直没验。第四轮**完全不碰线上**：Mac 上写一份 `version.json`（`androidVersionCode: 999` / `0.9.9-p4test`）配一个限速 300KB/s 的本地 HTTP 服务（`/tmp/p4server.py`），临时把 `Const.APP_UPDATE_MANIFEST_URL` 指到 `http://127.0.0.1:8000/version.json` + `adb reverse tcp:8000 tcp:8000`，另建一份 `versionCode = 999` 的测试包当「新版本」。测完两处临时改动**全部还原**（`git diff` 确认干净）。
+
+- **P3-15 ✅**：清掉 `shared_prefs/pokelauncher_settings.xml`（重置 24h 节流）后冷启动，首页自动检查（`force=false`）弹出「发现新版本 0.9.9-p4test / P4 自更新整链测试包 / 稍后 / 去更新」；日志 `app update: local=1(0.1.0-p0) android=999 published=true hasUpdate=true force=false`。设置页「应用更新」行同步显示「发现新版本 / 去更新（0.9.9-p4test）」。
+- **P4-8 ✅**：点「去更新」→ 行标题变「正在下载更新包… N%」→ 限速下 35.3s 走完 → 变「安装更新」并**自动**拉起系统安装器（华为安装界面显示「PokeRogue / 安装来源：PokeRogue …权限 / 安装」）；日志 `apk update: start` → `apk download: done bytes=10469945 dest=p4test.apk` → `apk update: ready`；`apk/` 目录只有完整包、**无 `.part`**。
+- **P4-9 ✅**：把 `apkUrl` 指向一个 70026 B 的 HTML（故意大于 `MIN_APK_BYTES` 的 64KB，好走到 zip 魔数校验）→ 阶段变 `FAILED` + 「下载到的不是安装包（可能被网络劫持或链接失效）」+「重试更新」；日志 `apk update: invalid package bytes=70026`；`apk/` **完全为空**（连上一次成功下载的旧包也一并清掉，`apk update: purged 1 leftover files`）。
+- **P4-10 ✅**：先 `appops set com.lichtcui.pokelauncher REQUEST_INSTALL_PACKAGES deny` → 点「安装更新」：`dumpsys window windows` 抓到 Toast 窗口（`Window{… u0 Toast}`，`ty=TOAST`），且焦点落到 `com.android.settings/.Settings$ManageAppExternalSourcesActivity`（**本应用**那一项，不是设置首页、不是静默失败）。`appops … allow` 之后同一步骤直接进安装界面。
+- **P4-11 ✅**：下载中点「取消下载」→ 行回到「去更新」+「已取消更新下载」；日志 `apk update: cancelled`，服务端 `client aborted at 5636096/10469945`；`apk/` 目录**完全为空**（`.part` 与旧包都没留）。
+- **P4-12 ✅**：弹窗点「去更新」后就地变进度界面（百分比数字可见），此时只剩「取消下载」；点弹窗外面、按 `keyevent 4`（BACK）都关不掉；「稍后」按钮消失。关掉弹窗后设置页那行显示同一个百分比。
+- **P4-13 ✅**：安装后 `dumpsys package` 从 `versionCode=1 / versionName=0.1.0-p0` 变为 **`versionCode=999 / versionName=0.9.9-p4test`**；`shared_prefs/pokelauncher_settings.xml` 的键（`appUpdateLastCheck` / `lastCachedGameVersion` …）全部保留；`files/game` 仍是 **763M / 15 项**；冷启动日志 `PokeRogue 0.9.9-p4test(999) start` + `game ready=true`，首页直接是「离线资源已就绪」。
+  ⚠️ 注：自动拉起安装器那一步（P4-8 后半）真机上是华为的安装界面托管到**应用市场组件**渲染的，脚本按 `uiautomator` 坐标点「安装」时误点进了推荐位，跳去应用市场详情页 —— 那是**测试手法**问题，不是产品缺陷（安装界面确实被自动拉起了）。P4-13 的版本/数据判据与「谁拉起安装器」无关，改用 `adb install -r -t` 装同一个包验证（等价于安装器最后那一下）。
+
+**第四轮又暴露并修掉的 3 个缺陷（`4a74279`）**
+
+- **取消/失败后 `apk/*.part` 残留**：`downloadApk` 原本只在**下次下载开始**时清 `.part`，用户点一次取消就白占 ~10MB（P4-11 实测 `apk/` 里确实躺着半截包）。把删除挪进 `downloadApk` 内部（`try { fetchToPart(...) } catch (e) { part.delete(); throw e }`），并新增 `SpikeController.purgeApkLeftovers(keepName)` 在取消/失败/无效包三条分支上顺带扫掉**上一次**成功下载却没安装的旧包（与成功路径 `pruneOldApks` 同规则）。`.part` 现在只剩「进程被杀」这一种合法残留。
+- **点「去更新」弹窗立刻消失**：`AppUpdateDialog` 确认按钮里那句 `if (dismissible) onDismiss()` 与弹窗自己的 KDoc（「它就是下载进度界面」）自相矛盾 —— 一按下去弹窗就没了，用户以为更新被取消，实际下载还在跑（P4-12 实测）。删掉该调用，`dismissible` 只保留给「稍后」按钮可见性与 `onDismissRequest`。
+- **弹窗没有百分比**：`ApkProgressBar` 是裸 `LinearProgressIndicator`，且 `Downloading` 阶段 `detailText()` 返回空串 —— 弹窗里一个数字都看不到。补一个 `${apk.progressPercent}%` 的 `Text`，与设置页那行同源。
+
 **P0 未通过时**的退路：改用 `androidx.webkit` 的 `WebViewAssetLoader`（`https://appassets.androidplatform.net`，免 socket 免 cleartext），代价是丢 HTTP 缓存与 Range。
 
 ## 5. 分期计划
@@ -625,8 +644,8 @@ adb logcat -s PokeLauncher          # 全部日志统一 tag
 | **P0 打靶** | 工程骨架（Kotlin + Compose, minSdk 26）+ NanoHTTPD + 注入 + 导入 zip + 进游戏计时 | 2–3 天 | ✅ 代码完成 + 本机编译/单测/release 混淆校验通过；**真机判据见 §4.4（P0 全通）** |
 | **P1 下载/解压** | Release 查询 → 镜像并发测速 → 断点续传 → 原子解压切换 → `recover()`；前台服务 + 通知进度；暂停/继续/取消；SAF 手动导入 | 4–6 天 | ✅ 代码完成（71 单测全绿，debug/release 均编译通过）；**真机判据见 §4.4（主链路全通，含 P1-4 无 Range 降级；P1-7/P1-9 需更新系统）** |
 | **P2 服务与注入** | index.html 补丁、虚拟端点 `/__pk_boot.js` + `/__cheats__.js`、端口占用兜底、8001 stub、`clearCache` 时机、参数调整状态与存档镜像 | 3–4 天 | ✅ 代码完成（累计 180 单测全绿，debug/release 均编译通过，lint 0 error）；**真机判据见 §4.4（注入链/缓存/存档镜像全通）** |
-| **P3 UI** | Compose：首页四态 + 下载流 + 精灵球动画、设置页、参数调整页、游戏页（返回按钮淡出/错误浮层/方向/静音）、法律页 | 4–6 天 | ✅ 代码完成（参数调整页 / 设置页 / 法律页 / 首页四态 + 下载流 + 精灵球 / 游戏页全部落地；累计 240 单测全绿，debug/release 均编译通过，lint 0 error）；**真机判据见 §4.4（页面与交互全通，含 P3-14 选 zip 导入；仅 P3-14「换源重试」子项、P3-15 更新弹窗未测）** |
-| **P4 平台特有** | 存档导出/导入、Auto Backup、应用内自更新（FileProvider + `REQUEST_INSTALL_PACKAGES`）、通知权限 | 3–4 天 | ✅ 代码完成（存档导出/导入 + Auto Backup + 应用内自更新 + 通知权限全部落地；累计 270 单测全绿，debug/release 均编译通过，lint 0 error）；**真机判据见 §4.4（导出/导入闭环通过；自更新需清单带安卓字段）** |
+| **P3 UI** | Compose：首页四态 + 下载流 + 精灵球动画、设置页、参数调整页、游戏页（返回按钮淡出/错误浮层/方向/静音）、法律页 | 4–6 天 | ✅ 代码完成（参数调整页 / 设置页 / 法律页 / 首页四态 + 下载流 + 精灵球 / 游戏页全部落地；累计 240 单测全绿，debug/release 均编译通过，lint 0 error）；**真机判据见 §4.4（页面与交互全通，含 P3-14 选 zip 导入、P3-15 更新弹窗；仅 P3-14「换源重试」子项未测）** |
+| **P4 平台特有** | 存档导出/导入、Auto Backup、应用内自更新（FileProvider + `REQUEST_INSTALL_PACKAGES`）、通知权限 | 3–4 天 | ✅ 代码完成（存档导出/导入 + Auto Backup + 应用内自更新 + 通知权限全部落地；累计 270 单测全绿，debug/release 均编译通过，lint 0 error）；**真机判据见 §4.4（导出/导入闭环 + 自更新整链 P4-8~P4-13 全通；P4-5/6/7 受机型限制不可测）** |
 | **P5 打磨发布** | 真机矩阵（多 WebView 版本）、性能调优、GitHub Actions 出 APK、签名发版 | 3–5 天 |
 
 **完整对等移植 ≈ 3–4 周；MVP（P0–P2 + 极简 UI）≈ 1.5 周。**
@@ -695,6 +714,12 @@ P4 新增：
 
 45. **`ZipInputStream` 是共享的，不能被 `use{}` 关掉 —— 否则「上传资源」彻底不能用**：`GameInstaller.extract()` 对每个条目写的是 `openEntry(entry).use { input -> … }`。走 `ZipFile` 时每次 `getInputStream()` 拿到的都是**独立**的条目流，关它是对的；但走 `installFromStream`（SAF 选包的唯一入口）时 `openEntry` 返回的是**同一个 `ZipInputStream`**，第一个条目读完就把整个 zip 流关掉了，第二个条目 `nextEntry` 立刻抛 `IOException("Stream closed")` → 真机日志 `install failed: 解压失败：Stream closed`，27 个条目只做出 1 个文件。**两个入口共用 `extract`，所以只有流式入口坏**，跑「下载并安装」路径永远看不出问题（这也是它一直没被发现的原因）。修法是给流式入口套一个只屏蔽 `close()` 的 `internal class SharedZipEntryStream(src) : FilterInputStream(src)`（读写全透传），`extract` 保持不动。
     **教训**：`use{}` 的「谁打开谁关闭」假设在包装流上不成立；判据只写到「弹出选择器」等于没验，文件一定要真的选下去。
+
+46. **「失败/取消时清 `.part`」不能只写在下次下载的开头**：`downloadApk` 原本的清理时机是「本次下载开始先删旧的 `.part`」，成功路径靠 `pruneOldApks` 收尾 —— 看着挺对称，实际漏了最常发生的一类：**用户主动取消**。真机 P4-11 里点了「取消下载」，界面回到「去更新」、日志也 `apk update: cancelled`，但 `apk/` 里那 5.6MB 的半截包一直躺到下次点更新才被删。修法是让**清理跟着失败走**（`try { … } catch (e) { part.delete(); throw e }`），再补一个 `purgeApkLeftovers(keepName)` 在取消/失败/无效包三条分支上顺带扫掉上一次遗留的旧包 —— 只删本次的 `.part` 还不够，因为「下载成功却没装、之后再下载失败」会留下整份 10MB 旧包。
+    **教训**：清理逻辑要按「事件」写（失败/取消就是事件），不要按「生命周期」写（下次开始）—— 用户可能再也不点第二次。
+
+47. **弹窗自己的 KDoc 说了「我就是进度界面」，代码里却还在 `onClick` 里关自己**：`AppUpdateDialog` 的确认按钮是 `runApkUpdateAction(...)` 后面跟一句 `if (dismissible) onDismiss()`（本意是「普通更新按下去就关，进度去设置页看」），与弹窗顶部 KDoc 以及 P4-12 的判据（「点「去更新」后就地变进度，点外面关不掉」）直接矛盾：真机一按下去弹窗就消失，用户以为更新被取消，实际下载还在后台跑，只能去设置页找那个百分比。删掉 `onDismiss()` 即可；`dismissible` 仍要保留，它管的是「稍后」按钮是否可见与 `onDismissRequest` 是否生效。
+    **教训**：一个 `var dismissible` 后面塞两种语义（「弹窗可关」+「按钮按下后关」）必然会分叉；弹窗一旦兼任状态显示面板，任何 `onDismiss()` 都要先问「这一屏还是不是唯一能看进度的地方」。
 
 ## 7. 风险
 
