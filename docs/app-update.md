@@ -79,6 +79,7 @@ scripts/build-release-app.sh
 ```
 
 - 比较基准是 **`versionCode`**（整数），`versionName` 仅展示。
+- 这份清单是**手写**的，所以 `node scripts/gen-shared.mjs --check` 会校验它：键名必须被某一端解析器认识（错字会被两端静默忽略）、`minVersionCode ≤ versionCode`、写了 `android*` / `apkUrl` 就必须同时写 `androidVersionCode` + `androidVersionName`、三个 URL 必须带 `http(s)://`。改了字段名要同步两端解析器（鸿蒙 `ManifestJson`、安卓 `AppUpdate.kt` 的字面量）以及鸿蒙的 `-keep-property-name` 白名单（否则 release 包读不到）。
 - `forceUpdate: true` 或 本地 `versionCode < minVersionCode` → 弹窗不可关闭。
 - 强制更新时**不写入节流时间戳**，下次启动会重新检查并提示。
 

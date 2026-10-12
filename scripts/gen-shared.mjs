@@ -1086,6 +1086,220 @@ function checkHarmonyVectors() {
 }
 
 /**
+ * 更新清单 `version.json` 的格式对账。
+ *
+ * 这份清单是**手写**的（发版流程第 2 步，见 docs/app-update.md），两端各自解析：
+ * 鸿蒙 `AppUpdate.ets` 的 `ManifestJson`、安卓 `appupdate/AppUpdate.kt` 的 `optX("…")`。
+ * 手写清单最容易犯的错是**键名打错**——两端的宽松解析都会当它不存在，于是：
+ * 「安卓版暂未发布」「发现新版本但按钮指向 HAP 页」这类问题**要等用户反馈才发现**。
+ *
+ * 检查项：
+ *   1. 每个键至少被某一端认识（打错字的键 → 报错）；
+ *   2. 鸿蒙必填 `versionCode`(正整数) / `versionName`(非空)，`minVersionCode` 不得大于 `versionCode`
+ *      （否则最新版自己也被强制更新）；
+ *   3. 安卓侧要么整块不写（= 安卓版暂未发布，允许），要么 `androidVersionCode` + `androidVersionName`
+ *      齐全；写了 `apkUrl` 就必须有 `androidVersionCode`（否则安卓会拿鸿蒙的 versionCode 比）；
+ *   4. `downloadUrl` / `pageUrl` / `apkUrl` 必须是 http(s) 链接。
+ */
+function checkManifestSchema() {
+  const manifestRel = 'version.json';
+  if (!existsSync(join(ROOT, manifestRel))) {
+    fail('更新清单：仓库根缺 version.json（App 自更新靠它，见 docs/app-update.md）');
+    return;
+  }
+  let manifest;
+  try {
+    manifest = JSON.parse(read(manifestRel));
+  } catch (err) {
+    fail(`更新清单：${manifestRel} 不是合法 JSON（${err instanceof Error ? err.message : String(err)}）`);
+    return;
+  }
+
+  const etsManifest = typeBody(read('entry/src/main/ets/model/AppUpdate.ets'), 'ManifestJson');
+  const harmonyKeys = new Set(
+    (etsManifest || '')
+      .split('\n')
+      .map((l) => (/^\s*([A-Za-z_$][\w$]*)\??\s*:/.exec(l) || [])[1])
+      .filter((x) => x !== undefined)
+  );
+  const androidKeys = new Set(
+    readdirSync(join(ROOT, 'android/app/src/main/java/com/lichtcui/pokelauncher/appupdate'))
+      .filter((f) => f.endsWith('.kt'))
+      .flatMap((f) =>
+        [...read(`android/app/src/main/java/com/lichtcui/pokelauncher/appupdate/${f}`).matchAll(/opt(?:Int|Long|String|Boolean)\("([^"]+)"/g)].map(
+          (m) => m[1]
+        )
+      )
+  );
+  const known = new Set([...harmonyKeys, ...androidKeys]);
+  if (harmonyKeys.size === 0 || androidKeys.size === 0) {
+    fail('更新清单：从两端解析器里读不到字段名（解析写法变了？这条检查会失效）');
+    return;
+  }
+
+  const keys = Object.keys(manifest);
+  for (const k of keys) {
+    if (!known.has(k)) {
+      fail(`更新清单：${manifestRel} 里的键 \`${k}\` 两端解析器都不认识（打错字？两端都会静默忽略它）`);
+    }
+  }
+
+  const isInt = (v) => typeof v === 'number' && Number.isInteger(v);
+  if (!isInt(manifest.versionCode) || manifest.versionCode <= 0) {
+    fail(`更新清单：versionCode 必须是正整数（当前 ${JSON.stringify(manifest.versionCode)}）`);
+  }
+  if (typeof manifest.versionName !== 'string' || manifest.versionName.length === 0) {
+    fail('更新清单：versionName 必须是非空字符串（界面上要展示它）');
+  }
+  if (manifest.minVersionCode !== undefined && !isInt(manifest.minVersionCode)) {
+    fail(`更新清单：minVersionCode 必须是整数（当前 ${JSON.stringify(manifest.minVersionCode)}）`);
+  }
+  if (isInt(manifest.versionCode) && isInt(manifest.minVersionCode) && manifest.minVersionCode > manifest.versionCode) {
+    fail(`更新清单：minVersionCode(${manifest.minVersionCode}) 大于 versionCode(${manifest.versionCode})：最新版自己也会被强制更新`);
+  }
+
+  const androidKeysUsed = keys.filter((k) => k.startsWith('android') || k === 'apkUrl');
+  if (androidKeysUsed.length > 0) {
+    if (!isInt(manifest.androidVersionCode) || manifest.androidVersionCode <= 0) {
+      fail(
+        `更新清单：写了 ${androidKeysUsed.join(' / ')} 就必须同时写 androidVersionCode（正整数）；` +
+          '否则安卓端会退化成拿鸿蒙的 versionCode 比较 → 永远「发现新版本」并指向 HAP 页'
+      );
+    }
+    if (typeof manifest.androidVersionName !== 'string' || manifest.androidVersionName.length === 0) {
+      fail('更新清单：写了 android* 就必须写非空的 androidVersionName（安卓端要展示它）');
+    }
+    if (manifest.apkUrl !== undefined && (typeof manifest.apkUrl !== 'string' || !/^https?:\/\//.test(manifest.apkUrl))) {
+      fail('更新清单：apkUrl 必须是 http(s) 链接（安卓侧会直接拿去下载）');
+    }
+    if (
+      isInt(manifest.androidMinVersionCode) &&
+      isInt(manifest.androidVersionCode) &&
+      manifest.androidMinVersionCode > manifest.androidVersionCode
+    ) {
+      fail('更新清单：androidMinVersionCode 大于 androidVersionCode');
+    }
+  }
+  for (const k of ['downloadUrl', 'pageUrl']) {
+    if (manifest[k] !== undefined && (typeof manifest[k] !== 'string' || !/^https?:\/\//.test(manifest[k]))) {
+      fail(`更新清单：${k} 必须是 http(s) 链接（两端都用 Want/Intent 直接打开）`);
+    }
+  }
+}
+
+/** 逐行扫 harmony 源码，返回 `{ rel, text }[]` */
+function harmonySources() {
+  const out = [];
+  const walk = (dir) => {
+    for (const e of readdirSync(join(ROOT, dir), { withFileTypes: true })) {
+      const rel = `${dir}/${e.name}`;
+      if (e.isDirectory()) walk(rel);
+      else if (e.name.endsWith('.ets')) out.push({ rel, text: read(rel) });
+    }
+  };
+  walk('entry/src/main/ets');
+  return out;
+}
+
+/** `interface X { … }` / `class X { … }`（大括号配对） */
+function typeBody(text, name) {
+  const m = new RegExp(`(?:interface|class)\\s+${name}\\s*(?:extends[^{{]*)?\\{`).exec(text);
+  if (!m) return null;
+  const open = m.index + m[0].length - 1;
+  let depth = 0;
+  for (let i = open; i < text.length; i++) {
+    if (text[i] === '{') depth++;
+    else if (text[i] === '}') {
+      depth--;
+      if (depth === 0) return text.slice(open + 1, i);
+    }
+  }
+  return null;
+}
+
+/**
+ * 鸿蒙 release 混淆的 `-keep-property-name` 白名单 ↔ 源码里真正解析的 JSON 键。
+ *
+ * 为什么：本工程 release 开了 `-enable-property-obfuscation`，`JSON.parse(...) as X` 这类
+ * **动态键**必须在 `entry/obfuscation-rules.txt` 里点名保留，否则 release 包会**静默读不到值**
+ * （debug 正常、release 一律走默认值，看日志还以为是网络问题）。新增字段解析忘了同步白名单是
+ * 最容易犯的错，所以在生成器里拦。
+ *
+ * 做法：从 `JSON.parse(...) as T` 出发，顺着 T 的属性类型递归收集字段名（含 `assets: ReleaseAsset[]`
+ * 这种嵌套），再逐个查白名单；另把 `javaScriptProxy` 的 methodList（也走动态调用）一并纳入。
+ */
+function checkHarmonyKeepList() {
+  const rules = read('entry/obfuscation-rules.txt');
+  const block = rules.match(/-keep-property-name[ \t]*\n([\s\S]*)/);
+  const kept = new Set(
+    (block ? block[1] : '')
+      .split('\n')
+      .map((l) => l.trim())
+      .filter((l) => l.length > 0 && !l.startsWith('#') && !l.startsWith('-'))
+  );
+
+  const sources = harmonySources();
+  const byRel = new Map(sources.map((s) => [s.rel, s.text]));
+  const findType = (name) => {
+    for (const { rel, text } of sources) {
+      if (new RegExp(`(?:interface|class)\\s+${name}\\s*(?:extends[^{{]*)?\\{`).test(text)) {
+        return { rel, body: typeBody(text, name) };
+      }
+    }
+    return null;
+  };
+
+  // 根：`JSON.parse(...) as T`
+  const roots = [];
+  for (const { rel, text } of sources) {
+    for (const m of text.matchAll(/JSON\.parse\([^;]*?\)\s*as\s+([A-Za-z_$][\w$]*)/g)) {
+      roots.push({ type: m[1], rel });
+    }
+  }
+  if (roots.length === 0) {
+    fail('混淆白名单：鸿蒙源码里找不到 `JSON.parse(...) as T`（解析写法变了？这条检查会失效）');
+  }
+
+  const fields = new Map(); // 字段名 → 出处描述
+  const visited = new Set();
+  const visit = (type, rel) => {
+    if (visited.has(type)) return;
+    visited.add(type);
+    const decl = findType(type);
+    if (decl === null || decl.body === null) {
+      fail(`混淆白名单：` + '`JSON.parse(...) as ' + type + '`（' + rel + '）找不到对应的 interface/class 声明');
+      return;
+    }
+    for (const line of decl.body.split('\n')) {
+      const f = /^\s*(?:readonly\s+)?([A-Za-z_$][\w$]*)\??\s*:\s*(.+?)\s*;?\s*$/.exec(line);
+      if (!f) continue;
+      if (!fields.has(f[1])) fields.set(f[1], `${decl.rel} 的 ${type}.${f[1]}`);
+      for (const ref of f[2].matchAll(/\b([A-Za-z_$][\w$]*)\b/g)) {
+        if (!visited.has(ref[1]) && findType(ref[1]) !== null) visit(ref[1], decl.rel);
+      }
+    }
+  };
+  for (const r of roots) visit(r.type, r.rel);
+
+  // javaScriptProxy 的 methodList：动态调用，同样不能改名
+  const etsGame = byRel.get('entry/src/main/ets/pages/GamePage.ets') || '';
+  const methodList = ((etsGame.match(/methodList:\s*\[([^\]]*)\]/) || [])[1] || '')
+    .split(',')
+    .map((x) => x.trim().replace(/^'|'$/g, ''))
+    .filter((x) => x.length > 0);
+  for (const m of methodList) fields.set(m, 'GamePage.ets 的 javaScriptProxy methodList');
+
+  const missing = [...fields.entries()].filter(([name]) => !kept.has(name));
+  if (missing.length > 0) {
+    const lines = missing.map(([name, from]) => `      ${name}  （${from}）`).join('\n');
+    fail(
+      '混淆白名单：以下动态属性名不在 entry/obfuscation-rules.txt 的 `-keep-property-name` 里，' +
+        `release 包会静默读不到值：\n${lines}`
+    );
+  }
+}
+
+/**
  * 取出 `class X` 的类体（到下一个顶格 `}` 为止）——够用即可，取错会以「找不到桥方法」的形式报错。
  */
 function classBody(text, className) {
@@ -1274,6 +1488,8 @@ checkConstParity();
 checkNoInline();
 checkCaseUsage();
 checkJsBridgeContract();
+checkHarmonyKeepList();
+checkManifestSchema();
 checkHarmonyVectors();
 assertKotlinDocs(outputs);
 

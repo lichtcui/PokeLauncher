@@ -76,6 +76,15 @@ node scripts/gen-shared.mjs --check  # 只校验（生成文件是否过期 + �
 | 注入链顺序 | 鸿蒙 `servePatchedIndex` / 安卓 `InjectScripts` | 存档守卫 → 参数调整 → canvas 补丁（守卫必须早于游戏读 localStorage） |
 | 安卓混淆 | `proguard-rules.pro` | `@android.webkit.JavascriptInterface <methods>;` 必须保留（名字不能改，见上） |
 
+## 反向护栏：手写清单与 release 混淆白名单
+
+另有两类「写了两处、错一处不报错」的东西被 `--check` 钉住：
+
+| 对象 | 两处 | 对账内容 |
+| --- | --- | --- |
+| `version.json`（**手写**，发版流程第 2 步） | 鸿蒙 `AppUpdate.ets` 的 `ManifestJson` ↔ 安卓 `appupdate/AppUpdate.kt` 的 `optX("…")` | 每个键至少被一端认识（打错字 → 两端都静默忽略）；`versionCode` 正整数、`minVersionCode ≤ versionCode`；写了 `android*`/`apkUrl` 就必须有 `androidVersionCode` + `androidVersionName`（否则安卓退化成拿鸿蒙的 versionCode 比 → 永远「发现新版本」且指向 HAP 页）；三个 URL 必须是 http(s) |
+| 鸿蒙 release 混淆 `-keep-property-name` | `entry/obfuscation-rules.txt` ↔ 源码里真正解析的 JSON 键 | 从 `JSON.parse(...) as T` 出发递归收集字段名（含 `assets: ReleaseAsset[]` 这种嵌套）+ `javaScriptProxy` 的 `methodList`，逐个查白名单——漏一个，**release 包静默读不到值**（debug 正常、release 一律走默认值） |
+
 ## 反向护栏：向量必须真被用上
 
 生成器不只管「生成」，还管「别退回去」：
@@ -107,6 +116,8 @@ node scripts/gen-shared.mjs --check  # 只校验（生成文件是否过期 + �
 | 该脚本挂在 `--check` 上 | ✅ 实测：改坏一条向量（`1048575 → "1023.9 KB"`）→ 两端构建都会失败在 `checkSharedCode`；去掉鸿蒙 `formatSpeed` 的 `isFinite` 兜底 → 同样失败（这条正是脚本第一次跑就抓出来的：`formatSpeed(NaN)` 会显示 `NaN KB/s`，已修）。 |
 | 向量护栏 | ✅ 实测：把 `cases/format.json` 里 `1048575 → "1024 KB"` 改成 `"1023.9 KB"` → 安卓 `FormatTest` 红、鸿蒙侧复跑也红（同一份期望值）；在两端测试里各手写回一条路径期望值 → `--check` 报「又手写了一份期望值」。 |
 | 向量在**鸿蒙真机**上跑 | ⚠️ **未跑**：`LocalHttpServer.test` / `Format.test` / `GameRepository.test` 都改成了遍历生成向量，只在编译期验证过（缺 `hdc` 设备）。 |
+| 手写清单 `version.json` | ✅ 实测 6 种改法全被拦：键名打错（`androidVersioncode`）、写了 `android*` 却没有 `androidVersionName`、只写 `apkUrl`、`minVersionCode > versionCode`、`pageUrl` 缺协议、`versionName` 清空。 |
+| 混淆白名单 | ✅ 实测 3 种改法全被拦：白名单删掉嵌套类字段（`ReleaseAsset.browser_download_url` / `.size`）、删掉 `methodList` 里的 `load`、`ManifestJson` 新增字段却不同步白名单。 |
 | JS 桥 / 端点对账 | ✅ 实测 6 种改法全被拦（各只改一处、改完即还原）：安卓桥方法改名、`BRIDGE_METHODS` 里写不存在的方法、鸿蒙 `methodList` 少一项、鸿蒙注入链顺序调换、安卓端点改名、鸿蒙不再生成 `__CHEAT_PARAMS__`（这一条第一版写成 `includes` 被注释骗过，已收紧为 `var __CHEAT_PARAMS__ =` 正则）。 |
 
 ⏭️ 待补：接上鸿蒙真机后跑「安装 → 法律页 → 游戏页抓 `ARKWEB-CONSOLE`」与 `hdc shell aa test … OpenHarmonyTestRunner`
