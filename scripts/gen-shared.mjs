@@ -1063,6 +1063,145 @@ function assertKotlinDocs(outputs) {
   }
 }
 
+/**
+ * 取出 `class X` 的类体（到下一个顶格 `}` 为止）——够用即可，取错会以「找不到桥方法」的形式报错。
+ */
+function classBody(text, className) {
+  const i = text.indexOf(`class ${className}`);
+  if (i < 0) return '';
+  const end = text.indexOf('\n}\n', i);
+  return end < 0 ? text.slice(i) : text.slice(i, end);
+}
+
+/** 安卓 Kotlin 里 `@JavascriptInterface` 标注的方法名（顺序即声明顺序） */
+function jsInterfaceMethods(body) {
+  return [...body.matchAll(/@JavascriptInterface\s+(?:@\w+\s+)*fun\s+([A-Za-z_$][\w$]*)\s*\(/g)].map((m) => m[1]);
+}
+
+const sameSet = (a, b) =>
+  a.length === b.length && [...a].sort().join(',') === [...b].sort().join(',');
+
+/**
+ * JS 桥 / 虚拟端点 / 注入钩子的**跨端契约**对账。
+ *
+ * 这些东西不是「生成物」，而是「两端 + 共享 JS 三方都写字面量」的接口：桥对象名、桥方法名、
+ * 虚拟端点路径、`__CHEAT_PARAMS__` 这类全局名。它们**没有类型**，改一边漏一边的后果是
+ * **静默失效**（注入脚本拿到 undefined 就悄悄跳过），只能靠对账拦。
+ */
+function checkJsBridgeContract() {
+  // ---- 1) 存档守卫桥：shared/js/save-guard.js ↔ 鸿蒙 javaScriptProxy ↔ 安卓 @JavascriptInterface
+  const sgJs = read(P.saveGuard);
+  const nameM = sgJs.match(/window\.([A-Za-z_$][\w$]*)\s*;/);
+  const jsName = nameM ? nameM[1] : null;
+  const jsMethods = [...sgJs.matchAll(/G\.([A-Za-z_$][\w$]*)\s*\(/g)].map((m) => m[1]);
+  if (jsName === null || jsMethods.length === 0) {
+    fail('JS 桥：从 shared/js/save-guard.js 里读不到桥对象名或桥方法（`window.X` / `G.m(...)`）');
+    return;
+  }
+
+  const etsGame = read('entry/src/main/ets/pages/GamePage.ets');
+  const etsName = (etsGame.match(/name:\s*'([^']+)'/) || [])[1];
+  const etsMethods = ((etsGame.match(/methodList:\s*\[([^\]]*)\]/) || [])[1] || '')
+    .split(',')
+    .map((x) => x.trim().replace(/^'|'$/g, ''))
+    .filter((x) => x.length > 0);
+  if (etsName !== jsName) {
+    fail(`JS 桥：鸿蒙 javaScriptProxy 的对象名 \`${etsName}\` ≠ 共享 JS 里用的 \`${jsName}\``);
+  }
+  if (!sameSet(etsMethods, jsMethods)) {
+    fail(
+      `JS 桥：鸿蒙 methodList [${etsMethods.join(', ')}] 与共享 JS 调用的方法 [${jsMethods.join(', ')}] 不一致` +
+        '（methodList 是白名单：少一个 → 该调用静默失败）'
+    );
+  }
+
+  const ktSaveGuard = read(P.ktSaveGuard);
+  const ktName = (ktSaveGuard.match(/const val BRIDGE_NAME\s*=\s*"([^"]+)"/) || [])[1];
+  if (ktName !== jsName) {
+    fail(`JS 桥：安卓 SaveGuard.BRIDGE_NAME \`${ktName}\` ≠ 共享 JS 里用的 \`${jsName}\``);
+  }
+  const ktWebView = read('android/app/src/main/java/com/lichtcui/pokelauncher/web/PokeWebView.kt');
+  const ktSaveMethods = jsInterfaceMethods(classBody(ktWebView, 'SaveGuardBridge'));
+  if (!sameSet(ktSaveMethods, jsMethods)) {
+    fail(
+      `JS 桥：安卓 SaveGuardBridge 的 @JavascriptInterface 方法 [${ktSaveMethods.join(', ')}] ` +
+        `与共享 JS 调用的 [${jsMethods.join(', ')}] 不一致`
+    );
+  }
+
+  // 混淆：安卓按注解 keep（名字改了也必须有人在 JS 侧调用，见下）
+  const proguard = read('android/app/proguard-rules.pro');
+  if (!proguard.includes('@android.webkit.JavascriptInterface <methods>;')) {
+    fail('JS 桥：android/app/proguard-rules.pro 丢了 `@android.webkit.JavascriptInterface <methods>;`（release 下桥方法会被改名 → 静默失效）');
+  }
+
+  // ---- 2) 安卓桥：JS 侧必须有调用方；BRIDGE_METHODS 里不许出现根本没声明的名字
+  //        （安卓单测已经锁了「JS 调用 ⊆ BRIDGE_METHODS」，这里补上「BRIDGE_METHODS ⊆ 真的声明了」）
+  const others = [];
+  const walk = (dir) => {
+    for (const e of readdirSync(join(ROOT, dir), { withFileTypes: true })) {
+      const rel = `${dir}/${e.name}`;
+      if (e.isDirectory()) walk(rel);
+      else if (/\.(kt|java)$/.test(e.name) && rel !== 'android/app/src/main/java/com/lichtcui/pokelauncher/web/PokeWebView.kt') {
+        others.push(read(rel));
+      }
+    }
+  };
+  walk('android/app/src/main/java');
+  const allMain = others.join('\n');
+  const ktNativeMethods = jsInterfaceMethods(classBody(ktWebView, 'NativeBridge'));
+
+  for (const [what, methods] of [
+    ['NativeBridge(PokeNative)', ktNativeMethods],
+    ['SaveGuardBridge(PokeSaveGuard)', ktSaveMethods],
+  ]) {
+    for (const m of methods) {
+      if (!new RegExp(`\\.${m}\\s*\\(`).test(allMain)) {
+        fail(`JS 桥：${what} 声明了 ${m}()，但 JS 侧（其他源文件里的字符串）没有任何 \`${m}(\` 调用：改名时只改了一边`);
+      }
+    }
+  }
+
+  // BRIDGE_METHODS ↔ 桥类声明（表里的名字必须是真方法名，否则单测锁的是一份幻觉）
+  for (const [file, cls] of [
+    [P.ktSaveGuard, 'SaveGuardBridge'],
+    ['android/app/src/main/java/com/lichtcui/pokelauncher/web/DownloadBridge.kt', 'NativeBridge'],
+  ]) {
+    const declared = jsInterfaceMethods(classBody(ktWebView, cls));
+    const listed = [...read(file).matchAll(/BRIDGE_METHODS[^=]*=\s*listOf\(([^)]*)\)/g)]
+      .flatMap((m) => [...m[1].matchAll(/"([^"]+)"/g)].map((x) => x[1]));
+    for (const m of listed) {
+      if (!declared.includes(m)) {
+        fail(`JS 桥：${file.split('/').pop()} 的 BRIDGE_METHODS 里有 ${m}，但 ${cls} 上没有 @JavascriptInterface 方法 ${m}()`);
+      }
+    }
+  }
+
+  // ---- 3) 虚拟端点：两端的「参数调整」脚本路径必须同名（localStorage 以 origin 为键，路径不会换 origin，但注入标签对不上就是空脚本）
+  const ktCheatPath = (read(P.ktConst).match(/const val CHEAT_SCRIPT_PATH\s*=\s*"([^"]+)"/) || [])[1];
+  const etsCheatPath = (read(P.etsHttpServer).match(/path === '([^']*cheat[^']*)'/) || [])[1];
+  if (ktCheatPath !== '/__cheats__.js' || etsCheatPath !== ktCheatPath) {
+    fail(`虚拟端点：安卓 CHEAT_SCRIPT_PATH \`${ktCheatPath}\` 与鸿蒙路由 \`${etsCheatPath}\` 不一致（两端都得是 /__cheats__.js）`);
+  }
+
+  // ---- 4) 参数调整的数值参数通道：共享脚本读 __CHEAT_PARAMS__，两端平台运行时各写一份
+  for (const [what, file] of [['鸿蒙', P.etsCheatState], ['安卓', P.ktCheatScripts]]) {
+    if (!/var\s+__CHEAT_PARAMS__\s*=/.test(read(file))) {
+      fail(`${what}参数调整运行时没有生成 __CHEAT_PARAMS__（共享脚本会静默退回默认值）：${file}`);
+    }
+  }
+
+  // ---- 5) 鸿蒙注入链顺序（安卓由 InjectScriptsTest 锁住；鸿蒙这句只是代码里的书写顺序，没有测试）
+  const etsHttp = read(P.etsHttpServer);
+  const order = /const inject: string = buildSaveGuardScript\(\)\s*\+\s*cheatsTag\s*\+\s*this\.buildInjectScript\(\)/;
+  if (!order.test(etsHttp)) {
+    fail(
+      '注入链：鸿蒙 servePatchedIndex 的拼接不再是 `buildSaveGuardScript() + cheatsTag + this.buildInjectScript()`；' +
+        '顺序必须是 存档守卫 → 参数调整 → canvas 补丁（守卫要早于游戏读 localStorage）'
+    );
+  }
+}
+
 // ------------------------------------------------------------------ 主流程
 
 const registry = JSON.parse(read(P.registry));
@@ -1112,6 +1251,7 @@ const outputs = [
 checkConstParity();
 checkNoInline();
 checkCaseUsage();
+checkJsBridgeContract();
 assertKotlinDocs(outputs);
 
 // 校验没过就不写文件：免得把半成品生成物写进工作区，掩盖真正的错误

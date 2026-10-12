@@ -58,6 +58,21 @@ node scripts/gen-shared.mjs --check  # 只校验（生成文件是否过期 + �
 | 存储预检系数 | `LauncherSession.requiredStorage()` 的 `2.4 / 3.2` | `Storage.FACTOR_FRESH / FACTOR_UPDATE` |
 | `USER_AGENT` | `PokeLauncher-Harmony` | `PokeLauncher-Android`（**有意不同**，白名单锁死） |
 
+## 反向护栏：JS 桥 / 虚拟端点也对账
+
+`shared/` 之外还有一类「三方各写一份字面量」的接口——**桥对象名与方法名、虚拟端点、注入链顺序**。
+它们没有类型，改一边漏一边的后果是**静默失效**（脚本拿到 `undefined` 就悄悄跳过），
+因此 `--check` 把它们也钉住：
+
+| 契约 | 三方 | 对账内容 |
+| --- | --- | --- |
+| 存档守卫桥 | `shared/js/save-guard.js`（`window.PokeSaveGuard` + `load/save/notifyRestored`）↔ 鸿蒙 `GamePage.ets` 的 `javaScriptProxy{name, methodList}` ↔ 安卓 `SaveGuard.BRIDGE_NAME` + `PokeWebView.kt` 的 `SaveGuardBridge` | 对象名相等、**方法集合完全相等**（鸿蒙 `methodList` 是白名单，少一个就静默失败） |
+| 打靶 / 导出桥 | 安卓 `NativeBridge`（`PokeNative`）↔ 各段 JS 字符串 | 每个 `@JavascriptInterface` 方法都要有 JS 调用方；`BRIDGE_METHODS` 里的名字必须真的声明过 |
+| 参数调整脚本端点 | 安卓 `Const.CHEAT_SCRIPT_PATH` ↔ 鸿蒙 `LocalHttpServer` 路由 | 两端都得是 `/__cheats__.js` |
+| 数值参数通道 | `shared/js/cheats/*.js` 读的 `__CHEAT_PARAMS__` ↔ 两端参数调整运行时 | 两端都要 `var __CHEAT_PARAMS__ =`（否则共享脚本静默退回默认值） |
+| 注入链顺序 | 鸿蒙 `servePatchedIndex` / 安卓 `InjectScripts` | 存档守卫 → 参数调整 → canvas 补丁（守卫必须早于游戏读 localStorage） |
+| 安卓混淆 | `proguard-rules.pro` | `@android.webkit.JavascriptInterface <methods>;` 必须保留（名字不能改，见上） |
+
 ## 反向护栏：向量必须真被用上
 
 生成器不只管「生成」，还管「别退回去」：
@@ -88,6 +103,7 @@ node scripts/gen-shared.mjs --check  # 只校验（生成文件是否过期 + �
 | 行为向量（两端） | ✅ 安卓 279 例单测全绿（`matchesTheSharedVectors` 等直接遍历向量）；鸿蒙侧把生成的 4 个纯函数 `resolveRequestPath / normalizeVersion / sameVersion / mimeOf` 与 `Format.ets` 按 `node` 复跑同一批向量 → **107 条全过**（与安卓同一批期望值）。 |
 | 向量护栏 | ✅ 实测：把 `cases/format.json` 里 `1048575 → "1024 KB"` 改成 `"1023.9 KB"` → 安卓 `FormatTest` 红、鸿蒙侧复跑也红（同一份期望值）；在两端测试里各手写回一条路径期望值 → `--check` 报「又手写了一份期望值」。 |
 | 向量在**鸿蒙真机**上跑 | ⚠️ **未跑**：`LocalHttpServer.test` / `Format.test` / `GameRepository.test` 都改成了遍历生成向量，只在编译期验证过（缺 `hdc` 设备）。 |
+| JS 桥 / 端点对账 | ✅ 实测 6 种改法全被拦（各只改一处、改完即还原）：安卓桥方法改名、`BRIDGE_METHODS` 里写不存在的方法、鸿蒙 `methodList` 少一项、鸿蒙注入链顺序调换、安卓端点改名、鸿蒙不再生成 `__CHEAT_PARAMS__`（这一条第一版写成 `includes` 被注释骗过，已收紧为 `var __CHEAT_PARAMS__ =` 正则）。 |
 
 ⏭️ 待补：接上鸿蒙真机后跑「安装 → 法律页 → 游戏页抓 `ARKWEB-CONSOLE`」与 `hdc shell aa test … OpenHarmonyTestRunner`
 （后者会一次跑掉 `LegalText.test` 与三个改成遍历向量的套件）。
