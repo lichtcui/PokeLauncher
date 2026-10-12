@@ -1,5 +1,8 @@
 package com.lichtcui.pokelauncher.install
 
+import com.lichtcui.pokelauncher.core.Format
+import com.lichtcui.pokelauncher.core.SharedUi
+
 /**
  * 存储预检（纯函数，可 JVM 单测）。
  *
@@ -26,7 +29,7 @@ object Storage {
         if (assetBytes <= 0) return null // 大小未知（调试包）：不做预检
         val need = requiredBytes(assetBytes, updating)
         if (availableBytes >= need) return null
-        return "存储空间不足：需要约 ${need / 1024 / 1024} MB，" +
-            "可用 ${availableBytes / 1024 / 1024} MB（含解压与更新期间的双份占用）"
+        // 文案与鸿蒙 `components/LauncherViews.ets` 同一条（由 `shared/ui.json` 生成）
+        return SharedUi.textStorageLow(Format.bytes(need), Format.bytes(availableBytes))
     }
 }

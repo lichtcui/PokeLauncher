@@ -134,7 +134,7 @@ private fun BottomBar(controller: SpikeController, onPickZip: () -> Unit) {
 @Composable
 private fun EnvCard(controller: SpikeController) {
     val versionColor = if (controller.chromiumMajor >= Const.MIN_CHROMIUM_MAJOR) {
-        MaterialTheme.colorScheme.tertiary
+        THEME.success
     } else {
         MaterialTheme.colorScheme.error
     }
@@ -152,7 +152,7 @@ private fun EnvCard(controller: SpikeController) {
 @Composable
 private fun ServerCard(controller: SpikeController) {
     val (text, color) = when (controller.serverState) {
-        GameServer.State.RUNNING -> "运行中" to MaterialTheme.colorScheme.tertiary
+        GameServer.State.RUNNING -> "运行中" to THEME.success
         GameServer.State.FAILED -> "启动失败" to MaterialTheme.colorScheme.error
         GameServer.State.STOPPED -> "已停止" to MaterialTheme.colorScheme.onSurfaceVariant
     }
@@ -181,7 +181,7 @@ private fun ServerCard(controller: SpikeController) {
 private fun DownloadCard(controller: SpikeController, onStart: (Boolean) -> Unit) {
     val d = controller.download
     val phaseColor = when (d.phase) {
-        DownloadPhase.DONE -> MaterialTheme.colorScheme.tertiary
+        DownloadPhase.DONE -> THEME.success
         DownloadPhase.FAILED, DownloadPhase.CANCELLED -> MaterialTheme.colorScheme.error
         DownloadPhase.IDLE -> MaterialTheme.colorScheme.onSurfaceVariant
         else -> MaterialTheme.colorScheme.onSurface
@@ -220,7 +220,7 @@ private fun DownloadCard(controller: SpikeController, onStart: (Boolean) -> Unit
                 "发现未完成的下载：${pending.tag} 已完成 ${Format.bytes(pending.received)}" +
                     "（${pending.percent}%，来自 ${pending.host}）—— 点「继续下载」从断点续传",
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.tertiary
+                color = THEME.success
             )
         }
         if (controller.downloadError.isNotEmpty()) {
@@ -285,7 +285,7 @@ private fun AssetCard(controller: SpikeController, onPickZip: () -> Unit) {
     val zip = controller.installer.localZipFile
     Section("游戏资源") {
         LabeledRow("已安装", if (controller.gameReady) "是" else "否",
-            if (controller.gameReady) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.error)
+            if (controller.gameReady) THEME.success else MaterialTheme.colorScheme.error)
         LabeledRow("沙箱 game.zip", if (zip.isFile) Format.bytes(zip.length()) else "无")
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(
@@ -341,7 +341,7 @@ private fun TimingCard(controller: SpikeController) {
                 "ready" -> "Game ready ✅"
                 else -> mark.key
             }
-            LabeledRow(label, formatMs(mark.ms), if (mark.key == "ready") MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.onSurface)
+            LabeledRow(label, formatMs(mark.ms), if (mark.key == "ready") THEME.success else MaterialTheme.colorScheme.onSurface)
         }
         LabeledRow("getImageData 次数", controller.getImageDataCount.toString())
         LabeledRow("canvas 数量", controller.canvasCount.toString())

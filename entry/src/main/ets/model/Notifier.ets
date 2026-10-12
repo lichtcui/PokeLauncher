@@ -2,6 +2,12 @@ import { notificationManager } from '@kit.NotificationKit';
 import { common } from '@kit.AbilityKit';
 import { BusinessError } from '@kit.BasicServicesKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
+import {
+  TEXT_NOTIFY_COMPLETE_TEXT,
+  TEXT_NOTIFY_COMPLETE_TITLE,
+  TEXT_NOTIFY_FAILED_TEXT,
+  TEXT_NOTIFY_FAILED_TITLE
+} from '../common/SharedUi';
 
 const DOMAIN: number = 0x0000;
 const TAG: string = 'Notifier';
@@ -53,11 +59,11 @@ export class Notifier {
   }
 
   static publishComplete(): void {
-    Notifier.publish(ID_COMPLETE, 'PokeRogue 资源下载完成', '点击开始运行');
+    Notifier.publish(ID_COMPLETE, TEXT_NOTIFY_COMPLETE_TITLE, TEXT_NOTIFY_COMPLETE_TEXT);
   }
 
   static publishFailed(reason: string): void {
-    Notifier.publish(ID_FAILED, 'PokeRogue 资源下载失败', reason.length > 0 ? reason : '点击重试');
+    Notifier.publish(ID_FAILED, TEXT_NOTIFY_FAILED_TITLE, reason.length > 0 ? reason : TEXT_NOTIFY_FAILED_TEXT);
   }
 
   private static publish(id: number, title: string, text: string): void {

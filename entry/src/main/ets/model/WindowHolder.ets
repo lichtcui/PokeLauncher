@@ -1,14 +1,13 @@
 import { window } from '@kit.ArkUI';
 import { deviceInfo } from '@kit.BasicServicesKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
+import { THEME } from '../common/Theme';
 
 const DOMAIN: number = 0x0000;
 const TAG: string = 'WindowHolder';
 
-/** 游戏背景色（PokeRogue 外层背景） */
-export const GAME_BG_COLOR: string = '#484050';
-/** 首页背景色 */
-export const HOME_BG_COLOR: string = '#FFFFFF';
+/** 首页背景色（游戏背景色已移到 `common/SharedUi.ets`，两端共用一份） */
+export const HOME_BG_COLOR: string = THEME.background;
 
 let mainWindow: window.Window | null = null;
 

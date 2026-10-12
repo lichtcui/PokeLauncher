@@ -11,6 +11,8 @@ import { clearWebCache } from '../common/WebCache';
 import { formatBytes, formatSpeed, formatDuration, formatErrorDetail } from '../common/Format';
 import { PrepPhase, SHRINK_MS, BURST_MS } from '../components/PokeballLoader';
 import { hostOf, kindOf } from '../common/DownloadUrls';
+import { TEXT_ETA_PREFIX, TEXT_PROBING_TITLE, TEXT_CONNECTING, TEXT_DOWNLOAD_TITLE,
+  TEXT_EXTRACT_TITLE, TEXT_READY_TITLE, TEXT_PAUSED } from '../common/SharedUi';
 
 const DOMAIN: number = 0x0000;
 const TAG: string = 'Launcher';
@@ -123,9 +125,9 @@ export class LauncherSession {
   flowTitle(): string {
     switch (this.prepPhase) {
       case PrepPhase.DOWNLOADED:  return '下载完成';
-      case PrepPhase.EXTRACTING:  return '正在解压 PokeRogue 资源…';
-      case PrepPhase.READY:       return 'PokeRogue 资源准备就绪';
-      default:                    return this.paused ? '已暂停' : '正在下载 PokeRogue 资源';
+      case PrepPhase.EXTRACTING:  return TEXT_EXTRACT_TITLE + '…';
+      case PrepPhase.READY:       return TEXT_READY_TITLE;
+      default:                    return this.paused ? TEXT_PAUSED : TEXT_DOWNLOAD_TITLE;
     }
   }
 
@@ -143,13 +145,13 @@ export class LauncherSession {
     this.probing = true;
     this.emitProgress(0, '',
       this.expectedSize > 0 ? formatBytes(this.expectedSize) : '',
-      '', '正在测速，选择最快的下载源…');
+      '', TEXT_PROBING_TITLE);
     this.maybeShowBgHint();
     this.repo.resolveRelease()
       .then((info: ReleaseInfo) => {
         this.applyReleaseInfo(info);
         this.emitProgress(0, '0 MB', formatBytes(info.assetSize),
-          '', '正在测速，选择最快的下载源…');
+          '', TEXT_PROBING_TITLE);
         return this.repo.startDownload(
           info,
           (received: number, total: number) => {
@@ -267,14 +269,14 @@ export class LauncherSession {
     let speedText: string = '';
     let etaText: string = '';
     if (this.paused) {
-      etaText = '已暂停';
+      etaText = TEXT_PAUSED;
     } else if (this.speedBps > 1024) {
       this.probing = false;
       speedText = formatSpeed(this.speedBps);
-      etaText = t > received ? '剩余' + formatDuration((t - received) / this.speedBps) : '';
+      etaText = t > received ? TEXT_ETA_PREFIX + formatDuration((t - received) / this.speedBps) : '';
     } else {
       // 还没测出速度：保持测速提示，避免中间出现空档
-      etaText = this.probing ? '正在测速，选择最快的下载源…' : '连接中…';
+      etaText = this.probing ? TEXT_PROBING_TITLE : TEXT_CONNECTING;
     }
     this.emitProgress(pct, formatBytes(received), t > 0 ? formatBytes(t) : '未知大小',
       speedText, etaText);
@@ -310,7 +312,7 @@ export class LauncherSession {
       this.paused = true;
       this.cb.setPaused(true);
       const p: ProgressView = this.lastProgress;
-      this.emitProgress(p.progress, p.receivedText, p.totalText, '', '已暂停');
+      this.emitProgress(p.progress, p.receivedText, p.totalText, '', TEXT_PAUSED);
     }
   }
 

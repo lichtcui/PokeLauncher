@@ -1,0 +1,73 @@
+{
+  "_doc": [
+    "参数调整：数值取值（默认值回退 / 夹紧 / 滑块浮点吸附）与展示文案（labels 档位名 / 单位拼接方向）。",
+    "两端实现：鸿蒙 entry/src/main/ets/common/CheatFormat.ets ↔ 安卓 cheat/CheatFormat.kt。",
+    "期望值只写这一份：鸿蒙 CheatFormat.test.ets、安卓 CheatFormatTest、",
+    "以及 scripts/check-harmony-vectors.mjs（无设备时把鸿蒙纯函数剪到 Node 里跑）都遍历同一套向量。",
+    "为什么要有它：两端实现曾经真分叉过 —— 单位拼接方向相反（`x10` vs `10x`）、",
+    "labels 档位判定一宽一严、滑块浮点漂移只有一端处理，而没有任何机械护栏。",
+    "params 里的条目**刻意包含注册表里没有的形状**（省略 step / 省略 unit / 小数 step），",
+    "否则那几条分支没人守。数值量级限定在 ±1000：两端都没处理 1e18 以上科学计数法写法的差异。"
+  ],
+  "params": {
+    "rate": {
+      "id": "candy",
+      "label": "倍率",
+      "min": 1,
+      "max": 100,
+      "default": 10,
+      "unit": "x"
+    },
+    "tier": {
+      "id": "rewardTier",
+      "label": "档位",
+      "min": 0,
+      "max": 4,
+      "default": 4,
+      "step": 1,
+      "labels": ["Common", "Great", "Ultra", "Rogue", "Master"]
+    },
+    "plain": {
+      "id": "plain",
+      "label": "数量",
+      "min": 0,
+      "max": 1000,
+      "default": 5,
+      "step": 5
+    },
+    "speed": {
+      "id": "speed",
+      "label": "速度",
+      "min": 0.5,
+      "max": 2.5,
+      "default": 1,
+      "step": 0.25,
+      "unit": "x"
+    }
+  },
+  "value": [
+    { "param": "rate", "raw": null, "expectValue": 10, "expectLiteral": "10", "expectDisplay": "x10" },
+    { "param": "rate", "raw": "", "expectValue": 10, "expectLiteral": "10", "expectDisplay": "x10" },
+    { "param": "rate", "raw": "   ", "expectValue": 10, "expectLiteral": "10", "expectDisplay": "x10" },
+    { "param": "rate", "raw": "abc", "expectValue": 10, "expectLiteral": "10", "expectDisplay": "x10" },
+    { "param": "rate", "raw": "0", "expectValue": 1, "expectLiteral": "1", "expectDisplay": "x1" },
+    { "param": "rate", "raw": "-5", "expectValue": 1, "expectLiteral": "1", "expectDisplay": "x1" },
+    { "param": "rate", "raw": "999", "expectValue": 100, "expectLiteral": "100", "expectDisplay": "x100" },
+    { "param": "rate", "raw": "10.999999999", "expectValue": 11, "expectLiteral": "11", "expectDisplay": "x11" },
+    { "param": "rate", "raw": "51.99999999999999", "expectValue": 52, "expectLiteral": "52", "expectDisplay": "x52" },
+    { "param": "rate", "raw": "7.5", "expectValue": 7.5, "expectLiteral": "7.5", "expectDisplay": "x7.5" },
+    { "param": "rate", "raw": " 42 ", "expectValue": 42, "expectLiteral": "42", "expectDisplay": "x42" },
+    { "param": "tier", "raw": "4", "expectValue": 4, "expectLiteral": "4", "expectDisplay": "Master" },
+    { "param": "tier", "raw": "0", "expectValue": 0, "expectLiteral": "0", "expectDisplay": "Common" },
+    { "param": "tier", "raw": "-3", "expectValue": 0, "expectLiteral": "0", "expectDisplay": "Common" },
+    { "param": "tier", "raw": "2.5", "expectValue": 2.5, "expectLiteral": "2.5", "expectDisplay": "2.5" },
+    { "param": "tier", "raw": "9", "expectValue": 4, "expectLiteral": "4", "expectDisplay": "Master" },
+    { "param": "plain", "raw": null, "expectValue": 5, "expectLiteral": "5", "expectDisplay": "5" },
+    { "param": "plain", "raw": "12", "expectValue": 12, "expectLiteral": "12", "expectDisplay": "12" },
+    { "param": "plain", "raw": "10", "expectValue": 10, "expectLiteral": "10", "expectDisplay": "10" },
+    { "param": "plain", "raw": "1000.0000001", "expectValue": 1000, "expectLiteral": "1000", "expectDisplay": "1000" },
+    { "param": "speed", "raw": "1.9999999", "expectValue": 2, "expectLiteral": "2", "expectDisplay": "x2" },
+    { "param": "speed", "raw": "2", "expectValue": 2, "expectLiteral": "2", "expectDisplay": "x2" },
+    { "param": "speed", "raw": "3", "expectValue": 2.5, "expectLiteral": "2.5", "expectDisplay": "x2.5" }
+  ]
+}

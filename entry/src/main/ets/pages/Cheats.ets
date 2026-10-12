@@ -1,6 +1,8 @@
 import { router } from '@kit.ArkUI';
 import { CHEATS, Cheat, CheatGroup, CheatGroupInfo, CHEAT_GROUPS, CheatParam } from '../model/Cheats';
-import { isMasterEnabled, isCheatEnabled, toggleCheat, getParamNumber, setParam, setParamLive } from '../model/CheatState';
+import { isMasterEnabled, isCheatEnabled, toggleCheat, getParamValue, setParam, setParamLive } from '../model/CheatState';
+import { displayValue, resolveNumber } from '../common/CheatFormat';
+import { THEME } from '../common/Theme';
 
 /**
  * 参数调整条目页（独立页面）：从首页就绪页的「参数调整」入口进入。
@@ -26,7 +28,7 @@ struct Cheats {
       this.indexById.set(c.id, i);
       f.push(isCheatEnabled(c.id));
       const p: CheatParam | undefined = c.param;
-      pv.push(p !== undefined ? getParamNumber(p.id, p.default) : 0);
+      pv.push(p !== undefined ? getParamValue(p) : 0);
     }
     this.flags = f;
     this.paramValues = pv;
@@ -62,28 +64,25 @@ struct Cheats {
     if (p === undefined) {
       return;
     }
+    // 与安卓同一条取值路径：夹紧 + 浮点吸附（Slider 的 min + i*step 会给出 10.999999999）
+    const value: number = resolveNumber(p, v.toString());
     const next: number[] = this.paramValues.slice();
-    next[index] = v;
+    next[index] = value;
     this.paramValues = next;
     if (mode === SliderChangeMode.End || mode === SliderChangeMode.Click) {
-      setParam(p.id, v);
+      setParam(p.id, value);
     } else {
-      setParamLive(p.id, v);
+      setParamLive(p.id, value);
     }
   }
 
-  /** 参数当前值的显示文本：优先用 labels 映射，否则 unit + 数值 */
+  /** 参数当前值的显示文本：优先用 labels 映射，否则 unit + 数值（与安卓 displayValue 同一份语义） */
   private paramText(index: number): string {
     const p: CheatParam | undefined = CHEATS[index].param;
     if (p === undefined) {
       return '';
     }
-    const v: number = this.paramValues[index];
-    const labels: string[] | undefined = p.labels;
-    if (labels !== undefined && v >= 0 && v < labels.length) {
-      return labels[v];
-    }
-    return (p.unit !== undefined ? p.unit : '') + v;
+    return displayValue(p, this.paramValues[index]);
   }
 
   build() {
@@ -92,12 +91,13 @@ struct Cheats {
       Row() {
         Text('‹')
           .fontSize(30)
-          .fontColor('#333333')
+          .fontColor(THEME.textPrimary)
           .width(44)
           .height(44)
           .textAlign(TextAlign.Center)
           .onClick(() => router.back())
         Text('参数调整').fontSize(20).fontWeight(FontWeight.Medium)
+          .fontColor(THEME.textPrimary)
         Blank()
       }
       .width('100%')
@@ -107,23 +107,23 @@ struct Cheats {
       Column() {
         Text('账号风险：开启后存档可能被官方标记/封禁，且已污染的存档不建议导入在线版。')
           .fontSize(12)
-          .fontColor('#DA3838')
+          .fontColor(THEME.brand)
           .width('100%')
         Text('兼容性风险：参数调整依赖应用内部实现，资源更新后可能失效或表现异常。')
           .fontSize(12)
-          .fontColor('#C77700')
+          .fontColor(THEME.warning)
           .width('100%')
           .margin({ top: 6 })
       }
       .alignItems(HorizontalAlign.Start)
       .width('100%')
       .padding(12)
-      .backgroundColor('#FFF3F3')
+      .backgroundColor(THEME.dangerBg)
 
       if (!this.masterOn) {
         Text('参数调整未开启，请先到「设置 → 运行设置 → 参数调整」开启。')
           .fontSize(13)
-          .fontColor('#999999')
+          .fontColor(THEME.textTertiary)
           .width('100%')
           .padding(16)
       }
@@ -134,7 +134,7 @@ struct Cheats {
             Column() {
               if (index > 0) {
                 Divider()
-                  .color('#EDEDED')
+                  .color(THEME.divider)
                   .strokeWidth(1)
                   .margin({ left: 16, right: 16, top: 6 })
               }
@@ -145,11 +145,11 @@ struct Cheats {
                     .width(4)
                     .height(18)
                     .borderRadius(2)
-                    .backgroundColor('#DA3838')
+                    .backgroundColor(THEME.brand)
                   Text(g.title)
                     .fontSize(17)
                     .fontWeight(FontWeight.Bold)
-                    .fontColor('#1A1A1A')
+                    .fontColor(THEME.textTitle)
                     .margin({ left: 8 })
                 }
                 .alignItems(VerticalAlign.Center)
@@ -157,7 +157,7 @@ struct Cheats {
 
                 Text(g.subtitle)
                   .fontSize(12)
-                  .fontColor('#999999')
+                  .fontColor(THEME.textTertiary)
                   .width('100%')
                   .margin({ top: 4, left: 12 })
               }
@@ -169,16 +169,16 @@ struct Cheats {
                 Column() {
                   Row() {
                     Column() {
-                      Text(c.name).fontSize(16).fontColor('#333333')
+                      Text(c.name).fontSize(16).fontColor(THEME.textPrimary)
                       if (c.desc.length > 0) {
-                        Text(c.desc).fontSize(12).fontColor('#999999').margin({ top: 3 })
+                        Text(c.desc).fontSize(12).fontColor(THEME.textTertiary).margin({ top: 3 })
                       }
                     }
                     .alignItems(HorizontalAlign.Start)
                     .layoutWeight(1)
 
                     Toggle({ type: ToggleType.Switch, isOn: this.flags[this.cheatIndex(c.id)] })
-                      .selectedColor('#DA3838')
+                      .selectedColor(THEME.brand)
                       .enabled(this.masterOn)
                       .onChange((on: boolean) => this.onToggle(this.cheatIndex(c.id), c.id, on))
                   }
@@ -189,7 +189,7 @@ struct Cheats {
                     Row() {
                       Text(c.param.label)
                         .fontSize(13)
-                        .fontColor('#666666')
+                        .fontColor(THEME.textMuted)
                         .width(52)
                       Slider({
                         value: this.paramValues[this.cheatIndex(c.id)],
@@ -199,12 +199,12 @@ struct Cheats {
                         style: SliderStyle.OutSet
                       })
                         .layoutWeight(1)
-                        .selectedColor('#DA3838')
+                        .selectedColor(THEME.brand)
                         .enabled(this.masterOn && this.flags[this.cheatIndex(c.id)])
                         .onChange((v: number, mode: SliderChangeMode) => this.onParamChange(this.cheatIndex(c.id), v, mode))
                       Text(this.paramText(this.cheatIndex(c.id)))
                         .fontSize(14)
-                        .fontColor('#333333')
+                        .fontColor(THEME.textPrimary)
                         .width(56)
                         .textAlign(TextAlign.End)
                     }
@@ -227,6 +227,6 @@ struct Cheats {
     }
     .width('100%')
     .height('100%')
-    .backgroundColor('#FFFFFF')
+    .backgroundColor(THEME.surface)
   }
 }

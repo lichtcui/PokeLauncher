@@ -39,6 +39,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.lichtcui.pokelauncher.core.Const
+import com.lichtcui.pokelauncher.core.SharedUi
 import com.lichtcui.pokelauncher.web.PokeWebView
 import kotlinx.coroutines.delay
 
@@ -134,7 +135,7 @@ internal fun GameScreen(controller: SpikeController) {
     Box(
         Modifier
             .fillMaxSize()
-            .background(Color(GAME_BG_ARGB))
+            .background(Color(SharedUi.GAME_BG_COLOR))
     ) {
         // key(gameSession)：加一就重建 WebView（DisposableEffect 会先把旧的 destroy 掉）。
         // 只调 loadUrl 复现不了冷启动，所以 A/B 对比必须真的重建。
@@ -190,11 +191,11 @@ internal fun GameScreen(controller: SpikeController) {
                     if (backVisible) controller.exitGame() else backTick++
                 },
                 modifier = Modifier
-                    .background(Color(0x66000000))
+                    .background(THEME.scrimLight)
                     .alpha(if (backVisible) BACK_FULL_ALPHA else BACK_FADED_ALPHA),
                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 2.dp)
             ) {
-                Text("返回", fontSize = 12.sp, color = Color.White)
+                Text("返回", fontSize = 12.sp, color = THEME.onScrim)
             }
         }
     }
@@ -206,7 +207,7 @@ private fun LoadingOverlay() {
     Box(
         Modifier
             .fillMaxSize()
-            .background(Color(0xCC000000)),
+            .background(THEME.scrimHeavy),
         contentAlignment = Alignment.Center
     ) {
         Column(
@@ -214,7 +215,7 @@ private fun LoadingOverlay() {
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             PokeballLoader(phase = PrepPhase.PROBING, iconSize = 64.dp)
-            Text("正在载入游戏…", fontSize = 14.sp, color = Color.White)
+            Text("正在载入游戏…", fontSize = 14.sp, color = THEME.onScrim)
         }
     }
 }
@@ -227,7 +228,7 @@ private fun ErrorOverlay(detail: String, onRetry: () -> Unit) {
             Modifier
                 .fillMaxWidth(0.86f)
                 .padding(16.dp),
-            colors = CardDefaults.cardColors(containerColor = Color(0xF2202020))
+            colors = CardDefaults.cardColors(containerColor = THEME.gamePanel)
         ) {
             Column(
                 Modifier.padding(16.dp),
@@ -237,7 +238,7 @@ private fun ErrorOverlay(detail: String, onRetry: () -> Unit) {
                 Text(
                     loadErrorText(detail),
                     fontSize = 12.sp,
-                    color = Color.White
+                    color = THEME.onScrim
                 )
                 Text(
                     "本地资源服务可能没起来，或资源包不完整。可以重试，或返回首页重新安装资源。",
@@ -257,7 +258,7 @@ private fun DevPanel(controller: SpikeController, modifier: Modifier = Modifier)
         modifier = modifier
             .padding(8.dp)
             .width(210.dp),
-        colors = CardDefaults.cardColors(containerColor = Color(0xCC000000))
+        colors = CardDefaults.cardColors(containerColor = THEME.scrimHeavy)
     ) {
         Column(Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(
@@ -265,11 +266,11 @@ private fun DevPanel(controller: SpikeController, modifier: Modifier = Modifier)
                 fontSize = 11.sp,
                 color = MaterialTheme.colorScheme.secondary
             )
-            Text("DOM 载入: ${formatMs(controller.lastPageLoadMs)}", fontSize = 11.sp, color = Color.White)
+            Text("DOM 载入: ${formatMs(controller.lastPageLoadMs)}", fontSize = 11.sp, color = THEME.onScrim)
             for (mark in controller.timings) {
-                Text("${mark.key}: ${mark.ms}ms", fontSize = 11.sp, color = Color.White)
+                Text("${mark.key}: ${mark.ms}ms", fontSize = 11.sp, color = THEME.onScrim)
             }
-            Text("gid: ${controller.getImageDataCount}", fontSize = 11.sp, color = Color.White)
+            Text("gid: ${controller.getImageDataCount}", fontSize = 11.sp, color = THEME.onScrim)
             if (controller.fatalPageError.isNotEmpty()) {
                 // 只留一行短提示：完整错误在居中浮层里，别把面板撑爆
                 Text("页面有报错", fontSize = 10.sp, color = MaterialTheme.colorScheme.error)

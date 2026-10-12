@@ -30,6 +30,7 @@ const SRC = {
   format: 'entry/src/main/ets/common/Format.ets',
   cache: 'entry/src/main/ets/common/HttpCache.ets',
   download: 'entry/src/main/ets/common/DownloadUrls.ets',
+  cheat: 'entry/src/main/ets/common/CheatFormat.ets',
 };
 
 /**
@@ -86,7 +87,7 @@ function stripTypes(text) {
  * 所以连带剪出来是安全的；不是字面量（数组 / Map / 调用）的常量故意不取，
  * 需要时再把整个文件喂进来（像 `Mime.ets` 那样）。
  */
-const CONST_SOURCES = ['cache', 'download'];
+const CONST_SOURCES = ['cache', 'download', 'cheat'];
 
 /**
  * 剪出模块级字面量常量声明（行首 + 以 `;` 结尾 + 初值是字符串/数字/布尔）。
@@ -94,7 +95,7 @@ const CONST_SOURCES = ['cache', 'download'];
  * 已知限制同 [extractFunction]：剪歪 = 语法错误 = 退出码 1，不会静默通过。
  */
 function extractConsts(src) {
-  const re = /^(?:export\s+)?const\s+[A-Za-z_$][\w$]*\s*(?::[^=]*)?=\s*(?:'[^']*'|"[^"]*"|-?[\d.]+|true|false)\s*;/gm;
+  const re = /^(?:export\s+)?const\s+[A-Za-z_$][\w$]*\s*(?::[^=]*)?=\s*(?:'[^']*'|"[^"]*"|-?[\d.]+(?:[eE][-+]?\d+)?|true|false)\s*;/gm;
   return [...src.matchAll(re)].map((m) => m[0]).join('\n');
 }
 
@@ -114,6 +115,10 @@ const FUNCS = {
   hostOf: ['download', 'hostOf'],
   kindOf: ['download', 'kindOf'],
   mirrorOf: ['download', 'mirrorOf'],
+  numberLiteral: ['cheat', 'numberLiteral'],
+  snapToStep: ['cheat', 'snapToStep'],
+  resolveNumber: ['cheat', 'resolveNumber'],
+  displayValue: ['cheat', 'displayValue'],
 };
 
 function buildContext() {
@@ -144,6 +149,7 @@ function main() {
     http: JSON.parse(read('shared/cases/http.json')),
     mime: JSON.parse(read('shared/mime.json')),
     download: JSON.parse(read('shared/cases/download.json')),
+    cheat: JSON.parse(read('shared/cases/cheat.json')),
   };
 
   let total = 0;
@@ -235,13 +241,27 @@ function main() {
   check("mimeOf('/x.unknownext')", context.mimeOf('/x.unknownext'), cases.mime.fallback);
   check("mimeOf('/UPPER.PNG')", context.mimeOf('/UPPER.PNG'), cases.mime.map.png);
 
+  // 参数调整：取值（夹紧 / 浮点吸附）与展示（labels / 单位）——两端各写一份实现，期望值只一份。
+  // 这一块曾经真分叉过：单位拼接方向相反（`x10` vs `10x`）、labels 档位判定宽严不同。
+  for (const c of cases.cheat.value) {
+    const p = cases.cheat.params[c.param];
+    const where = `cheat[${c.param} / ${JSON.stringify(c.raw)}]`;
+    const v = context.resolveNumber(p, c.raw === null ? undefined : c.raw);
+    check(`${where} resolveNumber`, v, c.expectValue);
+    check(`${where} numberLiteral`, context.numberLiteral(v), c.expectLiteral);
+    check(`${where} displayValue`, context.displayValue(p, v), c.expectDisplay);
+  }
+  // NaN 在 JSON 里表达不了，这两条各端自己手写（安卓 CheatFormatTest 里也有）
+  check('cheat numberLiteral(NaN)', context.numberLiteral(Number.NaN), '0');
+  check('cheat displayValue(rate, NaN)', context.displayValue(cases.cheat.params.rate, Number.NaN), 'x0');
+
   if (failures.length > 0) {
     console.error(`✗ 鸿蒙侧纯函数不满足 shared/ 向量（${failures.length}/${total}）：`);
     for (const f of failures) console.error(`    ${f}`);
     console.error('  ⚠️ 注意：这**只是**无设备时的替代证据，真机在手时要跑 entry@ohosTest 的 HAP。');
     process.exit(1);
   }
-  console.log(`✓ 鸿蒙侧纯函数满足 shared/ 向量：${total} 条（paths / format / version / cache / download / mime）`);
+  console.log(`✓ 鸿蒙侧纯函数满足 shared/ 向量：${total} 条（paths / format / version / cache / download / mime / cheat）`);
   console.log('  ⚠️ 无设备时的替代证据，不能替代 entry@ohosTest 在真机上的运行结果。');
 }
 

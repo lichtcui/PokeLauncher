@@ -1,5 +1,7 @@
 package com.lichtcui.pokelauncher.install
 
+import com.lichtcui.pokelauncher.core.Format
+import com.lichtcui.pokelauncher.core.SharedUi
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -149,7 +151,8 @@ class DownloadStatusTest {
         assertTrue(text, text.contains("25%"))
         assertTrue(text, text.contains("2.4 MB / 9.5 MB"))
         assertTrue(text, text.contains("1.0 MB/s"))
-        assertTrue(text, text.contains("剩余 约 2 分钟"))
+        // 「剩余」前缀来自 shared/ui.json（两端同一条），这里只锁拼接结果
+        assertTrue(text, text.contains(SharedUi.TEXT_ETA_PREFIX + "约 2 分钟"))
         assertTrue(text, text.contains("gh-proxy.com（镜像 1/4）"))
     }
 
@@ -166,7 +169,7 @@ class DownloadStatusTest {
         val paused = DownloadText.describe(
             DownloadStatus(phase = DownloadPhase.PAUSED, received = 2_500_000, total = 10_000_000)
         )
-        assertEquals("已暂停 · 25% · 2.4 MB / 9.5 MB", paused)
+        assertEquals(SharedUi.TEXT_PAUSED + " · 25% · 2.4 MB / 9.5 MB", paused)
         assertEquals(
             "正在解压：120 个文件，1.0 MB",
             DownloadText.describe(
@@ -174,7 +177,7 @@ class DownloadStatusTest {
             )
         )
         assertEquals(
-            "正在解压 PokeRogue 资源…",
+            SharedUi.TEXT_EXTRACT_TITLE + "…",
             DownloadText.describe(DownloadStatus(phase = DownloadPhase.EXTRACTING))
         )
     }
@@ -194,7 +197,7 @@ class DownloadStatusTest {
     fun busPublishesAndUpdates() {
         DownloadBus.publish(DownloadStatus(phase = DownloadPhase.PROBING, tag = "t1"))
         assertEquals(DownloadPhase.PROBING, DownloadBus.status.value.phase)
-        DownloadBus.update { it.copy(phase = DownloadPhase.PAUSED, message = "已暂停") }
+        DownloadBus.update { it.copy(phase = DownloadPhase.PAUSED, message = SharedUi.TEXT_PAUSED) }
         assertEquals(DownloadPhase.PAUSED, DownloadBus.status.value.phase)
         assertEquals("t1", DownloadBus.status.value.tag) // update 只改指定字段
         DownloadBus.publish(DownloadStatus())
@@ -222,7 +225,9 @@ class DownloadStatusTest {
             val problem = Storage.check(need - 1, asset, updating)
             assertTrue(problem != null)
             assertTrue(problem!!, problem!!.contains("存储空间不足"))
-            assertTrue(problem, problem.contains("MB"))
+            // 尺寸文案与两端共用的格式化器一致（以前这里硬写 `need/1024/1024 MB`）
+            assertTrue(problem, problem.contains(Format.bytes(need)))
+            assertTrue(problem, problem.contains(Format.bytes(need - 1)))
         }
         // 大小未知（调试包）不做预检，否则会被误拦
         assertNull(Storage.check(0, 0, updating = false))

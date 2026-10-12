@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import com.lichtcui.pokelauncher.core.Const
 import com.lichtcui.pokelauncher.core.Format
+import com.lichtcui.pokelauncher.core.SharedUi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -250,7 +251,7 @@ class GameRepository(
                 phase = DownloadPhase.PROBING,
                 total = info.assetSize,
                 tag = info.tag,
-                message = "正在测速，选择最快的下载源…"
+                message = SharedUi.TEXT_PROBING_TITLE
             )
         )
 
@@ -296,7 +297,7 @@ class GameRepository(
                     sourceIndex = index,
                     sourceCount = ordered.size,
                     tag = info.tag,
-                    message = if (offset > 0) "继续下载（已完成 ${Format.bytes(offset)}）" else "连接中…"
+                    message = if (offset > 0) "继续下载（已完成 ${Format.bytes(offset)}）" else SharedUi.TEXT_CONNECTING
                 )
             )
 
@@ -475,7 +476,7 @@ class GameRepository(
                     sourceIndex = attempt.index,
                     sourceCount = attempt.count,
                     tag = attempt.tag,
-                    message = if (speed > 1024) "" else "连接中…"
+                    message = if (speed > 1024) "" else SharedUi.TEXT_CONNECTING
                 )
             )
         }
@@ -499,7 +500,7 @@ class GameRepository(
                 received = zip.length(),
                 total = info.assetSize,
                 tag = info.tag,
-                message = "正在解压 PokeRogue 资源…"
+                message = SharedUi.TEXT_EXTRACT_TITLE + "…"
             )
         )
         return try {

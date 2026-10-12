@@ -16,6 +16,7 @@ import { clearWebCache } from '../common/WebCache';
 import { ORI_PORTRAIT, ORI_LANDSCAPE, ORI_SYSTEM, readOrientation, saveOrientation } from '../model/OrientationPref';
 import { isMasterEnabled, setMaster } from '../model/CheatState';
 import { PROJECT_GITHUB_URL } from '../common/Const';
+import { THEME } from '../common/Theme';
 
 const DOMAIN: number = 0x0000;
 const TAG: string = 'Settings';
@@ -157,8 +158,8 @@ struct Settings {
       title: '删除本地数据',
       message: '将删除已下载的离线资源，本地存档不受影响。确定删除吗？',
       buttons: [
-        { text: '取消', color: '#666666' },
-        { text: '删除', color: '#DA3838' }
+        { text: '取消', color: THEME.textMuted },
+        { text: '删除', color: THEME.brand }
       ]
     }).then((result: promptAction.ShowDialogSuccessResponse) => {
       if (result.index === 1) {
@@ -211,8 +212,8 @@ struct Settings {
       title: '开启参数调整',
       message: '账号风险：上游官方对修改游戏数据有检测机制，通过 Hook 改写运行时数值可能使账号被标记（Flagged）甚至封禁。开启后本机存档已不纯净，不建议再导入或上传到在线版。请仅在离线或确认安全的环境下使用。\n\n兼容性风险：参数调整依赖应用内部实现，资源更新后可能失效或表现异常。',
       buttons: [
-        { text: '取消', color: '#666666' },
-        { text: '仍然开启', color: '#DA3838' }
+        { text: '取消', color: THEME.textMuted },
+        { text: '仍然开启', color: THEME.brand }
       ]
     }).then((result: promptAction.ShowDialogSuccessResponse) => {
       if (result.index === 1) {
@@ -237,7 +238,7 @@ struct Settings {
   groupTitle(text: string) {
     Text(text)
       .fontSize(13)
-      .fontColor('#999999')
+      .fontColor(THEME.textTertiary)
       .width('100%')
       .padding({ left: 16, right: 16 })
       .margin({ top: 22, bottom: 6 })
@@ -246,13 +247,13 @@ struct Settings {
   @Builder
   navRow(label: string, value: string, valueColor: string, showArrow: boolean, onTap: () => void) {
     Row() {
-      Text(label).fontSize(16).fontColor('#333333')
+      Text(label).fontSize(16).fontColor(THEME.textPrimary)
       Blank()
       if (value.length > 0) {
         Text(value).fontSize(14).fontColor(valueColor).margin({ right: 6 })
       }
       if (showArrow) {
-        Text('›').fontSize(20).fontColor('#CCCCCC')
+        Text('›').fontSize(20).fontColor(THEME.iconFaint)
       }
     }
     .width('100%')
@@ -266,8 +267,8 @@ struct Settings {
     Text(label)
       .fontSize(14)
       .fontWeight(this.orientation === value ? FontWeight.Medium : FontWeight.Normal)
-      .fontColor(this.orientation === value ? '#FFFFFF' : '#666666')
-      .backgroundColor(this.orientation === value ? '#DA3838' : '#F2F2F2')
+      .fontColor(this.orientation === value ? THEME.onBrand : THEME.textMuted)
+      .backgroundColor(this.orientation === value ? THEME.brand : THEME.surfaceVariant)
       .textAlign(TextAlign.Center)
       .layoutWeight(1)
       .height(36)
@@ -277,7 +278,7 @@ struct Settings {
 
   @Builder
   divider() {
-    Divider().color('#EDEDED').strokeWidth(1).margin({ left: 16 })
+    Divider().color(THEME.divider).strokeWidth(1).margin({ left: 16 })
   }
 
   build() {
@@ -286,12 +287,13 @@ struct Settings {
       Row() {
         Text('‹')
           .fontSize(30)
-          .fontColor('#333333')
+          .fontColor(THEME.textPrimary)
           .width(44)
           .height(44)
           .textAlign(TextAlign.Center)
           .onClick(() => router.back())
         Text('设置').fontSize(20).fontWeight(FontWeight.Medium)
+          .fontColor(THEME.textPrimary)
         Blank()
       }
       .width('100%')
@@ -302,7 +304,7 @@ struct Settings {
           this.groupTitle('运行设置')
           // 屏幕方向：分段控件，选中态随 @State 变化，需直接读取状态
           Column() {
-            Text('屏幕方向').fontSize(16).fontColor('#333333').width('100%')
+            Text('屏幕方向').fontSize(16).fontColor(THEME.textPrimary).width('100%')
             Row({ space: 8 }) {
               this.segmentItem(ORI_PORTRAIT, '竖屏')
               this.segmentItem(ORI_LANDSCAPE, '横屏')
@@ -316,10 +318,10 @@ struct Settings {
           this.divider()
           // 参数调整总开关（条目在游戏内「参数调整」页维护）
           Row() {
-            Text('参数调整').fontSize(16).fontColor('#333333')
+            Text('参数调整').fontSize(16).fontColor(THEME.textPrimary)
             Blank()
             Toggle({ type: ToggleType.Switch, isOn: this.cheatMaster })
-              .selectedColor('#DA3838')
+              .selectedColor(THEME.brand)
               .onChange((on: boolean) => this.onCheatToggle(on))
           }
           .width('100%')
@@ -328,13 +330,13 @@ struct Settings {
           this.groupTitle('数据管理')
           // 应用更新：状态文字随 @State 变化，需直接读取状态（@Builder 值参数不触发刷新）
           Row() {
-            Text('应用更新').fontSize(16).fontColor('#333333')
+            Text('应用更新').fontSize(16).fontColor(THEME.textPrimary)
             Blank()
             Text(this.checkingApp ? '检查中…'
               : (this.appCheckFailed ? '检查失败'
                 : (this.appUpdateAvailable ? '发现新版本' : '已是最新')))
               .fontSize(14)
-              .fontColor(this.appUpdateAvailable ? '#DA3838' : '#999999')
+              .fontColor(this.appUpdateAvailable ? THEME.brand : THEME.textTertiary)
           }
           .width('100%')
           .padding({ left: 16, right: 16, top: 15, bottom: 15 })
@@ -342,11 +344,11 @@ struct Settings {
           if (this.appUpdateAvailable) {
             this.divider()
             this.navRow('去更新' + (this.appRemoteName.length > 0 ? '（' + this.appRemoteName + '）' : ''),
-              this.appUpdateForce ? '必须更新' : '', '#DA3838', true, () => this.openAppDownload())
+              this.appUpdateForce ? '必须更新' : '', THEME.brand, true, () => this.openAppDownload())
             if (this.appChangelog.length > 0) {
               Text(this.appChangelog)
                 .fontSize(13)
-                .fontColor('#888888')
+                .fontColor(THEME.textSecondary)
                 .width('100%')
                 .padding({ left: 16, right: 16, bottom: 14 })
             }
@@ -354,49 +356,49 @@ struct Settings {
           this.divider()
           // 游戏资源更新：状态文字随 @State 变化，需直接读取状态（@Builder 值参数不触发刷新）
           Row() {
-            Text('离线资源更新').fontSize(16).fontColor('#333333')
+            Text('离线资源更新').fontSize(16).fontColor(THEME.textPrimary)
             Blank()
             Text(this.checkingGame ? '检查中…' : (this.gameUpdateAvailable ? '发现新版本' : '已是最新'))
               .fontSize(14)
-              .fontColor(this.gameUpdateAvailable ? '#DA3838' : '#999999')
+              .fontColor(this.gameUpdateAvailable ? THEME.brand : THEME.textTertiary)
           }
           .width('100%')
           .padding({ left: 16, right: 16, top: 15, bottom: 15 })
           .onClick(() => this.checkGameUpdate(true))
           if (this.gameUpdateAvailable) {
             this.divider()
-            this.navRow('更新到新版本', '', '#999999', true, () => this.triggerUpdate())
+            this.navRow('更新到新版本', '', THEME.textTertiary, true, () => this.triggerUpdate())
           }
           this.divider()
           Row() {
-            Text(this.deleting ? '正在删除…' : '删除本地数据').fontSize(16).fontColor('#333333')
+            Text(this.deleting ? '正在删除…' : '删除本地数据').fontSize(16).fontColor(THEME.textPrimary)
             Blank()
-            Text('›').fontSize(20).fontColor('#CCCCCC')
+            Text('›').fontSize(20).fontColor(THEME.iconFaint)
           }
           .width('100%')
           .padding({ left: 16, right: 16, top: 15, bottom: 15 })
           .onClick(() => this.confirmDelete())
 
           this.groupTitle('关于')
-          this.navRow('应用版本', this.appVersion, '#999999', false, () => {})
+          this.navRow('应用版本', this.appVersion, THEME.textTertiary, false, () => {})
           this.divider()
           this.navRow('资源版本',
             this.gameVersion.length > 0 ? normalizeVersion(this.gameVersion) : '未安装',
-            '#999999', false, () => {})
+            THEME.textTertiary, false, () => {})
           this.divider()
-          this.navRow('资源来源', 'PokeRogue 公开源', '#999999', false, () => {})
+          this.navRow('资源来源', 'PokeRogue 公开源', THEME.textTertiary, false, () => {})
           this.divider()
-          this.navRow('作者', 'lichtcui', '#999999', false, () => {})
+          this.navRow('作者', 'lichtcui', THEME.textTertiary, false, () => {})
           this.divider()
-          this.navRow('GitHub', 'lichtcui/PokeLauncher', '#999999', true,
+          this.navRow('GitHub', 'lichtcui/PokeLauncher', THEME.textTertiary, true,
             () => this.openUrl(PROJECT_GITHUB_URL))
           this.divider()
-          this.navRow('法律与免责声明', '', '#999999', true,
+          this.navRow('法律与免责声明', '', THEME.textTertiary, true,
             () => router.pushUrl({ url: 'pages/Legal' }))
 
           Text('PokeRogue 离线版 · 仅供学习交流')
             .fontSize(12)
-            .fontColor('#BBBBBB')
+            .fontColor(THEME.textFaint)
             .margin({ top: 32, bottom: 40 })
         }
         .width('100%')
@@ -408,6 +410,6 @@ struct Settings {
     }
     .width('100%')
     .height('100%')
-    .backgroundColor('#FFFFFF')
+    .backgroundColor(THEME.surface)
   }
 }

@@ -28,7 +28,7 @@
  */
 import { readFileSync, writeFileSync, existsSync, readdirSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
-import { join, dirname, resolve } from 'node:path';
+import { join, dirname, resolve, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -59,8 +59,31 @@ const P = {
   casesVersion: 'shared/cases/version.json',
   casesHttp: 'shared/cases/http.json',
   casesDownload: 'shared/cases/download.json',
+  casesCheat: 'shared/cases/cheat.json',
+  ui: 'shared/ui.json',
+  theme: 'shared/theme.json',
   etsCases: 'entry/src/ohosTest/ets/test/Cases.gen.ets',
   ktCases: 'android/app/src/test/java/com/lichtcui/pokelauncher/CasesGen.kt',
+  etsSharedUi: 'entry/src/main/ets/common/SharedUi.ets',
+  ktSharedUi: 'android/app/src/main/java/com/lichtcui/pokelauncher/core/SharedUi.kt',
+  etsTheme: 'entry/src/main/ets/common/Theme.ets',
+  ktTheme: 'android/app/src/main/java/com/lichtcui/pokelauncher/ui/Theme.kt',
+  etsSettings: 'entry/src/main/ets/pages/Settings.ets',
+  etsIndex: 'entry/src/main/ets/pages/Index.ets',
+  etsCheatFormat: 'entry/src/main/ets/common/CheatFormat.ets',
+  etsCheatFormatTest: 'entry/src/ohosTest/ets/test/CheatFormat.test.ets',
+  ktCheatFormat: 'android/app/src/main/java/com/lichtcui/pokelauncher/cheat/CheatFormat.kt',
+  ktCheatFormatTest: 'android/app/src/test/java/com/lichtcui/pokelauncher/cheat/CheatFormatTest.kt',
+  etsCheatsPage: 'entry/src/main/ets/pages/Cheats.ets',
+  etsLauncherViews: 'entry/src/main/ets/components/LauncherViews.ets',
+  etsNotifier: 'entry/src/main/ets/model/Notifier.ets',
+  etsWindowHolder: 'entry/src/main/ets/model/WindowHolder.ets',
+  ktDownloadService: 'android/app/src/main/java/com/lichtcui/pokelauncher/install/DownloadService.kt',
+  ktDownloadStatus: 'android/app/src/main/java/com/lichtcui/pokelauncher/install/DownloadStatus.kt',
+  ktDownloadStatusTest: 'android/app/src/test/java/com/lichtcui/pokelauncher/install/DownloadStatusTest.kt',
+  ktHomeScreen: 'android/app/src/main/java/com/lichtcui/pokelauncher/ui/HomeScreen.kt',
+  ktGameState: 'android/app/src/main/java/com/lichtcui/pokelauncher/ui/GameState.kt',
+  ktGameScreen: 'android/app/src/main/java/com/lichtcui/pokelauncher/ui/GameScreen.kt',
   etsHttpTest: 'entry/src/ohosTest/ets/test/LocalHttpServer.test.ets',
   etsFormatTest: 'entry/src/ohosTest/ets/test/Format.test.ets',
   etsRepoTest: 'entry/src/ohosTest/ets/test/GameRepository.test.ets',
@@ -88,6 +111,7 @@ const P = {
   ktStorage: 'android/app/src/main/java/com/lichtcui/pokelauncher/install/Storage.kt',
   etsPokeball: 'entry/src/main/ets/components/PokeballLoader.ets',
   ktHomeState: 'android/app/src/main/java/com/lichtcui/pokelauncher/ui/HomeState.kt',
+  ktHomeStateTest: 'android/app/src/test/java/com/lichtcui/pokelauncher/ui/HomeStateTest.kt',
   ktApkUpdater: 'android/app/src/main/java/com/lichtcui/pokelauncher/appupdate/ApkUpdater.kt',
   ktBackupRules: 'android/app/src/main/res/xml/backup_rules.xml',
   ktExtractionRules: 'android/app/src/main/res/xml/data_extraction_rules.xml',
@@ -538,6 +562,27 @@ function checkConstParity() {
  * 这是本次去重的**长期护栏**——codegen 只保证生成物正确，不保证没人把旧代码粘回去；
  * 而重新内联的后果是「改 shared/ 时那一端不跟着变」，也就是我们要消灭的那个 bug。
  */
+/**
+ * 「必须引用生成物 + 不得再内联」的通用检查（`checkNoInline` / `checkUiUsage` / `checkCaseUsage` 共用一套报告）。
+ *
+ * `forbidden` 是**纯子串**（不是正则）：命中的就是那段被复制过去的文案 / 调用。
+ */
+function checkFileRules(label, rules) {
+  for (const [file, need, forbidden, what] of rules) {
+    if (!existsSync(join(ROOT, file))) {
+      fail(`${label}：找不到 ${file}`);
+      continue;
+    }
+    const text = read(file);
+    for (const n of need) {
+      if (!text.includes(n)) fail(`${label}：${file} 没有引用 \`${n}\`（${what} 应当来自 shared/）`);
+    }
+    for (const f of forbidden) {
+      if (text.includes(f)) fail(`${label}：${file} 里又内联了${what}（命中 \`${f}\`），请改用 shared/ 生成物`);
+    }
+  }
+}
+
 function checkNoInline() {
   const rules = [
     [P.etsCheatState, 'SCENE_RUNTIME_CORE', ['__isBattle(', 'Array.prototype.push=__hp'], '场景捕获运行时'],
@@ -549,15 +594,593 @@ function checkNoInline() {
     // 法律页正文：页面只负责渲染，正文必须来自生成物
     [P.etsLegalPage, 'LEGAL_SECTIONS', ['本项目是第三方、非官方的'], '法律页正文'],
   ];
-  for (const [file, marker, inlined, what] of rules) {
-    if (!existsSync(join(ROOT, file))) {
-      fail(`防内联检查：找不到 ${file}`);
+  checkFileRules('防内联检查', rules);
+}
+
+/**
+ * 反向护栏：`shared/ui.json` 的文案生成出来了，业务代码得**真的用它**。
+ *
+ * 为什么需要：这批字符串（进度行的「剩余」前缀、存储不足提示、完成/失败通知、游戏页背景色）
+ * 以前两端各写一份，`--check` 谁也看不见 —— 用户看到的两端行为不同、两端测试全绿。
+ * 现在每条都必须引用生成的常量，且不许再把原文案内联回去。
+ */
+function checkUiUsage() {
+  const rules = [
+    [P.etsLauncherViews, ['textStorageLow('], ['存储空间不足：需要约 '], '存储不足提示'],
+    [P.ktStorage, ['SharedUi.textStorageLow'], ['存储空间不足：需要约 '], '存储不足提示'],
+    [
+      P.etsNotifier,
+      ['TEXT_NOTIFY_COMPLETE_TITLE', 'TEXT_NOTIFY_COMPLETE_TEXT', 'TEXT_NOTIFY_FAILED_TITLE', 'TEXT_NOTIFY_FAILED_TEXT'],
+      ['PokeRogue 资源下载完成', '点击开始运行', '点击重试'],
+      '完成 / 失败通知文案',
+    ],
+    [
+      P.ktDownloadService,
+      [
+        'SharedUi.TEXT_NOTIFY_COMPLETE_TITLE',
+        'SharedUi.TEXT_NOTIFY_FAILED_TITLE',
+        'SharedUi.TEXT_DOWNLOAD_TITLE',
+        'SharedUi.TEXT_EXTRACT_TITLE',
+        'SharedUi.TEXT_PROBING_TITLE',
+        'SharedUi.TEXT_PAUSED',
+      ],
+      [
+        'PokeRogue 资源下载完成',
+        'PokeRogue 资源已就绪',
+        '资源下载失败',
+        '"正在下载 PokeRogue 资源"',
+        '"正在解压 PokeRogue 资源',
+        '"正在测速，选择最快的下载源…"',
+        '"已暂停',
+      ],
+      '通知标题 / 正文',
+    ],
+    [P.etsGameRepo, ['TEXT_DOWNLOAD_TITLE'], ['正在下载 PokeRogue 资源'], '下载任务标题'],
+    // 首页流程标题 + 进度行文案：两端用的是同一句话（以前各写一份，靠「与鸿蒙版逐字一致」的注释维系）
+    [
+      P.etsSession,
+      [
+        'TEXT_ETA_PREFIX',
+        'TEXT_PROBING_TITLE',
+        'TEXT_CONNECTING',
+        'TEXT_DOWNLOAD_TITLE',
+        'TEXT_EXTRACT_TITLE',
+        'TEXT_READY_TITLE',
+        'TEXT_PAUSED',
+      ],
+      [
+        "'剩余'",
+        "'正在测速，选择最快的下载源…'",
+        "'连接中…'",
+        "'正在下载 PokeRogue 资源'",
+        "'正在解压 PokeRogue 资源'",
+        "'PokeRogue 资源准备就绪'",
+        "'已暂停'",
+      ],
+      '流程标题 / 进度行文案',
+    ],
+    [
+      P.ktHomeState,
+      [
+        'SharedUi.TEXT_DOWNLOAD_TITLE',
+        'SharedUi.TEXT_EXTRACT_TITLE',
+        'SharedUi.TEXT_READY_TITLE',
+        'SharedUi.TEXT_PAUSED',
+      ],
+      [
+        '"正在下载 PokeRogue 资源"',
+        '"正在解压 PokeRogue 资源',
+        '"PokeRogue 资源准备就绪"',
+        '"已暂停"',
+      ],
+      '流程标题文案',
+    ],
+    [
+      P.ktHomeStateTest,
+      ['SharedUi.TEXT_DOWNLOAD_TITLE', 'SharedUi.TEXT_EXTRACT_TITLE', 'SharedUi.TEXT_READY_TITLE', 'SharedUi.TEXT_PAUSED'],
+      ['"正在下载 PokeRogue 资源"', '"正在解压 PokeRogue 资源', '"PokeRogue 资源准备就绪"', '"已暂停"'],
+      '流程标题期望值',
+    ],
+    [
+      P.ktGameRepo,
+      ['SharedUi.TEXT_PROBING_TITLE', 'SharedUi.TEXT_CONNECTING', 'SharedUi.TEXT_EXTRACT_TITLE'],
+      ['"正在测速，选择最快的下载源…"', '"连接中…"', '"正在解压 PokeRogue 资源'],
+      '阶段说明文案',
+    ],
+    [P.ktHomeScreen, ['SharedUi.TEXT_ETA_PREFIX'], ['"剩余'], '剩余时间前缀'],
+    [P.ktDownloadStatusTest, ['SharedUi.TEXT_ETA_PREFIX', 'SharedUi.TEXT_PAUSED', 'SharedUi.TEXT_EXTRACT_TITLE'], ['"剩余', '"已暂停', '"正在解压 PokeRogue 资源'], '进度行期望值'],
+    [
+      P.ktDownloadStatus,
+      ['SharedUi.TEXT_ETA_PREFIX', 'SharedUi.TEXT_EXTRACT_TITLE', 'SharedUi.TEXT_PROBING_TITLE', 'SharedUi.TEXT_PAUSED'],
+      ['"剩余', '"正在解压 PokeRogue 资源', '"正在测速，选择最快的下载源…"', '"已暂停"'],
+      '剩余时间前缀 / 解压 · 测速 · 暂停文案',
+    ],
+    [P.etsWindowHolder, [], ['#484050'], '游戏页背景色（鸿蒙已移到 SharedUi）'],
+    [P.etsGamePage, ['GAME_BG_COLOR'], [], '游戏页背景色'],
+    [P.ktGameState, [], ['GAME_BG_ARGB'], '游戏页背景色（安卓已移到 SharedUi）'],
+    [P.ktGameScreen, ['SharedUi.GAME_BG_COLOR'], ['0xFF121212'], '游戏页背景色'],
+    // 参数调整：取值（夹紧 / 浮点吸附）与展示（labels / 单位）都必须在两端的 CheatFormat 里各写一份**同一份语义**
+    [P.etsCheatState, ['resolveNumber(', 'numberLiteral('], [], '参数取值'],
+    [P.etsCheatsPage, ['displayValue(', 'resolveNumber('], ['p.unit', 'param.unit', 'labels[v]'], '参数展示 / 取值'],
+    [P.etsCheatFormat, ['unit + numberLiteral(value)'], [], '参数展示方向'],
+    [P.ktCheatFormat, ['param.unit + numberLiteral(value)'], [], '参数展示方向'],
+  ];
+  checkFileRules('共享文案检查', rules);
+}
+
+// ------------------------------------------------------------------ 校验 shared/ui.json
+
+const UI_DOC_HEADER = `/**
+ * 跨端共享的用户可见文案与展示常量（纯数据，无 UI 依赖）。
+ *
+ * ⚠️ **本文件由 \`scripts/gen-shared.mjs\` 自动生成，不要手改**：唯一真相在仓库根 \`shared/ui.json\`。
+ * 改文案跑 \`node scripts/gen-shared.mjs\`，两端（鸿蒙 / 安卓）一起更新。
+ *
+ * 为什么这几个字符串要共享：它们以前各端各写一份（首页流程标题 / 进度行文案、存储不足提示、
+ * 完成 / 失败通知、游戏页背景色），分叉了没有任何机械护栏 —— 两端测试全绿，用户看到的却不同。
+ * 生成器那边的 \`checkUiUsage\` 会反向要求业务代码真的引用这里，别再内联回去。
+ */`;
+
+/** 生成字符串字面量的禁用字符：两端分别是单引号 / 双引号字符串，`$` 在 Kotlin 里是模板插值 */
+const UI_FORBIDDEN_CHARS = ['$', "'", '"', '\\', '\n'];
+
+/**
+ * `shared/ui.json` 的结构约束：名字唯一且能当标识符、文案里没有会破坏字面量的字符、
+ * `#RRGGBB` 能解析、模板函数的 args 与 `{占位符}` 一一对应。
+ */
+function assertUi(raw) {
+  const items = raw?.items;
+  if (!Array.isArray(items) || items.length < 4) {
+    fail('ui.json: items 至少要 4 条（共享文案表被搬空 = 又回到各写一份）');
+    return [];
+  }
+  const seen = new Set();
+  for (const it of items) {
+    const name = it.kind === 'template' ? it.func : it.name;
+    const where = `ui.json: ${typeof name === 'string' ? name : '(无名)'}`;
+    if (typeof name !== 'string' || !/^[A-Za-z][A-Za-z0-9_]*$/.test(name)) {
+      fail(`${where} 的名字只能是字母 / 数字 / 下划线（常量用 SHOUTY_CASE、函数用 camelCase）`);
       continue;
     }
-    const text = read(file);
-    if (!text.includes(marker)) fail(`防内联检查：${file} 没有引用 \`${marker}\`（${what} 应当来自 shared/）`);
-    for (const frag of inlined) {
-      if (text.includes(frag)) fail(`防内联检查：${file} 里重新内联了${what}（命中 \`${frag}\`），请改用 shared/ 生成物`);
+    if (seen.has(name)) fail(`${where} 重名`);
+    seen.add(name);
+    if (!['text', 'argb', 'template'].includes(it.kind)) {
+      fail(`${where}: kind 只能是 text / argb / template`);
+      continue;
+    }
+    if (typeof it.doc !== 'string' || it.doc.length === 0) fail(`${where} 缺 doc（生成的常量要有人类可读的说明）`);
+    if (typeof it.value !== 'string' || it.value.length === 0) {
+      fail(`${where}.value 必须是非空字符串`);
+      continue;
+    }
+    for (const ch of UI_FORBIDDEN_CHARS) {
+      if (it.value.includes(ch)) fail(`${where}.value 里不允许出现 ${JSON.stringify(ch)}（会破坏生成的字符串字面量）`);
+    }
+    if (it.kind === 'argb') {
+      if (!/^#[0-9A-Fa-f]{6}$/.test(it.value)) fail(`${where}.value 必须是 #RRGGBB`);
+      continue;
+    }
+    if (it.kind === 'text') continue;
+    const args = Array.isArray(it.args) ? it.args : [];
+    if (args.length === 0) {
+      fail(`${where} 是 template 但没有 args`);
+      continue;
+    }
+    const used = new Set([...it.value.matchAll(/\{(\w+)\}/g)].map((m) => m[1]));
+    if (/[{}]/.test(it.value.replace(/\{\w+\}/g, ''))) fail(`${where}.value 有未闭合的花括号`);
+    for (const a of args) {
+      if (!used.has(a)) fail(`${where}: args 里的 ${a} 没被 value 用到`);
+    }
+    for (const u of used) {
+      if (!args.includes(u)) fail(`${where}: value 用了 {${u}} 但 args 里没有`);
+    }
+  }
+  return items;
+}
+
+/** 模板 → `a + '，' + b` 形式的鸿蒙表达式（占位符即参数名） */
+function etsTemplateExpr(value) {
+  return value
+    .split(/(\{\w+\})/)
+    .map((part) => {
+      const m = part.match(/^\{(\w+)\}$/);
+      return m ? m[1] : etsStr(part);
+    })
+    .filter((s) => s !== "''")
+    .join(' + ');
+}
+
+function genEtsSharedUi(items) {
+  const blocks = items.map((it) => {
+    // text / argb 在鸿蒙侧都是字符串（`backgroundColor()` 收字符串颜色）
+    if (it.kind !== 'template') {
+      return `/** ${it.doc} */\nexport const ${it.name}: string = ${etsStr(it.value)};`;
+    }
+    const params = it.args.map((a) => `${a}: string`).join(', ');
+    return `/** ${it.doc} */\nexport function ${it.func}(${params}): string {\n  return ${etsTemplateExpr(it.value)};\n}`;
+  });
+  return `${UI_DOC_HEADER}\n\n${blocks.join('\n\n')}\n`;
+}
+
+/** 模板 → Kotlin 字符串模板（占位符即 `$参数名`） */
+function ktTemplateExpr(value) {
+  return value
+    .split(/(\{\w+\})/)
+    .map((part) => {
+      const m = part.match(/^\{(\w+)\}$/);
+      return m ? `$${m[1]}` : part;
+    })
+    .join('');
+}
+
+function genKtSharedUi(items) {
+  const blocks = items.map((it) => {
+    if (it.kind === 'argb') {
+      return `    /** ${it.doc}（安卓侧为 Int ARGB） */\n    val ${it.name}: Int = 0xFF${it.value.slice(1).toUpperCase()}.toInt()`;
+    }
+    if (it.kind === 'text') {
+      return `    /** ${it.doc} */\n    const val ${it.name}: String = ${ktStr(it.value)}`;
+    }
+    const params = it.args.map((a) => `${a}: String`).join(', ');
+    return `    /** ${it.doc} */\n    fun ${it.func}(${params}): String =\n        "${ktTemplateExpr(it.value)}"`;
+  });
+  return `package com.lichtcui.pokelauncher.core\n\n${UI_DOC_HEADER}\n\nobject SharedUi {\n${blocks.join('\n\n')}\n}\n`;
+}
+
+// ------------------------------------------------------------------ 校验 / 生成 shared/theme.json
+
+const THEME_ETS_HEADER = `/**
+ * 跨端共享的视觉令牌（颜色）。
+ *
+ * ⚠️ **本文件由 \`scripts/gen-shared.mjs\` 自动生成，不要手改**：唯一真相在仓库根 \`shared/theme.json\`。
+ * 改色值跑 \`node scripts/gen-shared.mjs\`，两端（鸿蒙 / 安卓）一起更新。
+ *
+ * 为什么要有它：ArkUI 与 Compose 没有共同渲染器，布局代码无法共享，能共享的只有数值与角色。
+ * 统一到**鸿蒙现状**（亮色）之前，两端的颜色字面量一共 41 种、真正同值的只有 5 个，
+ * 而且主题相反（鸿蒙首页白 / 安卓首页深）。
+ *
+ * 用法：\`.fontColor(THEME.textPrimary)\`、\`.backgroundColor(THEME.surface)\`。
+ * 生成器那边的 \`checkThemeUsage\` 会反向要求 UI 代码真的引用这里：
+ * 两个 UI 源码目录里再出现 \`'#RRGGBB'\` 字面量、或令牌没人引用，都会直接构建失败。
+ *
+ * 同一个 hex 出现在多个语义名下是**有意的别名**（background / surface / onBrand / onScrim 都是白色），
+ * 别为了「去重」合并它们。
+ */`;
+
+const THEME_KT_HEADER = `/**
+ * 跨端共享的视觉令牌（颜色）+ Material3 亮色方案。
+ *
+ * ⚠️ **本文件由 \`scripts/gen-shared.mjs\` 自动生成，不要手改**：唯一真相在仓库根 \`shared/theme.json\`。
+ * 改色值跑 \`node scripts/gen-shared.mjs\`，两端（鸿蒙 / 安卓）一起更新。
+ *
+ * 为什么要有它：Compose 组件只认 Material3 角色（\`colorScheme.surfaceVariant\` …），
+ * 以前这些角色被映射到一套自成一派的深色方案（首页 #101014），而鸿蒙是亮色（#FFFFFF），
+ * 两端各自「正确」却看着不是一个 App。现在统一到鸿蒙现状：亮色 + 品牌红 #DA3838。
+ *
+ * 两种用法都对，按语义选：
+ * - Material3 组件内部角色 → 保留 \`MaterialTheme.colorScheme.*\`（本文件的 scheme 已映射到令牌）；
+ * - 自己写死的颜色 → \`THEME.xxx\`。
+ *
+ * 生成器那边的 \`checkThemeUsage\` 会反向要求：\`Color(0x…)\` / \`Color.White\` 这类字面量
+ * 不许再出现在 UI 代码里（生成物除外），令牌也不许没人引用。
+ */`;
+
+/**
+ * Material3 亮色角色白名单：\`materialLight\` 必须把它们**写全**。
+ *
+ * 为什么强制写全：\`lightColorScheme()\` 没传的参数会落到 Material3 默认的**紫色系**，
+ * 界面会莫名其妙冒出紫底紫边，而两端测试全绿 —— 这是「新增一个 Compose 组件时静默变紫」那道坑。
+ */
+const MATERIAL_ROLES = [
+  'primary',
+  'onPrimary',
+  'primaryContainer',
+  'onPrimaryContainer',
+  'inversePrimary',
+  'secondary',
+  'onSecondary',
+  'secondaryContainer',
+  'onSecondaryContainer',
+  'tertiary',
+  'onTertiary',
+  'tertiaryContainer',
+  'onTertiaryContainer',
+  'background',
+  'onBackground',
+  'surface',
+  'onSurface',
+  'surfaceVariant',
+  'onSurfaceVariant',
+  'surfaceTint',
+  'inverseSurface',
+  'inverseOnSurface',
+  'error',
+  'onError',
+  'errorContainer',
+  'onErrorContainer',
+  'outline',
+  'outlineVariant',
+  'scrim',
+  'surfaceBright',
+  'surfaceDim',
+  'surfaceContainer',
+  'surfaceContainerLow',
+  'surfaceContainerLowest',
+  'surfaceContainerHigh',
+  'surfaceContainerHighest',
+];
+
+/** `shared/theme.json` 的结构约束：语义名合法、色值可解析、Material3 角色写全且都指向存在的令牌 */
+function assertTheme(raw) {
+  const colors = raw?.colors;
+  if (!Array.isArray(colors) || colors.length < 20) {
+    fail('theme.json: colors 至少要 20 条（令牌表被搬空 = 又回到各写一份色值）');
+    return { colors: [], materialLight: {} };
+  }
+  const names = new Set();
+  for (const c of colors) {
+    const where = `theme.json: ${typeof c?.name === 'string' ? c.name : '(无名)'}`;
+    if (typeof c?.name !== 'string' || !/^[a-z][A-Za-z0-9]*$/.test(c.name)) {
+      fail(`${where} 的名字必须是 camelCase 标识符（两端同名，如 textPrimary）`);
+      continue;
+    }
+    if (names.has(c.name)) fail(`${where} 重名`);
+    names.add(c.name);
+    if (typeof c.doc !== 'string' || c.doc.length === 0) fail(`${where} 缺 doc（生成的常量要有人类可读的说明）`);
+    if (typeof c.value !== 'string' || !/^#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?$/.test(c.value)) {
+      fail(`${where}.value 必须是 #RRGGBB 或 #AARRGGBB`);
+      continue;
+    }
+    const hex = c.value.slice(1);
+    if (hex !== hex.toUpperCase()) fail(`${where}.value 请用大写 hex（两端生成物要 diff 得动）`);
+  }
+  const map = raw?.materialLight;
+  if (map === null || typeof map !== 'object' || Array.isArray(map)) {
+    fail('theme.json: 缺 materialLight（安卓 Material3 角色 → 令牌的映射）');
+    return { colors, materialLight: {} };
+  }
+  for (const role of Object.keys(map)) {
+    if (!MATERIAL_ROLES.includes(role)) {
+      fail(`theme.json: materialLight.${role} 不是已知的 Material3 角色（写错了会静默无效）`);
+    }
+  }
+  for (const role of MATERIAL_ROLES) {
+    if (!(role in map)) {
+      fail(`theme.json: materialLight 缺 \`${role}\`（lightColorScheme() 未指定的角色会落到默认紫色）`);
+      continue;
+    }
+    if (!names.has(map[role])) {
+      fail(`theme.json: materialLight.${role} 指向了不存在的令牌 \`${map[role]}\``);
+    }
+  }
+  return { colors, materialLight: map };
+}
+
+function genEtsTheme(theme) {
+  const iface = theme.colors.map((c) => `  /** ${c.doc} */\n  ${c.name}: string;`).join('\n');
+  const impl = theme.colors.map((c) => `  /** ${c.doc} */\n  ${c.name}: ${etsStr(c.value)},`).join('\n').replace(/,$/, '');
+  return `${THEME_ETS_HEADER}\n\nexport interface ThemePalette {\n${iface}\n}\n\n/** 令牌唯一实例：业务代码只通过它取色（\`THEME.textPrimary\`） */\nexport const THEME: ThemePalette = {\n${impl}\n};\n`;
+}
+
+/** `#RRGGBB` → Compose 的 `0xFFRRGGBB`（**不能**直接 `0xRRGGBB`：那会变成全透明），8 位色值原样保留 */
+function ktArgb(value) {
+  const hex = value.slice(1);
+  return `0x${hex.length === 6 ? `FF${hex}` : hex}`;
+}
+
+function genKtTheme(theme) {
+  const fields = theme.colors
+    .map((c) => `    /** ${c.doc} */\n    val ${c.name}: Color = Color(${ktArgb(c.value)})`)
+    .join('\n\n');
+  const roles = MATERIAL_ROLES.map((role) => `    ${role} = THEME.${theme.materialLight[role]},`).join('\n');
+  return `package com.lichtcui.pokelauncher.ui
+
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.lightColorScheme
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.graphics.Color
+
+${THEME_KT_HEADER}
+
+/** 令牌唯一实例：业务代码只通过它取色（\`THEME.textPrimary\`） */
+object THEME {
+${fields}
+}
+
+/**
+ * Material3 亮色方案：每个角色都显式映射到 \`shared/theme.json\` 的令牌。
+ *
+ * 别删「没用到」的角色：Compose 组件内部会读它们（弹窗容器、开关轨道…），漏掉就变紫。
+ */
+private val LightColors = lightColorScheme(
+${roles}
+)
+
+@Composable
+fun PokeTheme(content: @Composable () -> Unit) {
+    MaterialTheme(colorScheme = LightColors, content = content)
+}
+`;
+}
+
+/** 递归收集某个源码目录下指定后缀的文件（相对 ROOT 的路径） */
+function sourceFiles(relDir, exts) {
+  const out = [];
+  const walk = (abs) => {
+    for (const e of readdirSync(abs, { withFileTypes: true })) {
+      const p = join(abs, e.name);
+      if (e.isDirectory()) walk(p);
+      else if (exts.some((x) => e.name.endsWith(x))) out.push(relative(ROOT, p));
+    }
+  };
+  walk(join(ROOT, relDir));
+  return out.sort();
+}
+
+/**
+ * 反向护栏：`shared/theme.json` 的令牌生成出来了，UI 代码得**真的用它**，且不许再写死颜色。
+ *
+ * 三条规则：
+ * 1. 鸿蒙 UI 源码里不许出现 `'#RRGGBB'` 字面量（`SharedUi.ets` / `Theme.ets` 是生成物，豁免）；
+ * 2. 安卓 UI 源码里不许出现 `Color(0x…)` / `Color.White`（`Theme.kt` 是生成物，豁免；
+ *    游戏页底色走 `SharedUi.GAME_BG_COLOR`，那本来就是共享常量）；
+ * 3. 令牌不许是「僵尸」：每个都必须在**业务代码**里被引用过至少一次（生成物里的自引用不算）。
+ *
+ * 为什么挂在 `--check` 上：全靠目录扫描，新增一个 UI 文件时自动纳入 —— 不用维护文件清单，
+ * 也就不会「新写的页面悄悄带一堆写死色值」而在 review 里溜过去。
+ */
+function checkThemeUsage(theme) {
+  const generated = new Set([P.etsTheme, P.ktTheme, P.etsSharedUi, P.ktSharedUi]);
+  const etsHex = /['"]#(?:[0-9A-Fa-f]{6}|[0-9A-Fa-f]{8})['"]/;
+  const ktColor = /Color\(0x|Color\.(?:White|Black|Red|Green|Blue|Gray|LightGray|DarkGray|Yellow|Magenta|Cyan)\b/;
+  const etsFiles = sourceFiles('entry/src/main/ets', ['.ets']);
+  const ktFiles = sourceFiles('android/app/src/main/java', ['.kt']);
+  if (etsFiles.length < 8 || ktFiles.length < 15) {
+    fail(`视觉令牌检查：源码目录扫描结果异常（ets ${etsFiles.length} / kt ${ktFiles.length}），路径写错了？`);
+    return;
+  }
+  const referenced = new Set();
+  const scan = (files, re, what) => {
+    for (const file of files) {
+      const text = read(file);
+      text.split('\n').forEach((line, i) => {
+        if (!generated.has(file) && re.test(line)) {
+          fail(`视觉令牌检查：${file}:${i + 1} 里又写死了${what}（改用 THEME.*，见 shared/theme.json）\n    ${line.trim()}`);
+        }
+        for (const m of line.matchAll(/THEME\.([A-Za-z0-9]+)/g)) referenced.add(m[1]);
+      });
+    }
+  };
+  scan(etsFiles, etsHex, '颜色字面量');
+  scan(ktFiles, ktColor, '颜色字面量');
+  for (const c of theme.colors) {
+    if (!referenced.has(c.name)) {
+      fail(`视觉令牌检查：令牌 \`${c.name}\` 没有任何一端的业务代码引用（僵尸令牌），要么用起来、要么从 shared/theme.json 删掉`);
+    }
+  }
+  checkHarmonyTextColor(etsFiles.filter((f) => !generated.has(f)));
+}
+
+/** 跳过字符串字面量，返回 `start` 处引号配对的收尾下标（未闭合时返回 length） */
+function skipString(code, start) {
+  const quote = code[start];
+  for (let i = start + 1; i < code.length; i += 1) {
+    if (code[i] === '\\') {
+      i += 1;
+    } else if (code[i] === quote) {
+      return i;
+    }
+  }
+  return code.length;
+}
+
+/** 返回与 `code[open]`（应为 `(`）配对的下标；跳过字符串与注释，找不到返回 -1 */
+function matchParen(code, open) {
+  let depth = 0;
+  for (let i = open; i < code.length; i += 1) {
+    const ch = code[i];
+    if (ch === "'" || ch === '"' || ch === '`') {
+      i = skipString(code, i);
+    } else if (ch === '/' && code[i + 1] === '/') {
+      while (i < code.length && code[i] !== '\n') i += 1;
+    } else if (ch === '/' && code[i + 1] === '*') {
+      const end = code.indexOf('*/', i + 2);
+      i = end < 0 ? code.length : end + 1;
+    } else if (ch === '(') {
+      depth += 1;
+    } else if (ch === ')') {
+      depth -= 1;
+      if (depth === 0) return i;
+    }
+  }
+  return -1;
+}
+
+/**
+ * 把注释与字符串字面量替换成空格（保留换行，**长度不变** → 下标仍可直接映射回原文）。
+ *
+ * 为什么需要它：直接在原文上正则会把注释里的 `Text('…')`、字符串里的 `Text(` 当成代码
+ * （护栏自己先误报，就等于没护栏）。字符串被抹掉后 `Text(   )` 的括号仍能配对，
+ * 而 `.fontColor` 是标识符，不受影响。
+ */
+function blankNonCode(code) {
+  const buf = code.split('');
+  const hide = (from, to) => {
+    for (let j = from; j <= to && j < buf.length; j += 1) {
+      if (buf[j] !== '\n') buf[j] = ' ';
+    }
+  };
+  for (let i = 0; i < code.length; i += 1) {
+    const ch = code[i];
+    if (ch === '/' && code[i + 1] === '/') {
+      const start = i;
+      while (i < code.length && code[i] !== '\n') i += 1;
+      hide(start, i - 1);
+    } else if (ch === '/' && code[i + 1] === '*') {
+      const end = code.indexOf('*/', i + 2);
+      const stop = end < 0 ? code.length - 1 : end + 1;
+      hide(i, stop);
+      i = stop;
+    } else if (ch === "'" || ch === '"' || ch === '`') {
+      const end = skipString(code, i);
+      hide(i, end);
+      i = end;
+    }
+  }
+  return buf.join('');
+}
+
+/** 所有未写 `.fontColor(...)` 的 `Text(...)`（返回行号 + 摘要） */
+function textSitesMissingFontColor(text) {
+  const out = [];
+  const code = blankNonCode(text);
+  const re = /(^|[^\w.$])Text\s*\(/g;
+  let m;
+  while ((m = re.exec(code))) {
+    const open = m.index + m[0].length - 1;
+    const close = matchParen(code, open);
+    if (close < 0) continue;
+    const modifiers = [];
+    let i = close + 1;
+    for (;;) {
+      const next = /^\s*\.\s*([A-Za-z_$][\w$]*)\s*\(/.exec(code.slice(i));
+      if (!next) break;
+      const modOpen = i + next[0].length - 1;
+      const modClose = matchParen(code, modOpen);
+      if (modClose < 0) break;
+      modifiers.push(next[1]);
+      i = modClose + 1;
+    }
+    if (!modifiers.includes('fontColor')) {
+      out.push({
+        line: code.slice(0, open).split('\n').length,
+        snippet: text.slice(m.index, close + 1).replace(/\s+/g, ' ').slice(0, 70),
+      });
+    }
+  }
+  return out;
+}
+
+/**
+ * 反向护栏：鸿蒙 UI 里的 `Text(...)` 必须显式写 `.fontColor(...)`。
+ *
+ * 为什么：`Text` 不写 `fontColor` 就用**框架默认色**（真机实测渲染成 #313131），
+ * 这个值既不在 `shared/theme.json` 里、也不在两端任何一端的源码里 —— 令牌层看不见它，
+ * 系统深色模式或框架升级一动就静默换色；而安卓同位置的默认值本来也不是它
+ * （Compose 默认走 Material3 `onSurface` = `textPrimary` #333333）。
+ * 首页三个大标题（未安装 / 下载流程 / 就绪）+ 设置 / 参数调整 / 法律三个二级页大标题
+ * 都踩过这个坑，所以钉死：写色或写进 theme.json，别的路不给。
+ *
+ * 只管鸿蒙：安卓 `Text` 不写 `color` 时走 `colorScheme.onSurface`（已映射到 textPrimary），
+ * 是**被令牌固定住**的默认值；真正的坑在「组件自己给内容色」的槽位（如 TopAppBar 的
+ * `navigationIconContentColor` 默认 onSurfaceVariant），那条在代码里显式指定，没法靠这条护栏兜。
+ */
+function checkHarmonyTextColor(files) {
+  for (const file of files) {
+    for (const site of textSitesMissingFontColor(read(file))) {
+      fail(
+        `文字颜色检查：${file}:${site.line} 的 Text 没写 .fontColor(...)，会用框架默认色（令牌层管不到）\n    ${site.snippet}`
+      );
     }
   }
 }
@@ -954,6 +1577,90 @@ function assertCases(cases) {
   };
 }
 
+/**
+ * `shared/cases/cheat.json`：参数调整的数值取值与展示。
+ *
+ * 参数形状与 `shared/cheats.json` 的 `param` 一致（`default` 而非安卓的 `defaultValue`，
+ * 生成时按平台映射），向量必须覆盖那些「改错只有真机才看得出来」的分支：未设置 / 空串 /
+ * 无法解析 / 上下夹紧 / 浮点吸附 / 真实中间值 / 省略 step / 省略 unit / labels 命中与越界。
+ * 数值量级限定在注册表实际用到的范围（±1000）：两端都没处理 1e18 以上的科学计数法差异。
+ */
+function assertCheatCases(raw) {
+  const params = raw?.params ?? {};
+  const names = Object.keys(params);
+  if (names.length < 3) fail('cases: cheat.json 的 params 太少（拉不开分支）');
+  for (const [name, p] of Object.entries(params)) {
+    const where = `cases: cheat.params.${name}`;
+    if (typeof p.id !== 'string' || p.id.length === 0) fail(`${where}.id 必须是非空字符串`);
+    if (typeof p.label !== 'string' || p.label.length === 0) fail(`${where}.label 必须是非空字符串`);
+    for (const k of ['min', 'max', 'default']) {
+      if (typeof p[k] !== 'number' || !Number.isFinite(p[k])) fail(`${where}.${k} 必须是有限数字`);
+    }
+    if (!(p.min < p.max)) fail(`${where}: min 必须小于 max`);
+    if (!(p.default >= p.min && p.default <= p.max)) fail(`${where}: default 必须在 [min, max] 内`);
+    if (p.step !== undefined && !(typeof p.step === 'number' && p.step > 0)) fail(`${where}.step 必须 > 0`);
+    if (p.unit !== undefined && typeof p.unit !== 'string') fail(`${where}.unit 必须是字符串`);
+    if (p.labels !== undefined) {
+      if (!Array.isArray(p.labels) || p.labels.length === 0) {
+        fail(`${where}.labels 必须是非空数组`);
+      } else {
+        if (p.labels.length > (p.max - p.min) / (p.step ?? 1) + 1) fail(`${where}.labels 比档位数还多`);
+        for (const l of p.labels) {
+          if (typeof l !== 'string' || l.length === 0) fail(`${where}.labels 必须是非空字符串`);
+        }
+      }
+    }
+    if (Math.max(Math.abs(p.min), Math.abs(p.max), Math.abs(p.default)) > 1000) {
+      fail(`${where}: 数值量级超过两端实现约定的范围（±1000）`);
+    }
+  }
+
+  const rows = raw?.value;
+  if (!Array.isArray(rows) || rows.length < 12) {
+    fail('cases: cheat.value 至少要 12 条向量');
+    return { params, rows: [] };
+  }
+  const seen = new Set();
+  for (const c of rows) {
+    const where = `cases: cheat.value[${JSON.stringify(c.param)} / ${JSON.stringify(c.raw)}]`;
+    if (!(c.param in params)) {
+      fail(`${where} 引用了不存在的 param`);
+      continue;
+    }
+    if (c.raw !== null && typeof c.raw !== 'string') fail(`${where}.raw 只能是字符串或 null`);
+    if (typeof c.expectValue !== 'number' || !Number.isFinite(c.expectValue)) fail(`${where}.expectValue 必须是有限数字`);
+    if (typeof c.expectLiteral !== 'string') fail(`${where}.expectLiteral 必须是字符串`);
+    if (typeof c.expectDisplay !== 'string' || c.expectDisplay.length === 0) fail(`${where}.expectDisplay 必须是非空字符串`);
+    const key = `${c.param}|${String(c.raw)}`;
+    if (seen.has(key)) fail(`${where} 有重复向量`);
+    seen.add(key);
+  }
+  // 分支覆盖：少一条就等于那个坑没人守
+  const branches = [
+    ['未设置（raw = null）', (c) => c.raw === null],
+    ['空串', (c) => c.raw === ''],
+    ['无法解析', (c) => typeof c.raw === 'string' && c.raw.trim() !== '' && !Number.isFinite(Number(c.raw.trim()))],
+    ['下夹紧', (c) => Number(c.raw) < c.expectValue && c.expectValue === params[c.param]?.min],
+    ['上夹紧', (c) => Number(c.raw) > c.expectValue && c.expectValue === params[c.param]?.max],
+    [
+      '浮点吸附',
+      (c) => typeof c.raw === 'string' && c.raw.includes('.') && Number.isInteger(c.expectValue) && Number(c.raw) !== c.expectValue,
+    ],
+    [
+      '真实中间值（不吸附）',
+      (c) => typeof c.raw === 'string' && !Number.isInteger(c.expectValue) && Number(c.raw) === c.expectValue,
+    ],
+    ['省略 step', (c) => params[c.param]?.step === undefined],
+    ['省略 unit', (c) => params[c.param]?.unit === undefined],
+    ['labels 命中', (c) => (params[c.param]?.labels ?? []).includes(c.expectDisplay)],
+    ['labels 越界（回退到数值）', (c) => (params[c.param]?.labels ?? []).length > 0 && c.expectDisplay === String(c.expectValue)],
+  ];
+  for (const [what, test] of branches) {
+    if (!rows.some(test)) fail(`cases: cheat.value 缺少「${what}」的向量`);
+  }
+  return { params, rows };
+}
+
 /** mime.json → 两端共用的 MIME 向量（顺带把图里的每条映射都锁一遍） */
 function mimeCases(map, fallback) {
   const cases = Object.entries(map).map(([ext, mime]) => ({ path: `/x.${ext}`, expect: mime }));
@@ -970,16 +1677,48 @@ const CASES_DOC = [
   '期望值只写一份，两端测试遍历同一套向量——这样才能抓住「一端改了、另一端没改」的分叉。',
 ].join('\n');
 
+/** `shared/cases/cheat.json` 的 param → 鸿蒙 `CheatParam` 字面量（省略项就不写，走注册表默认） */
+function etsCheatParam(p) {
+  const parts = [
+    `id: ${etsStr(p.id)}`,
+    `label: ${etsStr(p.label)}`,
+    `min: ${p.min}`,
+    `max: ${p.max}`,
+    `default: ${p.default}`,
+  ];
+  if (p.step !== undefined) parts.push(`step: ${p.step}`);
+  if (p.unit !== undefined) parts.push(`unit: ${etsStr(p.unit)}`);
+  if (p.labels !== undefined) parts.push(`labels: [${p.labels.map((l) => etsStr(l)).join(', ')}]`);
+  return `{ ${parts.join(', ')} }`;
+}
+
+/** `shared/cases/cheat.json` 的 param → 安卓 `CheatParam` 字面量（`default` → `defaultValue`） */
+function ktCheatParam(p) {
+  const parts = [
+    `id = ${ktStr(p.id)}`,
+    `label = ${ktStr(p.label)}`,
+    `min = ${numLit(p.min)}`,
+    `max = ${numLit(p.max)}`,
+    `defaultValue = ${numLit(p.default)}`,
+  ];
+  if (p.step !== undefined) parts.push(`step = ${numLit(p.step)}`);
+  if (p.unit !== undefined) parts.push(`unit = ${ktStr(p.unit)}`);
+  if (p.labels !== undefined) parts.push(`labels = listOf(${p.labels.map((l) => ktStr(l)).join(', ')})`);
+  return `CheatParam(${parts.join(', ')})`;
+}
+
 /** 把一段多行说明渲染成 JSDoc 体（每行前缀 ` * `） */
 const docBlock = (text) => text.split('\n').map((l) => (l ? ` * ${l}` : ' *')).join('\n');
 
-function genEtsCases(c, mimes) {
+function genEtsCases(c, mimes, cheat) {
   const lit = (v) => (v === null ? 'null' : typeof v === 'string' ? etsStr(v) : String(v));
   const etsArr = (arr) => `[${arr.map((x) => etsStr(x)).join(', ')}]`;
   const rows = (arr, fn) => arr.map((x) => `  ${fn(x)}`).join(',\n');
   return `/**
 ${docBlock(CASES_DOC)}
  */
+
+import { CheatParam } from '../../../main/ets/model/Cheats';
 
 export interface PathCase {
   input: string;
@@ -1063,6 +1802,15 @@ export interface DownloadMirrorCase {
   expect: string;
 }
 
+export interface CheatValueCase {
+  param: CheatParam;
+  /** null = 偏好库里没有这个键（未设置） */
+  raw: string | null;
+  expectValue: number;
+  expectLiteral: string;
+  expectDisplay: string;
+}
+
 /** 本地 HTTP 服务的路径判定（安全边界） */
 export const PATH_CASES: PathCase[] = [
 ${rows(c.paths, (x) => `{ input: ${etsStr(x.input)}, expect: ${lit(x.expect)} }`)}
@@ -1137,10 +1885,15 @@ ${rows(c.dl.kindOf, (x) => `{ index: ${x.index}, count: ${x.count}, expect: ${et
 export const DOWNLOAD_MIRROR_CASES: DownloadMirrorCase[] = [
 ${rows(c.dl.mirrorOf, (x) => `{ url: ${etsStr(x.url)}, mirrors: ${etsArr(x.mirrors)}, expect: ${etsStr(x.expect)} }`)}
 ];
+
+/** 参数调整：数值取值（空值回退 / 夹紧 / 浮点吸附）与展示文案（labels 档位名 / 单位） */
+export const CHEAT_VALUE_CASES: CheatValueCase[] = [
+${rows(cheat.rows, (x) => `{ param: ${etsCheatParam(cheat.params[x.param])}, raw: ${x.raw === null ? 'null' : etsStr(x.raw)}, expectValue: ${x.expectValue}, expectLiteral: ${etsStr(x.expectLiteral)}, expectDisplay: ${etsStr(x.expectDisplay)} }`)}
+];
 `;
 }
 
-function genKtCases(c, mimes) {
+function genKtCases(c, mimes, cheat) {
   const lit = (v) => (v === null ? 'null' : typeof v === 'string' ? ktStr(v) : String(v));
   const ktArr = (arr) => `listOf(${arr.map((x) => ktStr(x)).join(', ')})`;
   const num = (n) => (Number.isInteger(n) ? `${n}.0` : String(n));
@@ -1148,6 +1901,7 @@ function genKtCases(c, mimes) {
   const rows = (arr, fn) => arr.map((x) => `        ${fn(x)}`).join(',\n');
   return `package com.lichtcui.pokelauncher
 
+import com.lichtcui.pokelauncher.cheat.CheatParam
 import com.lichtcui.pokelauncher.install.ProbeResult
 
 /**
@@ -1195,6 +1949,15 @@ object CasesGen {
     data class DownloadKindCase(val index: Int, val count: Int, val expect: String)
 
     data class DownloadMirrorCase(val url: String, val mirrors: List<String>, val expect: String)
+
+    data class CheatValueCase(
+        val param: CheatParam,
+        /** null = 偏好库里没有这个键（未设置） */
+        val raw: String?,
+        val expectValue: Double,
+        val expectLiteral: String,
+        val expectDisplay: String
+    )
 
     /** 本地 HTTP 服务的路径判定（安全边界） */
     val PATH_CASES = listOf(
@@ -1270,6 +2033,11 @@ ${rows(c.dl.kindOf, (x) => `DownloadKindCase(${x.index}, ${x.count}, ${ktStr(x.e
     val DOWNLOAD_MIRROR_CASES = listOf(
 ${rows(c.dl.mirrorOf, (x) => `DownloadMirrorCase(${ktStr(x.url)}, ${ktArr(x.mirrors)}, ${ktStr(x.expect)})`)}
     )
+
+    /** 参数调整：数值取值与展示文案（labels 档位名 / 单位） */
+    val CHEAT_VALUE_CASES = listOf(
+${rows(cheat.rows, (x) => `CheatValueCase(${ktCheatParam(cheat.params[x.param])}, ${lit(x.raw)}, ${num(x.expectValue)}, ${ktStr(x.expectLiteral)}, ${ktStr(x.expectDisplay)})`)}
+    )
 }
 `;
 }
@@ -1279,7 +2047,11 @@ ${rows(c.dl.mirrorOf, (x) => `DownloadMirrorCase(${ktStr(x.url)}, ${ktArr(x.mirr
  * 各端测试文件必须引用生成物里的容器名，且不得再手写路径穿越向量的期望值
  * （否则就是「测试看着还在，其实已经和 shared/ 脱钩」）。
  */
-function checkCaseUsage() {
+function checkCaseUsage(cheat) {
+  // 向量里的展示文案（带字母的那些：`x10` / `Master`）不允许在两端测试里再手写一遍。
+  // 纯数字（`7` / `50` / `b`）太容易误伤其他断言，交给「必须引用生成容器」这条硬要求来守。
+  const quote = (s, q) => `${q}${s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}${q}`;
+  const cheatUi = [...new Set(cheat.rows.map((c) => c.expectDisplay))].filter((s) => s.length >= 2 && /[A-Za-z]/.test(s));
   // need: 必须引用的生成容器名；forbidden: 正则（命中即报「又手写了一份期望值」）
   const rules = [
     [P.etsHttpTest, ['PATH_CASES'], ['/%2e%2e', '%2E%2E', '%E4%2e%2e', '%252e'], '鸿蒙路径向量'],
@@ -1313,6 +2085,8 @@ function checkCaseUsage() {
       ['"镜像"', '"直连"'],
       '安卓下载源向量',
     ],
+    [P.etsCheatFormatTest, ['CHEAT_VALUE_CASES'], cheatUi.map((s) => quote(s, "'")), '鸿蒙参数取值向量'],
+    [P.ktCheatFormatTest, ['CasesGen.CHEAT_VALUE_CASES'], cheatUi.map((s) => quote(s, '"')), '安卓参数取值向量'],
   ];
   for (const [file, need, forbidden, what] of rules) {
     if (!existsSync(join(ROOT, file))) {
@@ -1879,6 +2653,9 @@ const cases = assertCases({
   http: JSON.parse(read(P.casesHttp)),
   download: JSON.parse(read(P.casesDownload)),
 });
+const cheat = assertCheatCases(JSON.parse(read(P.casesCheat)));
+const theme = assertTheme(JSON.parse(read(P.theme)));
+const ui = assertUi(JSON.parse(read(P.ui)));
 const mimes = mimeCases(mimeMap, mime.fallback);
 
 const outputs = [
@@ -1890,13 +2667,19 @@ const outputs = [
   [P.ktLegalText, genKtLegalText(renderLegal(legal, 'android'))],
   [P.etsMime, genEtsMime(mimeMap, mime.fallback)],
   [P.ktMime, genKtMime(mimeMap, mime.fallback)],
-  [P.etsCases, genEtsCases(cases, mimes)],
-  [P.ktCases, genKtCases(cases, mimes)],
+  [P.etsSharedUi, genEtsSharedUi(ui)],
+  [P.ktSharedUi, genKtSharedUi(ui)],
+  [P.etsTheme, genEtsTheme(theme)],
+  [P.ktTheme, genKtTheme(theme)],
+  [P.etsCases, genEtsCases(cases, mimes, cheat)],
+  [P.ktCases, genKtCases(cases, mimes, cheat)],
 ];
 
 checkConstParity();
 checkNoInline();
-checkCaseUsage();
+checkUiUsage();
+checkThemeUsage(theme);
+checkCaseUsage(cheat);
 checkJsBridgeContract();
 checkHarmonyKeepList();
 checkManifestSchema();

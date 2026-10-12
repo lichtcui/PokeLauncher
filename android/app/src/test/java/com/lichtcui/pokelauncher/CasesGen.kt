@@ -1,5 +1,6 @@
 package com.lichtcui.pokelauncher
 
+import com.lichtcui.pokelauncher.cheat.CheatParam
 import com.lichtcui.pokelauncher.install.ProbeResult
 
 /**
@@ -50,6 +51,15 @@ object CasesGen {
     data class DownloadKindCase(val index: Int, val count: Int, val expect: String)
 
     data class DownloadMirrorCase(val url: String, val mirrors: List<String>, val expect: String)
+
+    data class CheatValueCase(
+        val param: CheatParam,
+        /** null = 偏好库里没有这个键（未设置） */
+        val raw: String?,
+        val expectValue: Double,
+        val expectLiteral: String,
+        val expectDisplay: String
+    )
 
     /** 本地 HTTP 服务的路径判定（安全边界） */
     val PATH_CASES = listOf(
@@ -263,5 +273,32 @@ object CasesGen {
         DownloadMirrorCase("https://github.com.evil.com/a/b.zip", listOf("https://m1/"), ""),
         DownloadMirrorCase("https://github.com/a/b.zip", listOf(), ""),
         DownloadMirrorCase("", listOf("https://m1/"), "")
+    )
+
+    /** 参数调整：数值取值与展示文案（labels 档位名 / 单位） */
+    val CHEAT_VALUE_CASES = listOf(
+        CheatValueCase(CheatParam(id = "candy", label = "倍率", min = 1.0, max = 100.0, defaultValue = 10.0, unit = "x"), null, 10.0, "10", "x10"),
+        CheatValueCase(CheatParam(id = "candy", label = "倍率", min = 1.0, max = 100.0, defaultValue = 10.0, unit = "x"), "", 10.0, "10", "x10"),
+        CheatValueCase(CheatParam(id = "candy", label = "倍率", min = 1.0, max = 100.0, defaultValue = 10.0, unit = "x"), "   ", 10.0, "10", "x10"),
+        CheatValueCase(CheatParam(id = "candy", label = "倍率", min = 1.0, max = 100.0, defaultValue = 10.0, unit = "x"), "abc", 10.0, "10", "x10"),
+        CheatValueCase(CheatParam(id = "candy", label = "倍率", min = 1.0, max = 100.0, defaultValue = 10.0, unit = "x"), "0", 1.0, "1", "x1"),
+        CheatValueCase(CheatParam(id = "candy", label = "倍率", min = 1.0, max = 100.0, defaultValue = 10.0, unit = "x"), "-5", 1.0, "1", "x1"),
+        CheatValueCase(CheatParam(id = "candy", label = "倍率", min = 1.0, max = 100.0, defaultValue = 10.0, unit = "x"), "999", 100.0, "100", "x100"),
+        CheatValueCase(CheatParam(id = "candy", label = "倍率", min = 1.0, max = 100.0, defaultValue = 10.0, unit = "x"), "10.999999999", 11.0, "11", "x11"),
+        CheatValueCase(CheatParam(id = "candy", label = "倍率", min = 1.0, max = 100.0, defaultValue = 10.0, unit = "x"), "51.99999999999999", 52.0, "52", "x52"),
+        CheatValueCase(CheatParam(id = "candy", label = "倍率", min = 1.0, max = 100.0, defaultValue = 10.0, unit = "x"), "7.5", 7.5, "7.5", "x7.5"),
+        CheatValueCase(CheatParam(id = "candy", label = "倍率", min = 1.0, max = 100.0, defaultValue = 10.0, unit = "x"), " 42 ", 42.0, "42", "x42"),
+        CheatValueCase(CheatParam(id = "rewardTier", label = "档位", min = 0.0, max = 4.0, defaultValue = 4.0, step = 1.0, labels = listOf("Common", "Great", "Ultra", "Rogue", "Master")), "4", 4.0, "4", "Master"),
+        CheatValueCase(CheatParam(id = "rewardTier", label = "档位", min = 0.0, max = 4.0, defaultValue = 4.0, step = 1.0, labels = listOf("Common", "Great", "Ultra", "Rogue", "Master")), "0", 0.0, "0", "Common"),
+        CheatValueCase(CheatParam(id = "rewardTier", label = "档位", min = 0.0, max = 4.0, defaultValue = 4.0, step = 1.0, labels = listOf("Common", "Great", "Ultra", "Rogue", "Master")), "-3", 0.0, "0", "Common"),
+        CheatValueCase(CheatParam(id = "rewardTier", label = "档位", min = 0.0, max = 4.0, defaultValue = 4.0, step = 1.0, labels = listOf("Common", "Great", "Ultra", "Rogue", "Master")), "2.5", 2.5, "2.5", "2.5"),
+        CheatValueCase(CheatParam(id = "rewardTier", label = "档位", min = 0.0, max = 4.0, defaultValue = 4.0, step = 1.0, labels = listOf("Common", "Great", "Ultra", "Rogue", "Master")), "9", 4.0, "4", "Master"),
+        CheatValueCase(CheatParam(id = "plain", label = "数量", min = 0.0, max = 1000.0, defaultValue = 5.0, step = 5.0), null, 5.0, "5", "5"),
+        CheatValueCase(CheatParam(id = "plain", label = "数量", min = 0.0, max = 1000.0, defaultValue = 5.0, step = 5.0), "12", 12.0, "12", "12"),
+        CheatValueCase(CheatParam(id = "plain", label = "数量", min = 0.0, max = 1000.0, defaultValue = 5.0, step = 5.0), "10", 10.0, "10", "10"),
+        CheatValueCase(CheatParam(id = "plain", label = "数量", min = 0.0, max = 1000.0, defaultValue = 5.0, step = 5.0), "1000.0000001", 1000.0, "1000", "1000"),
+        CheatValueCase(CheatParam(id = "speed", label = "速度", min = 0.5, max = 2.5, defaultValue = 1.0, step = 0.25, unit = "x"), "1.9999999", 2.0, "2", "x2"),
+        CheatValueCase(CheatParam(id = "speed", label = "速度", min = 0.5, max = 2.5, defaultValue = 1.0, step = 0.25, unit = "x"), "2", 2.0, "2", "x2"),
+        CheatValueCase(CheatParam(id = "speed", label = "速度", min = 0.5, max = 2.5, defaultValue = 1.0, step = 0.25, unit = "x"), "3", 2.5, "2.5", "x2.5")
     )
 }

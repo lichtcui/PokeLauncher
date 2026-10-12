@@ -13,11 +13,13 @@
 仓库根有**两份独立工程**：鸿蒙（`entry/`，本文档主体）与安卓（`android/`，见 [`android-port.md`](./android-port.md)）。两者构建体系互不相干，共用的东西只有 [`shared/`](../shared/README.md)（由 `scripts/gen-shared.mjs` **生成**成两端源码，不是引用）。
 
 ```
-shared/                            # 跨端唯一真相（生成两端的 Cheats / SharedJs / LegalText / Mime + 测试向量）
+shared/                            # 跨端唯一真相（生成两端的 Cheats / SharedJs / LegalText / Mime / SharedUi / Theme + 测试向量）
 ├─ cheats.json                     # 参数调整注册表（分组 + 条目 + param）
 ├─ legal.json                      # 法律页正文（10 章节；{xxx} 是平台占位符）
 ├─ mime.json                       # 扩展名 → MIME（本地 HTTP 服务的 Content-Type）
-├─ cases/{paths,format,version,download,http}.json  # 纯函数行为向量（两端测试遍历同一套期望值）
+├─ ui.json                         # 两端同一条的用户可见文案 / 展示常量（「剩余」前缀、存储不足、通知、游戏页底色）
+├─ theme.json                      # 视觉令牌：语义颜色 → hex + Material3 亮色角色映射（两端 UI 颜色唯一真相）
+├─ cases/{paths,format,version,download,http,cheat}.json  # 纯函数行为向量（两端测试遍历同一套期望值）
 ├─ js/cheats/<id>.js               # 每条一条纯 JS 脚本
 └─ js/{scene-runtime.core,save-guard,canvas-patch}.js   # 两端逐字共享的注入 JS
 
@@ -27,11 +29,14 @@ entry/src/main/ets/
 │  ├─ Const.ets                    # 常量（URL/镜像/DEBUG_UI/FORCE_WILL_READ_FREQUENTLY 等）
 │  ├─ SharedJs.ets                 # ⚠️ 生成物：共享注入 JS（场景捕获运行时/存档守卫/canvas 补丁）
 │  ├─ Mime.ets                     # ⚠️ 生成物：扩展名 → MIME（唯一真相在 shared/mime.json）
+│  ├─ SharedUi.ets                 # ⚠️ 生成物：两端共用文案 / 展示常量（唯一真相在 shared/ui.json）
+│  ├─ Theme.ets                    # ⚠️ 生成物：视觉令牌（唯一真相在 shared/theme.json）；业务代码里不准再写 `'#RRGGBB'`
 │  ├─ Prefs.ets                    # 共享 preferences 库名 + 实例缓存（getStore）
 │  ├─ Http.ets                     # 共享 GET 文本请求 requestText()
 │  ├─ WebCache.ets                 # clearWebCache()：清 Web HTTP/JS 缓存
 │  ├─ DownloadUrls.ets             # 下载候选地址/测速排序/host·角色判定（纯函数，与安卓 install/DownloadUrls.kt 共用向量）
 │  └─ Format.ets                   # 纯展示格式化（字节/速度/时长，有单测）
+│  （同级）CheatFormat.ets          # 参数取值（夹紧/浮点吸附）+ 展示文案（labels/单位），向量 shared/cases/cheat.json
 ├─ components/
 │  ├─ PokeballLoader.ets           # 资源准备动画：精灵球左右摇晃↔逐帧打开（下载/解压共用）
 │  └─ LauncherViews.ets            # 首页各状态视图（NotDownloadedView / DownloadFlowView / ReadyView）
@@ -45,7 +50,7 @@ entry/src/main/ets/
 │  ├─ OrientationPref.ets          # 屏幕方向偏好（竖屏/横屏/跟随系统）读写
 │  ├─ LegalText.ets                # ⚠️ 生成物：法律页正文（唯一真相在 shared/legal.json）
 │  ├─ Cheats.ets                   # ⚠️ 生成物：作弊注册表（唯一真相在 shared/，见 shared/README.md）
-│  └─ CheatState.ets               # 作弊状态单例 + 持久化 + 生成注入脚本 buildBootScript()
+│  └─ CheatState.ets               # 作弊状态单例 + 持久化 + 生成注入脚本 buildBootScript()（取值走 CheatFormat）
 └─ pages/
    ├─ Index.ets                  # 首页启动器：只做声明式渲染 + 状态回写；下载业务在 model/LauncherSession.ets
    ├─ Settings.ets               # 设置页（屏幕方向 / 参数调整开关 / 更新·删除 / 关于 / 法律声明）
@@ -94,7 +99,7 @@ fetchRelease(GitHub API，失败回退 API 镜像)
 - **存档**：游戏 `localStorage`（`domStorageAccess(true)`，origin 固定为 `127.0.0.1:18787`，**改端口会丢档**）。
 - **导出存档**：游戏用 blob URL + `<a download>`；由 `GamePage` 的 `WebDownloadDelegate` 捕获，`DocumentViewPicker` 保存到 `下载/com.lichtcui.pokelauncher/`。**必须在 `onControllerAttached` 里注册**（在 `aboutToAppear` 注册会报 17100001）。
 - **后台静音**：`onPageHide` → `controller.setAudioMuted(true)`；`onPageShow` → `false`。
-- **窗口**：保留顶部状态栏、隐藏底部导航栏、`setWindowLayoutFullScreen(false)`（安全区避让），底部留白用 `setWindowBackgroundColor` 染成游戏色 `#484050`。
+- **窗口**：保留顶部状态栏、隐藏底部导航栏、`setWindowLayoutFullScreen(false)`（安全区避让），底部留白用 `setWindowBackgroundColor` 染成游戏色 `SharedUi.GAME_BG_COLOR`（`#484050`，与安卓同值）；首页/设置页则染成 `HOME_BG_COLOR`（= `THEME.background`）。
 - **返回按钮**：游戏页右上角「返回」全显 3 秒后自动淡出（`GamePage.resetBackTimer`），避免遮挡游戏信息；点击淡出的按钮可唤回、再点才返回；系统返回手势（`onBackPress`）作为兜底。
 - **设置页与更新**：首页就绪页右上角齿轮 → `pages/Settings.ets`。设置页「更新」置 `AppStorage.setOrCreate('pendingUpdate', true)` 后 `router.back()`，由 `Index.onPageShow` 消费并调 `startDownload()`（复用首页下载/解压 UI）；删除数据后返回首页，`onPageShow` 重新判定并回落未下载态。
 - **资源更新与缓存**：本地服务对静态资源返回 `Cache-Control: max-age=31536000` 且 URL 固定，资源包更新后必须清 Web 缓存，否则会继续加载旧文件。下载/解压完成后由 `Index` 自动调用 `clearWebCache()`（`common/WebCache.ets`），无需用户手动刷新。

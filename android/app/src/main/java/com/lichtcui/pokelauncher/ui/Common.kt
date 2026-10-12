@@ -54,7 +54,10 @@ internal fun LauncherTopBar(
         actions = actions,
         colors = TopAppBarDefaults.topAppBarColors(
             containerColor = MaterialTheme.colorScheme.surface,
-            titleContentColor = MaterialTheme.colorScheme.onSurface
+            titleContentColor = MaterialTheme.colorScheme.onSurface,
+            // 返回箭头显式 pin 成 textPrimary：Material3 默认走 onSurfaceVariant（= textTertiary #999999），
+            // 而鸿蒙那边同一个「‹」是 THEME.textPrimary（#333333）—— 30sp 的大字形，差一档就看得出来。
+            navigationIconContentColor = THEME.textPrimary
         )
     )
 }

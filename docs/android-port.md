@@ -49,6 +49,8 @@
 - `SaveGuard` 的 JS 片段（保留；Android 侧它不再是「抢救存档」，而是 Auto Backup / 导出兜底，见 §4.3.2）→ `web/SaveGuard.kt`
 - 法律页正文（10 章节）：[`shared/legal.json`](../shared/legal.json) → **生成** [`ui/LegalText.kt`](../android/app/src/main/java/com/lichtcui/pokelauncher/ui/LegalText.kt) 与 [`model/LegalText.ets`](../entry/src/main/ets/model/LegalText.ets)（两端措辞差异只允许写在 `placeholders` 里）
 - 扩展名 → MIME：[`shared/mime.json`](../shared/mime.json) → **生成** `core/Mime.kt` 与 `common/Mime.ets`（`.js` 回错 MIME 会白屏，生成器硬断言 `text/javascript`）
+- 视觉令牌（颜色）：[`shared/theme.json`](../shared/theme.json) → **生成** [`ui/Theme.kt`](../android/app/src/main/java/com/lichtcui/pokelauncher/ui/Theme.kt) 与 `common/Theme.ets`。安卓那份**同时**是 Material3 亮色方案（36 个角色全部显式映射，漏一个会默默变紫），原来那套自成一派的深色（首页 `0xFF101014`）已废弃——两端首页从此都是亮色；业务代码里不许再写死颜色（`checkThemeUsage` 按目录全量扫描，且每个令牌都得有人用）
+- 两端同一条的用户可见文案 / 展示常量：[`shared/ui.json`](../shared/ui.json) → **生成** `core/SharedUi.kt` 与 `common/SharedUi.ets`（首页流程标题 / 进度行、存储不足提示、完成·失败通知、游戏页底色）
 - `resolveRequestPath()` 路径穿越判定、镜像列表、测速策略、存储预检系数（这些是**纯逻辑、两份手写**，由 `--check` 对账）
 - 原子安装状态机（`game.new` → `.extract-complete` 标记 → 两次 rename → `recover()`）
 - `Format.ets` 三个格式化函数（改为 Kotlin JVM 单测）
@@ -125,6 +127,7 @@ android/                                   Gradle 8.14.3 / AGP 8.11.0 / Kotlin 2
 │  ├─ core/ Const / Paths / Format        无 Android 依赖，可 JVM 单测
 │  ├─ core/ Mime.kt                       ⚠️ 生成物：扩展名 → MIME（唯一真相在 shared/mime.json）
 │  ├─ core/ SharedJs.kt                    ⚠️ 生成物：共享注入 JS（场景捕获运行时 / 存档守卫 / canvas 补丁）
+│  ├─ core/ SharedUi.kt                    ⚠️ 生成物：两端共用文案 / 展示常量（唯一真相在 shared/ui.json）
 │  ├─ core/ Version.kt                     release-<commit> 归一化（与鸿蒙 normalizeVersion 一致）
 │  ├─ core/ Prefs.kt                       SharedPreferences 封装（库名 pokelauncher_settings）
 │  ├─ core/ OrientationPref.kt             屏幕方向偏好（portrait/landscape/system，**只作用于游戏页**）
@@ -145,7 +148,7 @@ android/                                   Gradle 8.14.3 / AGP 8.11.0 / Kotlin 2
 │  ├─ install/ DownloadService.kt          前台服务：通知进度 + 暂停/继续/取消 action + onTimeout
 │  ├─ cheat/ Cheats.kt                     ⚠️ 生成物：参数调整注册表（唯一真相在 shared/）
 │  ├─ cheat/ CheatSlider.kt                Compose 滑块档位换算（手写：两端 UI 写法不同，不进 shared/）
-│  ├─ cheat/ CheatFormat.kt                ids/params 编解码 + 夹紧 + JS 数字字面量（纯函数）
+│  ├─ cheat/ CheatFormat.kt                ids/params 编解码 + 取值（夹紧 / 浮点吸附）+ 展示（labels / 单位，纯函数，向量在 shared/cases/cheat.json）
 │  ├─ cheat/ CheatState.kt                 总开关/启用项/参数 + SharedPreferences 持久化
 │  ├─ cheat/ CheatScripts.kt               SCENE_RUNTIME + buildBootScript()（/__cheats__.js 的内容）
 │  ├─ web/ PokeWebView.kt                  WebView 配置 + PokeNative JS 桥（含存档导出）+ PokeSaveGuard 存档桥 + 切后台静音 + 文件选择器转发
@@ -153,7 +156,8 @@ android/                                   Gradle 8.14.3 / AGP 8.11.0 / Kotlin 2
 │  ├─ web/ SaveGuard.kt                    存档镜像（filesDir/saves/localstorage.json + .bak）+ 注入脚本
 │  ├─ web/ WebCache.kt                     clearCache 时机（活实例优先，否则临时实例；仅主线程）
 │  └─ ui/                                  首页 + 打靶页 + 设置页 + 参数调整页 + 法律页 + 游戏页（P3 全部落地）
-│     ├─ Theme.kt / Common.kt              主题色；页面外壳公共件（返回栏 / 分组标题 / 导航行 / 状态行 / formatMs / 自更新动作分发 / 进度条 / 拉起安装器）
+│     ├─ Theme.kt                          ⚠️ 生成物：视觉令牌（颜色）+ Material3 亮色方案（唯一真相在 shared/theme.json）
+│     ├─ Common.kt                         页面外壳公共件（返回栏 / 分组标题 / 导航行 / 状态行 / formatMs / 自更新动作分发 / 进度条 / 拉起安装器）
 │     ├─ PageOrientation.kt                根组件套用屏幕方向（游戏页用偏好，其余页面手机竖屏/平板跟随系统）
 │     ├─ RootScreen.kt                     应用根：主题 + 路由（6 页布尔量）+ 单一 BackHandler + 方向 + **自更新包就绪后拉起安装器**
 │     ├─ HomeState.kt                      首页四态 + 精灵球阶段 + 流程文案（**纯函数**，可 JVM 单测）
@@ -164,9 +168,9 @@ android/                                   Gradle 8.14.3 / AGP 8.11.0 / Kotlin 2
 │     ├─ SpikeController.kt                应用级控制器（首页 / 设置页 / 打靶页共用同一实例）
 │     ├─ SpikeScreen.kt / CheatScreen.kt   开发者诊断页；参数调整页（纯注册表驱动）
 │     └─ SettingsScreen.kt / LegalText.kt / LegalScreen.kt   设置页；法律正文（⚠️ 生成物）；法律页
-├─ app/src/test/java/.../                  **274 个 JVM 单测**（core 28：Paths 6 / Format 7 / Mime 3 / Version 3 / OrientationPref 7 / Prefs 2；
+├─ app/src/test/java/.../                  **260 个 JVM 单测**（core 28：Paths 6 / Format 7 / Mime 3 / Version 3 / OrientationPref 7 / Prefs 2；
 │                                          install 48：DownloadUrls 6 / DownloadState 16 / DownloadStatus 16 / ReleaseInfo 6 / GameInstallerStream 4；
-│                                          cheat 74：CheatFormat 30 / CheatScripts 14 / CheatState 13 / Cheats 17；
+│                                          cheat 60：CheatFormat 16 / CheatScripts 14 / CheatState 13 / Cheats 17；
 │                                          server 21：InjectScripts 10 / ServerDiag 10 / HttpCache 1；web 36：SaveGuard 22 / DownloadBridge 14；
 │                                          appupdate 33：AppUpdate 18 / ApkUpdate 15；ui 34：HomeState 18 / GameState 9 / LegalText 7）
 └─ app/src/main/res/                       图标（品牌红环）/ 通知图标 ic_download / 精灵球 ic_pokeball / 主题 / network_security_config
@@ -180,7 +184,7 @@ android/                                   Gradle 8.14.3 / AGP 8.11.0 / Kotlin 2
 | --- | --- |
 | `./gradlew assembleDebug` | ✅ `app-debug.apk` 10 MB |
 | `./gradlew assembleRelease`（R8 + 资源收缩） | ✅ `app-release-unsigned.apk` 1.3 MB（含 OkHttp/Okio） |
-| `./gradlew testDebugUnitTest` | ✅ **274 tests, 0 failures** |
+| `./gradlew testDebugUnitTest` | ✅ **260 tests, 0 failures** |
 | `./gradlew :app:lintDebug` | ✅ **0 errors**（27 warnings / 11 hints，均为依赖版本提示与 autoboxing 建议类，不阻塞；新增 1 条 `UseKtx String.toUri`，与 `AppUpdateRepository` 同类） |
 | release 包 JS 桥是否存活 | ✅ 反编译 dex：`PokeNative` / `reportTiming` / `reportState` / **`PokeSaveGuard`** / **`load` / `save` / `notifyRestored`** 均在（`o1.g.load`：类名可混淆，方法名由 `-keepclassmembers @JavascriptInterface` 保住） |
 | release 包新链路常量是否存活 | ✅ dex 里仍有 `tag_name` / `browser_download_url` / `receivedBytes` / `bytes=0-` / `If-Range` / `Content-Range` / `game.zip.download.json` / `pokerogue-download` |
@@ -190,6 +194,7 @@ android/                                   Gradle 8.14.3 / AGP 8.11.0 / Kotlin 2
 | release 包中文常量存活（P3 参数调整页） | ✅ 字节搜索 dex：`参数调整总开关` / 风险提示两行全文 / `强制奖励稀有度` / `100% 捕获率` / `倍率修改` 等均在 |
 | release 包中文常量存活（P3 设置页/法律页） | ✅ 字节搜索 dex：`设置` / `屏幕方向` / `竖屏` / `横屏` / `跟随系统` / `应用更新` / `离线资源更新` / `删除本地数据` / `更新到新版本` / `法律与免责声明` / `关于` / `应用版本` / `资源版本` / `资源来源` / `仍然开启` / `开启参数调整` / 两段风险确认全文 / `安卓版暂未发布` / `检查中…` / `已是最新` / `发现新版本` / `未安装` / `正在删除…` / `将删除已下载的离线资源，本地存档不受影响。确定删除吗？` / `本地数据已删除` / `最近更新：2026-09-18` 等全部在 |
 | 方向偏好 / 更新比较 / 法律正文 | ✅ 纯逻辑已由单测覆盖（`OrientationPrefTest` 7 / `AppUpdateTest` 18 / `LegalTextTest` 7），三处都不依赖设备 |
+| 视觉令牌 / 亮色主题 | ✅ 生成物 `ui/Theme.kt`（28 令牌 / 36 个 Material3 角色）已接线 `PokeTheme`，安卓 UI 里 18 种颜色字面量全部改为引用令牌；`assembleDebug` / `assembleRelease` / `lintDebug` 均过（`Color` 导入清理后不留 warning）。`--check` 反查「写死颜色 / 僵尸令牌」实测能拦（见 [`shared/README.md`](../shared/README.md)）。⚠️ **这是本轮最大的可见变化**：首页与各页从深色变亮色（与鸿蒙一致，属**有意**统一，不是回归）——真机 P3 判据的截图基线要按亮色重拍。 |
 | 首页四态 / 精灵球阶段 | ✅ 纯逻辑已由单测覆盖（`HomeStateTest` 13：四态判定、PAUSED 仍算流程中、安装中优先于暂停、文案逐字对齐鸿蒙、动画常量同值） |
 | 游戏页浮层 / 返回按钮 / 静音 | ✅ 纯逻辑已由单测覆盖（`GameStateTest` 9：**错误浮层优先于加载浮层**、`loadErrorText` 前缀、存档回填提示只在 count>0 时出、`BACK_FADE_MS=3000` / `0.2f` 与鸿蒙同值、兜底脚本读 `window.__pkGame.sound.mute` 且不含 `$`） |
 | release 包中文常量存活（P3 首页） | ✅ 字节搜索 dex：`正在检查本地资源…` / `PokeRogue 离线资源未安装` / `本应用是 PokeRogue 的离线安卓版，安装资源后即可断网游玩` / `需要存储` / `可用空间` / `· 需要开启通知权限` / `继续下载` / `换源重试（丢弃已下载的分片）` / `下载太慢？复制下方直链自行下载资源包，再用「上传资源」导入` / `上传资源` / `直链已复制` / `取消下载` / `确定取消下载吗？已下载的` / `将全部丢失。` / `请勿关闭应用` / `正在解压 PokeRogue 资源…` / `PokeRogue 资源准备就绪` / `离线资源已就绪` / `开始运行` / `开发者诊断（打靶页）` 全部在（48/48） |
@@ -283,7 +288,7 @@ adb logcat -s PokeLauncher          # 全部日志统一 tag
 | 元素 | 实现 | 与鸿蒙的对应 |
 | --- | --- | --- |
 | 返回按钮 | 进入/重载后全显 **3 秒** → 淡到 `0.2`；淡出状态下点一下只把它**唤回**（不退出），全显时才真返回 | `setTimeout(3000)` + `opacity(backVisible ? 1 : 0.2)`，语义逐字对齐（常量在 `ui/GameState.kt`） |
-| 加载浮层 | `pageLoaded=false` 时的半透明蒙层 + 精灵球 + 「正在载入游戏…」 | 鸿蒙靠 Web 组件自己白屏，安卓补一层，顺便把首次载入的闪白遮掉（底色 `GAME_BG_ARGB`） |
+| 加载浮层 | `pageLoaded=false` 时的半透明蒙层 + 精灵球 + 「正在载入游戏…」 | 鸿蒙靠 Web 组件自己白屏，安卓补一层，顺便把首次载入的闪白遮掉（底色 `SharedUi.GAME_BG_COLOR`） |
 | 错误浮层 | 居中卡片「游戏加载失败」+ `加载出错: <detail>` + 一行说明 + `重试`；面板里只留一行「页面有报错」 | 鸿蒙是右上角一行 12sp 小字（无按钮） |
 | 方向 | 根组件的 `ApplyPageOrientation(gamePageActive = showGame)` 套用设置页选的方向（竖/横/跟随系统） | `WindowHolder.setOrientation(readOrientation())` |
 | 静音 | Activity 进后台（`ON_PAUSE`）→ `MUTE_AUDIO` 特性优先、否则注入 `game.sound.mute`；回前台解除；销毁 WebView 前先静音 | 鸿蒙 `onPageHide/onPageShow` + `setAudioMuted`（受 `apiAtLeast(20)` 限制，低版本同样得降级） |
@@ -413,7 +418,7 @@ adb logcat -s PokeLauncher          # 全部日志统一 tag
 
 1. **返回按钮放左上角**（鸿蒙在右上角）：右上角被 P0–P2 的打靶指标面板占着，两个浮控件叠在一起会互相吃掉点击。代价是与鸿蒙不一致，对齐方案是把面板挪到 debug 开关后面（第 8 条）——那时可以把返回按钮搬回右上角。
 2. **错误浮层从「右上角一行 12sp 小字」改成居中卡片**：卡片里是「游戏加载失败」+ `加载出错: <detail>` + 一句自助说明 + `重试` 按钮；面板里只留一行「页面有报错」免得被撑爆。理由：鸿蒙那行小字在游戏画面上几乎读不到，也没有任何恢复手段（只能自己找返回）。
-3. **加载浮层是安卓新增的**：鸿蒙靠 Web 组件自己的白屏过渡，安卓 WebView 首帧前是一块惨白，且与暗色主题格格不入。安卓先铺 `GAME_BG_ARGB`（暗色）底，再叠一层 `0xCC000000` 蒙层 + 精灵球 + 「正在载入游戏…」，`pageLoaded` 一到就拿掉。
+3. **加载浮层是安卓新增的**：鸿蒙靠 Web 组件自己的白屏过渡，安卓 WebView 首帧前是一块惨白，且与暗色主题格格不入。安卓先铺 `SharedUi.GAME_BG_COLOR`（暗色）底，再叠一层 `0xCC000000` 蒙层 + 精灵球 + 「正在载入游戏…」，`pageLoaded` 一到就拿掉。
 4. **切后台只静音、不 `WebView.onPause()`**（对齐鸿蒙注释里的「保留游戏进程」）：`onPause()` 会把 Phaser 的计时器一起冻住，回前台容易追帧/卡顿；代价是后台仍占 CPU/内存，留 P5 真机看电量再决定要不要加。
 5. **静音双路径**：`WebViewFeature.MUTE_AUDIO` 可用就用 `WebViewCompat.setAudioMuted`（与鸿蒙 `controller.setAudioMuted` 同语义），不可用则注入 `window.__pkGame.sound.mute`（引导脚本已经把 Game 实例挂在那里）。Destroy 前也先静音一次（安卓上有「destroy 后音频还在响」的机型）。
 6. **浮层判定做成纯函数**（`ui/GameState.kt` 的 `gameOverlayOf`，`GameStateTest` 9 条）：本机没有模拟器，写进 `@Composable` 就等于零验证。最要命的一条是**错误优先于加载中**——加载失败时 `pageLoaded` 永远是 false，顺序反了用户就只看到「正在载入…」。返回按钮的 `3000ms` / `0.2f` 也一并定了常量。

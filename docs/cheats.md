@@ -17,7 +17,8 @@
 | `scripts/gen-shared.mjs` | 生成器 + 校验器：产出两端注册表、共享 JS 常量、法律页正文与 MIME 表，并对账两端常量/注入链（`--check` 供构建使用） |
 | `model/Cheats.ets` | **生成物**（不要手改）：鸿蒙注册表 `CHEATS: Cheat[]`，每条 `{ id, name, desc, group, script, param? }` |
 | `common/SharedJs.ets` | **生成物**：共享注入 JS 常量（场景捕获运行时 / 存档守卫 / canvas 补丁） |
-| `model/CheatState.ets` | 内存单例 + 持久化（`pokelauncher_settings` 的 `cheatMaster` / `cheatEnabledIds` / `cheatParams`）+ `buildBootScript()`（注入 `__CHEAT_PARAMS__` + **场景捕获运行时** + 按启用清单拼接 script） |
+| `model/CheatState.ets` | 内存单例 + 持久化（`pokelauncher_settings` 的 `cheatMaster` / `cheatEnabledIds` / `cheatParams`）+ `buildBootScript()`（注入 `__CHEAT_PARAMS__` + **场景捕获运行时** + 按启用清单拼接 script）；取值调用 `common/CheatFormat.ets` 的 `resolveNumber` / `numberLiteral` |
+| `common/CheatFormat.ets` | **纯函数**（对应安卓 `cheat/CheatFormat.kt`）：原始串 → 夹紧 + 滑块浮点吸附（`resolveNumber` / `snapToStep`）、JS 数字字面量（`numberLiteral`）、展示文案（`displayValue`：labels 档位名 / `单位 + 数值`）。期望值在两端共用的 [`shared/cases/cheat.json`](../shared/cases/cheat.json)——**不要再把这段逻辑抄回其他文件** |
 | `LocalHttpServer.ets` | `/index.html` 注入 `<script src="/__cheats__.js">`；`/__cheats__.js` 请求时调 `buildBootScript()` 动态下发（`no-cache`） |
 | `pages/Settings.ets` | 「参数调整」总开关（开启时弹账号风险 + 兼容性风险确认框） |
 | `pages/Cheats.ets` | 条目列表页（按 `CHEAT_GROUPS` 分组；每条一个 Switch；声明 `param` 的额外显示数值 Slider），从首页就绪页「参数调整」进入 |
@@ -88,7 +89,9 @@
 ## script 运行环境与约定
 
 - **执行时机**：`index.html` 解析到 `<head>` 后、游戏自身脚本之前（加载时注入）。
-- **数值参数**：条目声明 `param` 后，`buildBootScript()` 会在 IIFE 顶部注入 `var __CHEAT_PARAMS__={ <paramId>: <value>, ... };`，脚本内用 `__CHEAT_PARAMS__.xxx` 读取（值已按 `min/max` 夹取）。
+- **数值参数**：条目声明 `param` 后，`buildBootScript()` 会在 IIFE 顶部注入 `var __CHEAT_PARAMS__={ <paramId>: <value>, ... };`，脚本内用 `__CHEAT_PARAMS__.xxx` 读取（值已由 `common/CheatFormat.ets` / `cheat/CheatFormat.kt` 按 `min/max` 夹取、并把滑块浮点漂移吸附回档位；界面上的档位名 / 单位文案也来自同一个 `displayValue`）。
+
+  ⚠️ 新增 `param` 的**形状**（如新写一个省略 `unit`、或带小数 `step` 的条目）时，别忘了往 `shared/cases/cheat.json` 补一条向量：那个形状的分支现在可能一条向量都没覆盖。
 - **实时 hook 约定**：hook 前先判 `typeof proto.x === "function"` 且用标记位（如 `proto.__cheatMoney`）防重复；hook 时保留 `orig` 并 `orig.call(this, ...)`，保证 `this` 正确。
 - 多条按 `CHEATS` 顺序拼接，整体包在一个 IIFE 内；**每条单独 try/catch**，单条报错不影响其它（错误以 `CHEAT err <id>` 打到 `ARKWEB-CONSOLE`）。
 - 总开关关闭或无启用条目时，`/__cheats__.js` 返回空内容（不报错）。

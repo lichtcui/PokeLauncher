@@ -1,4 +1,6 @@
 import { PrepPhase, PokeballLoader } from './PokeballLoader';
+import { textStorageLow } from '../common/SharedUi';
+import { THEME } from '../common/Theme';
 
 /**
  * 首页各状态的视图组件。
@@ -28,32 +30,33 @@ export struct NotDownloadedView {
       // 未开始：静止的精灵球，点「开始下载」后开始左右摇晃
       PokeballLoader({ phase: PrepPhase.IDLE })
       Text('PokeRogue 离线资源未安装').fontSize(18).fontWeight(FontWeight.Medium)
+        .fontColor(THEME.textPrimary)
       Text('本应用是 PokeRogue 的离线鸿蒙版，安装资源后即可断网游玩')
         .fontSize(13)
-        .fontColor('#888888')
+        .fontColor(THEME.textSecondary)
         .textAlign(TextAlign.Center)
         .padding({ left: 24, right: 24 })
 
       // 资源包信息卡片
       Column({ space: 10 }) {
         Row() {
-          Text('来源').fontSize(14).fontColor('#888888')
-          Text('PokeRogue 公开源').fontSize(14).fontColor('#333333')
+          Text('来源').fontSize(14).fontColor(THEME.textSecondary)
+          Text('PokeRogue 公开源').fontSize(14).fontColor(THEME.textPrimary)
         }
         .width('100%')
         .justifyContent(FlexAlign.SpaceBetween)
 
         Row() {
-          Text('体积').fontSize(14).fontColor('#888888')
+          Text('体积').fontSize(14).fontColor(THEME.textSecondary)
           Text(this.totalText.length > 0 ? this.totalText : '约 531 MB')
-            .fontSize(14).fontColor('#333333')
+            .fontSize(14).fontColor(THEME.textPrimary)
         }
         .width('100%')
         .justifyContent(FlexAlign.SpaceBetween)
 
         Row() {
-          Text('需要存储').fontSize(14).fontColor('#888888')
-          Text(this.requiredStorageText).fontSize(14).fontColor('#333333')
+          Text('需要存储').fontSize(14).fontColor(THEME.textSecondary)
+          Text(this.requiredStorageText).fontSize(14).fontColor(THEME.textPrimary)
         }
         .width('100%')
         .justifyContent(FlexAlign.SpaceBetween)
@@ -61,13 +64,13 @@ export struct NotDownloadedView {
       .width('84%')
       .padding(16)
       .borderRadius(12)
-      .backgroundColor('#F7F7F7')
+      .backgroundColor(THEME.surfaceMuted)
 
       // 下载须知
       Column({ space: 6 }) {
-        Text('· 下载中可切后台，完成后通知').fontSize(13).fontColor('#999999')
-        Text('· 支持断点续传，中断可继续').fontSize(13).fontColor('#999999')
-        Text('· 需要开启通知权限').fontSize(13).fontColor('#999999')
+        Text('· 下载中可切后台，完成后通知').fontSize(13).fontColor(THEME.textTertiary)
+        Text('· 支持断点续传，中断可继续').fontSize(13).fontColor(THEME.textTertiary)
+        Text('· 需要开启通知权限').fontSize(13).fontColor(THEME.textTertiary)
       }
       .width('84%')
       .alignItems(HorizontalAlign.Start)
@@ -76,15 +79,15 @@ export struct NotDownloadedView {
         .width('84%')
         .height(52)
         .fontSize(17)
-        .backgroundColor('#DA3838')
-        .fontColor('#FFFFFF')
+        .backgroundColor(THEME.brand)
+        .fontColor(THEME.onBrand)
         .enabled(!this.storageInsufficient)
         .onClick(() => this.onStartDownload())
 
       if (this.storageInsufficient) {
-        Text('存储空间不足：需要约 ' + this.requiredStorageText + '，可用 ' + this.freeSizeText)
+        Text(textStorageLow(this.requiredStorageText, this.freeSizeText))
           .fontSize(13)
-          .fontColor('#DA3838')
+          .fontColor(THEME.brand)
           .textAlign(TextAlign.Center)
           .padding({ left: 24, right: 24 })
       }
@@ -92,14 +95,14 @@ export struct NotDownloadedView {
       // 下载太慢时的备选：复制直链自行下载 zip 后用「上传资源」导入（跳过下载与测速）
       Column({ space: 10 }) {
         if (this.assetUrl.length > 0) {
-          Text('下载太慢？复制下方直链自行下载资源包，再用「上传资源」导入').fontSize(12).fontColor('#888888')
+          Text('下载太慢？复制下方直链自行下载资源包，再用「上传资源」导入').fontSize(12).fontColor(THEME.textSecondary)
           if (this.mirrorUrl.length > 0) {
             Row({ space: 6 }) {
-              Text('镜像').fontSize(12).fontColor('#888888')
+              Text('镜像').fontSize(12).fontColor(THEME.textSecondary)
               // 优先给国内可达的镜像地址，点击即复制（会 toast 提示）
               Text(this.mirrorUrl)
                 .fontSize(12)
-                .fontColor('#3A6FD8')
+                .fontColor(THEME.link)
                 .maxLines(3)
                 .textOverflow({ overflow: TextOverflow.Ellipsis })
                 .layoutWeight(1)
@@ -109,10 +112,10 @@ export struct NotDownloadedView {
             .alignItems(VerticalAlign.Top)
           }
           Row({ space: 6 }) {
-            Text('GitHub').fontSize(12).fontColor('#888888')
+            Text('GitHub').fontSize(12).fontColor(THEME.textSecondary)
             Text(this.assetUrl)
               .fontSize(12)
-              .fontColor('#3A6FD8')
+              .fontColor(THEME.link)
               .maxLines(3)
               .textOverflow({ overflow: TextOverflow.Ellipsis })
               .layoutWeight(1)
@@ -126,8 +129,8 @@ export struct NotDownloadedView {
           .width('100%')
           .height(46)
           .fontSize(16)
-          .backgroundColor('#F2F2F2')
-          .fontColor('#DA3838')
+          .backgroundColor(THEME.surfaceVariant)
+          .fontColor(THEME.brand)
           .onClick(() => this.onImport())
       }
       .width('84%')
@@ -157,11 +160,12 @@ export struct DownloadFlowView {
     Column({ space: 16 }) {
       PokeballLoader({ phase: this.phase, paused: this.paused, appHidden: this.appHidden })
       Text(this.flowTitle).fontSize(18).fontWeight(FontWeight.Medium)
+        .fontColor(THEME.textPrimary)
 
       if (this.phase === PrepPhase.DOWNLOADED
         || this.phase === PrepPhase.EXTRACTING
         || this.phase === PrepPhase.READY) {
-        Text('请勿关闭应用').fontSize(13).fontColor('#888888')
+        Text('请勿关闭应用').fontSize(13).fontColor(THEME.textSecondary)
       } else {
         // 进度条：从左往右填充；百分比居中，白色 + 深色描边（红/灰底都可见）
         Stack() {
@@ -170,12 +174,12 @@ export struct DownloadFlowView {
               .width('100%')
               .height(22)
               .borderRadius(11)
-              .backgroundColor('#EEEEEE')
+              .backgroundColor(THEME.track)
             Row()
               .width(Math.max(0, Math.min(100, this.progress)) + '%')
               .height(22)
               .borderRadius(11)
-              .backgroundColor('#DA3838')
+              .backgroundColor(THEME.brand)
           }
           .width('100%')
           .height(22)
@@ -183,8 +187,8 @@ export struct DownloadFlowView {
           Text(this.progress.toString() + '%')
             .fontSize(13)
             .fontWeight(FontWeight.Bold)
-            .fontColor('#FFFFFF')
-            .textShadow({ radius: 2, color: '#99000000', offsetX: 0, offsetY: 1 })
+            .fontColor(THEME.onBrand)
+            .textShadow({ radius: 2, color: THEME.shadow, offsetX: 0, offsetY: 1 })
         }
         .width('80%')
 
@@ -192,7 +196,7 @@ export struct DownloadFlowView {
         if (this.speedText.length > 0 || this.etaText.length > 0) {
           Text(this.speedText + (this.speedText.length > 0 && this.etaText.length > 0 ? ' · ' : '') + this.etaText)
             .fontSize(13)
-            .fontColor('#DA3838')
+            .fontColor(THEME.brand)
         }
 
         // 一排两键：暂停/继续为主（实心，适中宽度），取消下载仅文字
@@ -201,13 +205,13 @@ export struct DownloadFlowView {
             .width(140)
             .height(44)
             .fontSize(16)
-            .backgroundColor('#DA3838')
-            .fontColor('#FFFFFF')
+            .backgroundColor(THEME.brand)
+            .fontColor(THEME.onBrand)
             .onClick(() => this.onTogglePause())
           Button('取消下载')
             .fontSize(14)
-            .fontColor('#999999')
-            .backgroundColor('#00000000')
+            .fontColor(THEME.textTertiary)
+            .backgroundColor(THEME.transparent)
             .onClick(() => this.onCancel())
         }
         .width('80%')
@@ -234,21 +238,22 @@ export struct ReadyView {
         .height(96)
         .objectFit(ImageFit.Contain)
       Text('离线资源已就绪').fontSize(20).fontWeight(FontWeight.Medium)
+        .fontColor(THEME.textPrimary)
       Text('版本 ' + this.versionText)
-        .fontSize(13).fontColor('#888888')
+        .fontSize(13).fontColor(THEME.textSecondary)
       Button('开始运行')
         .width('70%')
         .height(54)
         .fontSize(18)
-        .backgroundColor('#DA3838')
-        .fontColor('#FFFFFF')
+        .backgroundColor(THEME.brand)
+        .fontColor(THEME.onBrand)
         .margin({ top: 16 })
         .onClick(() => this.onStartGame())
       // 参数调整入口：仅在设置里开启后显示；更改在开始游戏时生效
       if (this.cheatMasterOn) {
         Text('参数调整')
           .fontSize(14)
-          .fontColor('#999999')
+          .fontColor(THEME.textTertiary)
           .margin({ top: 4 })
           .onClick(() => this.onOpenCheats())
       }

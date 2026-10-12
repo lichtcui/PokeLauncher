@@ -6,10 +6,12 @@ import { BusinessError } from '@kit.BasicServicesKit';
 import { common } from '@kit.AbilityKit';
 import { uri } from '@kit.ArkTS';
 import { sharedServerBaseUrl, sharedServerReady, sharedServerErrorText } from '../model/LocalHttpServer';
-import { setWindowBackground, setOrientation, GAME_BG_COLOR } from '../model/WindowHolder';
+import { setWindowBackground, setOrientation } from '../model/WindowHolder';
+import { GAME_BG_COLOR } from '../common/SharedUi';
 import { readOrientation, toOrientation } from '../model/OrientationPref';
 import { SaveGuardBridge } from '../model/SaveGuard';
 import { apiAtLeast } from '../common/Const';
+import { THEME } from '../common/Theme';
 
 const DOMAIN: number = 0x0000;
 const TAG: string = 'GamePage';
@@ -212,8 +214,8 @@ struct GamePage {
       if (this.loadError.length > 0) {
         Text('加载出错: ' + this.loadError)
           .fontSize(12)
-          .fontColor('#FFFFFF')
-          .backgroundColor('#99000000')
+          .fontColor(THEME.onScrim)
+          .backgroundColor(THEME.scrim)
           .padding(8)
           .margin(8)
           .maxLines(3)
@@ -222,7 +224,7 @@ struct GamePage {
       Button('返回')
         .fontSize(12)
         .height(30)
-        .backgroundColor('#66000000')
+        .backgroundColor(THEME.scrimLight)
         .opacity(this.backVisible ? 1 : 0.2)
         .margin(8)
         .onClick(() => {

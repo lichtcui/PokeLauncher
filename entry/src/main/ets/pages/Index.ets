@@ -21,6 +21,7 @@ import { isMasterEnabled } from '../model/CheatState';
 import { sharedServerReady } from '../model/LocalHttpServer';
 import { PrepPhase } from '../components/PokeballLoader';
 import { NotDownloadedView, DownloadFlowView, ReadyView } from '../components/LauncherViews';
+import { THEME } from '../common/Theme';
 
 const DOMAIN: number = 0x0000;
 const TAG: string = 'Home';
@@ -260,8 +261,8 @@ struct Index {
       title: '取消下载',
       message: '确定取消下载吗？已下载的 ' + downloaded + ' 将全部丢失。',
       buttons: [
-        { text: '继续下载', color: '#666666' },
-        { text: '确定取消', color: '#DA3838' }
+        { text: '继续下载', color: THEME.textMuted },
+        { text: '确定取消', color: THEME.brand }
       ]
     }).then((result: promptAction.ShowDialogSuccessResponse) => {
       if (result.index === 1) {
@@ -313,7 +314,7 @@ struct Index {
             }
             .width(40)
             .height(40)
-            .backgroundColor('#F2F2F2')
+            .backgroundColor(THEME.surfaceVariant)
             .onClick(() => this.startSettings())
           }
           .width('100%')
@@ -365,7 +366,7 @@ struct Index {
           }
 
           if (this.error.length > 0) {
-            Text(this.error).fontSize(13).fontColor('#DA3838').margin({ top: 16 })
+            Text(this.error).fontSize(13).fontColor(THEME.brand).margin({ top: 16 })
               .padding({ left: 24, right: 24 })
           }
         }
@@ -380,6 +381,6 @@ struct Index {
     }
     .width('100%')
     .height('100%')
-    .backgroundColor('#FFFFFF')
+    .backgroundColor(THEME.surface)
   }
 }

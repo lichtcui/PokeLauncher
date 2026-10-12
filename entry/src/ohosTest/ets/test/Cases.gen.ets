@@ -5,6 +5,8 @@
  * 期望值只写一份，两端测试遍历同一套向量——这样才能抓住「一端改了、另一端没改」的分叉。
  */
 
+import { CheatParam } from '../../../main/ets/model/Cheats';
+
 export interface PathCase {
   input: string;
   /** null = 应当拒绝（鸿蒙返回空串、安卓返回 null） */
@@ -85,6 +87,15 @@ export interface DownloadMirrorCase {
   url: string;
   mirrors: string[];
   expect: string;
+}
+
+export interface CheatValueCase {
+  param: CheatParam;
+  /** null = 偏好库里没有这个键（未设置） */
+  raw: string | null;
+  expectValue: number;
+  expectLiteral: string;
+  expectDisplay: string;
 }
 
 /** 本地 HTTP 服务的路径判定（安全边界） */
@@ -299,4 +310,31 @@ export const DOWNLOAD_MIRROR_CASES: DownloadMirrorCase[] = [
   { url: 'https://github.com.evil.com/a/b.zip', mirrors: ['https://m1/'], expect: '' },
   { url: 'https://github.com/a/b.zip', mirrors: [], expect: '' },
   { url: '', mirrors: ['https://m1/'], expect: '' }
+];
+
+/** 参数调整：数值取值（空值回退 / 夹紧 / 浮点吸附）与展示文案（labels 档位名 / 单位） */
+export const CHEAT_VALUE_CASES: CheatValueCase[] = [
+  { param: { id: 'candy', label: '倍率', min: 1, max: 100, default: 10, unit: 'x' }, raw: null, expectValue: 10, expectLiteral: '10', expectDisplay: 'x10' },
+  { param: { id: 'candy', label: '倍率', min: 1, max: 100, default: 10, unit: 'x' }, raw: '', expectValue: 10, expectLiteral: '10', expectDisplay: 'x10' },
+  { param: { id: 'candy', label: '倍率', min: 1, max: 100, default: 10, unit: 'x' }, raw: '   ', expectValue: 10, expectLiteral: '10', expectDisplay: 'x10' },
+  { param: { id: 'candy', label: '倍率', min: 1, max: 100, default: 10, unit: 'x' }, raw: 'abc', expectValue: 10, expectLiteral: '10', expectDisplay: 'x10' },
+  { param: { id: 'candy', label: '倍率', min: 1, max: 100, default: 10, unit: 'x' }, raw: '0', expectValue: 1, expectLiteral: '1', expectDisplay: 'x1' },
+  { param: { id: 'candy', label: '倍率', min: 1, max: 100, default: 10, unit: 'x' }, raw: '-5', expectValue: 1, expectLiteral: '1', expectDisplay: 'x1' },
+  { param: { id: 'candy', label: '倍率', min: 1, max: 100, default: 10, unit: 'x' }, raw: '999', expectValue: 100, expectLiteral: '100', expectDisplay: 'x100' },
+  { param: { id: 'candy', label: '倍率', min: 1, max: 100, default: 10, unit: 'x' }, raw: '10.999999999', expectValue: 11, expectLiteral: '11', expectDisplay: 'x11' },
+  { param: { id: 'candy', label: '倍率', min: 1, max: 100, default: 10, unit: 'x' }, raw: '51.99999999999999', expectValue: 52, expectLiteral: '52', expectDisplay: 'x52' },
+  { param: { id: 'candy', label: '倍率', min: 1, max: 100, default: 10, unit: 'x' }, raw: '7.5', expectValue: 7.5, expectLiteral: '7.5', expectDisplay: 'x7.5' },
+  { param: { id: 'candy', label: '倍率', min: 1, max: 100, default: 10, unit: 'x' }, raw: ' 42 ', expectValue: 42, expectLiteral: '42', expectDisplay: 'x42' },
+  { param: { id: 'rewardTier', label: '档位', min: 0, max: 4, default: 4, step: 1, labels: ['Common', 'Great', 'Ultra', 'Rogue', 'Master'] }, raw: '4', expectValue: 4, expectLiteral: '4', expectDisplay: 'Master' },
+  { param: { id: 'rewardTier', label: '档位', min: 0, max: 4, default: 4, step: 1, labels: ['Common', 'Great', 'Ultra', 'Rogue', 'Master'] }, raw: '0', expectValue: 0, expectLiteral: '0', expectDisplay: 'Common' },
+  { param: { id: 'rewardTier', label: '档位', min: 0, max: 4, default: 4, step: 1, labels: ['Common', 'Great', 'Ultra', 'Rogue', 'Master'] }, raw: '-3', expectValue: 0, expectLiteral: '0', expectDisplay: 'Common' },
+  { param: { id: 'rewardTier', label: '档位', min: 0, max: 4, default: 4, step: 1, labels: ['Common', 'Great', 'Ultra', 'Rogue', 'Master'] }, raw: '2.5', expectValue: 2.5, expectLiteral: '2.5', expectDisplay: '2.5' },
+  { param: { id: 'rewardTier', label: '档位', min: 0, max: 4, default: 4, step: 1, labels: ['Common', 'Great', 'Ultra', 'Rogue', 'Master'] }, raw: '9', expectValue: 4, expectLiteral: '4', expectDisplay: 'Master' },
+  { param: { id: 'plain', label: '数量', min: 0, max: 1000, default: 5, step: 5 }, raw: null, expectValue: 5, expectLiteral: '5', expectDisplay: '5' },
+  { param: { id: 'plain', label: '数量', min: 0, max: 1000, default: 5, step: 5 }, raw: '12', expectValue: 12, expectLiteral: '12', expectDisplay: '12' },
+  { param: { id: 'plain', label: '数量', min: 0, max: 1000, default: 5, step: 5 }, raw: '10', expectValue: 10, expectLiteral: '10', expectDisplay: '10' },
+  { param: { id: 'plain', label: '数量', min: 0, max: 1000, default: 5, step: 5 }, raw: '1000.0000001', expectValue: 1000, expectLiteral: '1000', expectDisplay: '1000' },
+  { param: { id: 'speed', label: '速度', min: 0.5, max: 2.5, default: 1, step: 0.25, unit: 'x' }, raw: '1.9999999', expectValue: 2, expectLiteral: '2', expectDisplay: 'x2' },
+  { param: { id: 'speed', label: '速度', min: 0.5, max: 2.5, default: 1, step: 0.25, unit: 'x' }, raw: '2', expectValue: 2, expectLiteral: '2', expectDisplay: 'x2' },
+  { param: { id: 'speed', label: '速度', min: 0.5, max: 2.5, default: 1, step: 0.25, unit: 'x' }, raw: '3', expectValue: 2.5, expectLiteral: '2.5', expectDisplay: 'x2.5' }
 ];

@@ -28,7 +28,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -334,7 +333,7 @@ private fun OrientationRow(value: String, onSelect: (String) -> Unit) {
                         label,
                         fontSize = 14.sp,
                         fontWeight = if (selected) FontWeight.Medium else FontWeight.Normal,
-                        color = if (selected) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = if (selected) THEME.onBrand else MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = TextAlign.Center
                     )
                 }

@@ -1,21 +1,19 @@
 package com.lichtcui.pokelauncher.cheat
 
+import com.lichtcui.pokelauncher.CasesGen
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
  * 参数调整状态的编解码（纯函数），对应鸿蒙版 `CheatState.ets` 的
- * `idsToString` / `parseIds` / `paramsToString` / `parseParams` + 取值夹紧。
+ * `idsToString` / `parseIds` / `paramsToString` / `parseParams`。
+ *
+ * 取值（夹紧 / 浮点吸附）与展示（labels 档位名 / 单位）的期望值**不写在这里**：
+ * 唯一真相是 `shared/cases/cheat.json`（生成物 `CasesGen.CHEAT_VALUE_CASES`），
+ * 与鸿蒙 `CheatFormat.test.ets` + `scripts/check-harmony-vectors.mjs` 跑的是同一套向量。
  */
 class CheatFormatTest {
-
-    private val rate = CheatParam(id = "candy", label = "倍率", min = 1.0, max = 100.0, defaultValue = 10.0, unit = "x")
-    private val tier = CheatParam(
-        id = "rewardTier", label = "档位", min = 0.0, max = 4.0, defaultValue = 4.0,
-        labels = listOf("Common", "Great", "Ultra", "Rogue", "Master")
-    )
 
     // ---------------------------------------------------------------- ids
 
@@ -92,109 +90,38 @@ class CheatFormatTest {
         assertEquals(m, CheatFormat.parseParams(CheatFormat.encodeParams(m)))
     }
 
-    // ---------------------------------------------------------------- 取值夹紧
+    // ---------------------------------------------------------------- 取值 / 展示（共享向量）
 
     @Test
-    fun resolveNumber_usesDefaultWhenUnset() {
-        assertEquals(10.0, CheatFormat.resolveNumber(rate, null), 0.0)
+    fun valueVectors_matchSharedCases() {
+        // 覆盖：未设置 / 空串 / 无法解析 / 上下夹紧 / 滑块浮点吸附 / 真实中间值 / 省略 step /
+        // 省略 unit / labels 命中与越界。这几条分支以前两端各写一份、后果只有真机看得出来。
+        assertTrue("向量太少", CasesGen.CHEAT_VALUE_CASES.size >= 12)
+        CasesGen.CHEAT_VALUE_CASES.forEach { c ->
+            val v = CheatFormat.resolveNumber(c.param, c.raw)
+            assertEquals("resolveNumber(${c.param.id}, ${c.raw})", c.expectValue, v, 0.0)
+            assertEquals("numberLiteral($v)", c.expectLiteral, CheatFormat.numberLiteral(v))
+            assertEquals("displayValue(${c.param.id}, $v)", c.expectDisplay, CheatFormat.displayValue(c.param, v))
+        }
     }
 
-    @Test
-    fun resolveNumber_usesDefaultWhenBlank() {
-        assertEquals(10.0, CheatFormat.resolveNumber(rate, "   "), 0.0)
-    }
+    // NaN / Infinity 在 JSON 里表达不了，这两条各端自己补（鸿蒙 CheatFormat.test.ets 里也有）
 
     @Test
-    fun resolveNumber_usesDefaultWhenNaN() {
-        assertEquals(10.0, CheatFormat.resolveNumber(rate, "abc"), 0.0)
-    }
-
-    @Test
-    fun resolveNumber_parsesValue() {
-        assertEquals(7.5, CheatFormat.resolveNumber(rate, "7.5"), 0.0)
-    }
-
-    @Test
-    fun resolveNumber_clampsToMax() {
-        assertEquals(100.0, CheatFormat.resolveNumber(rate, "999"), 0.0)
-    }
-
-    @Test
-    fun resolveNumber_clampsToMin() {
-        assertEquals(1.0, CheatFormat.resolveNumber(rate, "0"), 0.0)
-    }
-
-    @Test
-    fun resolveNumber_clampsNegative() {
-        assertEquals(0.0, CheatFormat.resolveNumber(tier, "-3"), 0.0)
-    }
-
-    // ---------------------------------------------------------------- 滑块浮点漂移
-
-    @Test
-    fun resolveNumber_snapsSliderFloatDrift() {
-        // 真机实测：Compose Slider(steps=98) 拖到「11」时给出 10.999999 -> 显示成 10.999999x
-        assertEquals(11.0, CheatFormat.resolveNumber(rate, "10.999999999"), 0.0)
-        assertEquals("11x", CheatFormat.displayValue(rate, CheatFormat.resolveNumber(rate, "10.999999999")))
-        assertEquals(52.0, CheatFormat.resolveNumber(rate, "51.99999999999999"), 0.0)
-    }
-
-    @Test
-    fun resolveNumber_keepsRealIntermediateValues() {
-        // 容差吸附只吃浮点误差，不能顺手把真实的中间值也改掉（与鸿蒙版取值语义一致）
-        assertEquals(7.5, CheatFormat.resolveNumber(rate, "7.5"), 0.0)
-        assertEquals(12.34, CheatFormat.resolveNumber(rate, "12.34"), 0.0)
-    }
-
-    @Test
-    fun resolveNumber_keepsTierLabelsIntact() {
-        assertEquals(3.0, CheatFormat.resolveNumber(tier, "3"), 0.0)
-        assertEquals("Master", CheatFormat.displayValue(tier, CheatFormat.resolveNumber(tier, "4")))
-        assertEquals(0.0, CheatFormat.resolveNumber(tier, "0"), 0.0)
-    }
-
-    // ---------------------------------------------------------------- JS 数字字面量
-
-    @Test
-    fun numberLiteral_integralHasNoDotZero() {
-        assertEquals("10", CheatFormat.numberLiteral(10.0))
-        assertEquals("0", CheatFormat.numberLiteral(0.0))
-    }
-
-    @Test
-    fun numberLiteral_keepsFraction() {
-        assertEquals("2.5", CheatFormat.numberLiteral(2.5))
-    }
-
-    @Test
-    fun numberLiteral_nanBecomesZero() {
+    fun numberLiteral_nonFiniteBecomesZero() {
         assertEquals("0", CheatFormat.numberLiteral(Double.NaN))
-    }
-
-    // ---------------------------------------------------------------- 展示文案
-
-    @Test
-    fun displayValue_usesLabelForTier() {
-        assertEquals("Master", CheatFormat.displayValue(tier, 4.0))
-        assertEquals("Common", CheatFormat.displayValue(tier, 0.0))
+        assertEquals("0", CheatFormat.numberLiteral(Double.POSITIVE_INFINITY))
+        assertEquals("0", CheatFormat.numberLiteral(Double.NEGATIVE_INFINITY))
     }
 
     @Test
-    fun displayValue_fallsBackToNumberWithUnit() {
-        assertEquals("10x", CheatFormat.displayValue(rate, 10.0))
-        assertEquals("2.5x", CheatFormat.displayValue(rate, 2.5))
-    }
-
-    @Test
-    fun displayValue_labelOnlyForExactTier() {
-        // 非整数档位不能取 label（避免 2.5 → labels[2] 的错位）
-        assertEquals("2.5", CheatFormat.displayValue(tier, 2.5))
-    }
-
-    @Test
-    fun displayValue_outOfRangeIndexFallsBack() {
-        val p = CheatParam(id = "x", label = "x", min = 0.0, max = 9.0, defaultValue = 0.0, labels = listOf("a", "b"))
-        assertFalse(CheatFormat.displayValue(p, 5.0).isEmpty())
+    fun displayValue_outOfRangeLabelIndexFallsBack() {
+        // labels 只有 "a"/"b"：超出范围不能越界取档位名（与鸿蒙 displayValue 同一判据）
+        val p = CheatParam(
+            id = "x", label = "x", min = 0.0, max = 9.0, defaultValue = 0.0,
+            labels = listOf("a", "b")
+        )
         assertEquals("5", CheatFormat.displayValue(p, 5.0))
+        assertEquals("9", CheatFormat.displayValue(p, 9.0))
     }
 }

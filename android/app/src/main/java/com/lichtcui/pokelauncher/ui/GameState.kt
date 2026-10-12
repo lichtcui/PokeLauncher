@@ -20,8 +20,11 @@ const val BACK_FADED_ALPHA = 0.2f
 /** 返回按钮显示多久后自动淡出（对应鸿蒙 `setTimeout(..., 3000)`） */
 const val BACK_FADE_MS = 3000L
 
-/** 游戏页背景色（鸿蒙 `GAME_BG_COLOR` 同口径：WebView 透出的底色/加载期间的留白） */
-const val GAME_BG_ARGB = 0xFF121212.toInt()
+/**
+ * 游戏页背景色在 `core/SharedUi.kt` 的 `GAME_BG_COLOR`（与鸿蒙 `common/SharedUi.ets` 同一条，
+ * 由 `shared/ui.json` 生成）：WebView 透出的底色 / 加载期间的留白。
+ * 在此之前两端各写一份（安卓 `0xFF121212`、鸿蒙 `#484050`），谁也不知道谁是对的。
+ */
 
 /**
  * 浮层判定：**出错优先于加载中**。

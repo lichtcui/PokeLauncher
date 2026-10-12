@@ -2,6 +2,7 @@ package com.lichtcui.pokelauncher.ui
 
 import com.lichtcui.pokelauncher.install.DownloadPhase
 import com.lichtcui.pokelauncher.install.DownloadStatus
+import com.lichtcui.pokelauncher.core.SharedUi
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -117,17 +118,18 @@ class HomeStateTest {
 
     @Test
     fun flowTitleMatchesHarmonyWording() {
-        assertEquals("正在下载 PokeRogue 资源", flowTitleOf(PrepPhase.DOWNLOADING, paused = false))
-        assertEquals("已暂停", flowTitleOf(PrepPhase.DOWNLOADING, paused = true))
-        assertEquals("正在解压 PokeRogue 资源…", flowTitleOf(PrepPhase.EXTRACTING, paused = false))
-        assertEquals("PokeRogue 资源准备就绪", flowTitleOf(PrepPhase.READY, paused = false))
+        // 四段文案本身来自 shared/ui.json（两端同一条），这里锁的是「阶段 → 哪一条」
+        assertEquals(SharedUi.TEXT_DOWNLOAD_TITLE, flowTitleOf(PrepPhase.DOWNLOADING, paused = false))
+        assertEquals(SharedUi.TEXT_PAUSED, flowTitleOf(PrepPhase.DOWNLOADING, paused = true))
+        assertEquals(SharedUi.TEXT_EXTRACT_TITLE + "…", flowTitleOf(PrepPhase.EXTRACTING, paused = false))
+        assertEquals(SharedUi.TEXT_READY_TITLE, flowTitleOf(PrepPhase.READY, paused = false))
         // 本地导入的进度文案优先（形如「本地 game.zip：34 个文件，120MB」）
         assertEquals(
             "本地 game.zip：34 个文件，120MB",
             flowTitleOf(PrepPhase.EXTRACTING, paused = false, installingText = "本地 game.zip：34 个文件，120MB")
         )
         // 暂停与解压的文案不能被 importingText 顶掉时保持原样
-        assertEquals("已暂停", flowTitleOf(PrepPhase.DOWNLOADING, paused = true, installingText = ""))
+        assertEquals(SharedUi.TEXT_PAUSED, flowTitleOf(PrepPhase.DOWNLOADING, paused = true, installingText = ""))
     }
 
     @Test

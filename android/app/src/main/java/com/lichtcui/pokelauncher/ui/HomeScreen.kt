@@ -65,6 +65,7 @@ import com.lichtcui.pokelauncher.appupdate.apkActionOf
 import com.lichtcui.pokelauncher.cheat.CheatState
 import com.lichtcui.pokelauncher.core.Const
 import com.lichtcui.pokelauncher.core.Format
+import com.lichtcui.pokelauncher.core.SharedUi
 import com.lichtcui.pokelauncher.core.Version
 import com.lichtcui.pokelauncher.install.DownloadPhase
 import com.lichtcui.pokelauncher.install.DownloadStatus
@@ -426,7 +427,7 @@ private fun CopyUrlRow(label: String, url: String, context: Context) {
                     }
                 },
             fontSize = 12.sp,
-            color = Color(0xFF6EA8FF),
+            color = THEME.link,
             maxLines = 3,
             overflow = TextOverflow.Ellipsis
         )
@@ -501,17 +502,18 @@ private fun DownloadFlowView(
                         "${status.percent}%",
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Bold,
-                        color = Color.White,
+                        color = THEME.onBrand,
                             style = TextStyle(
-                            shadow = Shadow(color = Color(0x99000000), offset = Offset(0f, 1f), blurRadius = 2f)
+                            shadow = Shadow(color = THEME.shadow, offset = Offset(0f, 1f), blurRadius = 2f)
                         )
                     )
                 }
             }
 
-            // 速度 · 剩余时间（两者都有值才加分隔符）
+            // 速度 · 剩余时间（两者都有值才加分隔符；「剩余」前缀与鸿蒙同一条，见 shared/ui.json）
             val speedText = if (status.speedBps > 0) Format.speed(status.speedBps.toLong()) else ""
-            val etaText = Format.duration(status.etaSeconds)
+            val etaText = Format.duration(status.etaSeconds).takeIf { it.isNotEmpty() }
+                ?.let { SharedUi.TEXT_ETA_PREFIX + it }.orEmpty()
             if (speedText.isNotEmpty() || etaText.isNotEmpty()) {
                 Spacer(Modifier.height(10.dp))
                 Text(

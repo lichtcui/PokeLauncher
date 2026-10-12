@@ -1,0 +1,98 @@
+{
+  "_doc": [
+    "跨端共享的用户可见文案与展示常量（纯数据）。",
+    "生成物：鸿蒙 entry/src/main/ets/common/SharedUi.ets ↔ 安卓 core/SharedUi.kt。",
+    "收录标准 —— 两端都会渲染的同一句用户可见文案：首页流程标题 / 进度行（剩余前缀、阶段说明）、",
+    "存储不足提示、完成 / 失败通知、下载 · 解压通知标题、游戏页背景色。",
+    "不收（有意为之，两端本来就可以措辞不同）：",
+    "  · 完成文案：鸿蒙 toast「PokeRogue 资源下载完成」/「下载完成」vs 安卓「下载并安装完成」；",
+    "  · 通知专有措辞：安卓「正在寻找最快的下载源」「下载已暂停」；",
+    "  · 单端阶段：安卓「未开始」「已取消」「PokeRogue 资源下载」（鸿蒙没有这几个阶段，打靶页的标签同理）；",
+    "  · 动态句：安卓「正在解压：N 个文件，1.2 MB」这类拼接出来的进度描述。",
+    "为什么要有它：这些字符串以前两端各写一份、没有任何机械护栏 —— 用户看到的两端文案不同，",
+    "而两端测试全绿（例如存储不足提示一端「需要约 1229 MB」、另一端「需要约 1.2 GB」）。",
+    "约束：value 里不能出现 $ ' \" \\\\ 换行（会破坏生成的字面量）；模板函数的 args 必须与 {占位符} 一一对应；",
+    "颜色值只允许 #RRGGBB（生成两端各自的颜色类型：鸿蒙字符串、安卓 Int ARGB）。"
+  ],
+  "items": [
+    {
+      "kind": "text",
+      "name": "TEXT_ETA_PREFIX",
+      "doc": "进度行里的剩余时间前缀（「剩余01:23」）",
+      "value": "剩余"
+    },
+    {
+      "kind": "template",
+      "func": "textStorageLow",
+      "doc": "存储不足提示；参数依次是「需要的大小」「可用的大小」（已格式化）",
+      "args": ["required", "free"],
+      "value": "存储空间不足：需要约 {required}，可用 {free}（含解压与更新期间的双份占用）"
+    },
+    {
+      "kind": "text",
+      "name": "TEXT_PROBING_TITLE",
+      "doc": "选源测速阶段的流程标题 / 进度行说明",
+      "value": "正在测速，选择最快的下载源…"
+    },
+    {
+      "kind": "text",
+      "name": "TEXT_CONNECTING",
+      "doc": "已连上源、还没拿到第一批数据时的进度行说明",
+      "value": "连接中…"
+    },
+    {
+      "kind": "text",
+      "name": "TEXT_DOWNLOAD_TITLE",
+      "doc": "下载中的流程标题 / 前台通知（任务）标题",
+      "value": "正在下载 PokeRogue 资源"
+    },
+    {
+      "kind": "text",
+      "name": "TEXT_EXTRACT_TITLE",
+      "doc": "解压中的流程标题 / 通知标题（需要省略号的地方由调用方追加「…」）",
+      "value": "正在解压 PokeRogue 资源"
+    },
+    {
+      "kind": "text",
+      "name": "TEXT_READY_TITLE",
+      "doc": "资源就绪后、进游戏前的流程标题",
+      "value": "PokeRogue 资源准备就绪"
+    },
+    {
+      "kind": "text",
+      "name": "TEXT_PAUSED",
+      "doc": "暂停时的流程标题 / 进度行说明",
+      "value": "已暂停"
+    },
+    {
+      "kind": "text",
+      "name": "TEXT_NOTIFY_COMPLETE_TITLE",
+      "doc": "完成通知标题",
+      "value": "PokeRogue 资源已就绪"
+    },
+    {
+      "kind": "text",
+      "name": "TEXT_NOTIFY_COMPLETE_TEXT",
+      "doc": "完成通知正文（点击进游戏）",
+      "value": "下载并安装完成，打开 App 即可离线游玩"
+    },
+    {
+      "kind": "text",
+      "name": "TEXT_NOTIFY_FAILED_TITLE",
+      "doc": "失败通知标题",
+      "value": "PokeRogue 资源下载失败"
+    },
+    {
+      "kind": "text",
+      "name": "TEXT_NOTIFY_FAILED_TEXT",
+      "doc": "失败通知正文兜底（没有具体原因时）",
+      "value": "点击重试"
+    },
+    {
+      "kind": "argb",
+      "name": "GAME_BG_COLOR",
+      "doc": "游戏页 / WebView 透出的背景色",
+      "value": "#484050"
+    }
+  ]
+}

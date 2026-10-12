@@ -22,6 +22,7 @@ import com.lichtcui.pokelauncher.MainActivity
 import com.lichtcui.pokelauncher.R
 import com.lichtcui.pokelauncher.core.Const
 import com.lichtcui.pokelauncher.core.Format
+import com.lichtcui.pokelauncher.core.SharedUi
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -135,7 +136,7 @@ class DownloadService : Service() {
                     phase = DownloadPhase.PROBING,
                     total = info.assetSize,
                     tag = info.tag,
-                    message = "正在测速，选择最快的下载源…"
+                    message = SharedUi.TEXT_PROBING_TITLE
                 )
             )
 
@@ -162,7 +163,7 @@ class DownloadService : Service() {
                         error = ""
                     )
                 )
-                notifyFinal("PokeRogue 资源已就绪", "下载并安装完成，打开 App 即可离线游玩")
+                notifyFinal(SharedUi.TEXT_NOTIFY_COMPLETE_TITLE, SharedUi.TEXT_NOTIFY_COMPLETE_TEXT)
                 stopForegroundAndSelf()
             }
 
@@ -172,7 +173,7 @@ class DownloadService : Service() {
                     current.copy(
                         phase = DownloadPhase.PAUSED,
                         received = repo.partialBytes(),
-                        message = "已暂停 · 已完成 ${Format.bytes(repo.partialBytes())}"
+                        message = SharedUi.TEXT_PAUSED + " · 已完成 ${Format.bytes(repo.partialBytes())}"
                     )
                 )
                 releaseWakeLock()
@@ -199,7 +200,7 @@ class DownloadService : Service() {
                         error = outcome.message
                     )
                 )
-                notifyFinal("资源下载失败", outcome.message)
+                notifyFinal(SharedUi.TEXT_NOTIFY_FAILED_TITLE, outcome.message)
                 stopForegroundAndSelf()
             }
         }
@@ -258,10 +259,10 @@ class DownloadService : Service() {
     private fun buildNotification(status: DownloadStatus): Notification {
         val title = when (status.phase) {
             DownloadPhase.PROBING -> "正在寻找最快的下载源"
-            DownloadPhase.DOWNLOADING -> "正在下载 PokeRogue 资源"
+            DownloadPhase.DOWNLOADING -> SharedUi.TEXT_DOWNLOAD_TITLE
             DownloadPhase.PAUSED -> "下载已暂停"
-            DownloadPhase.EXTRACTING -> "正在解压 PokeRogue 资源"
-            else -> "PokeRogue 资源下载"
+            DownloadPhase.EXTRACTING -> SharedUi.TEXT_EXTRACT_TITLE
+            else -> "PokeRogue 资源下载"  // 安卓独有阶段（鸿蒙没有未开始/已取消的通知），不进 shared/ui.json
         }
         val builder = NotificationCompat.Builder(this, Const.DOWNLOAD_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_download)

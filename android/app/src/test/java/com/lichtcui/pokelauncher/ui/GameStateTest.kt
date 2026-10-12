@@ -1,5 +1,6 @@
 package com.lichtcui.pokelauncher.ui
 
+import com.lichtcui.pokelauncher.core.SharedUi
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -85,15 +86,18 @@ class GameStateTest {
     // ---------------------------------------------------------------- 背景色
 
     @Test
-    fun gameBackgroundIsOpaqueDark() {
-        val alpha = (GAME_BG_ARGB ushr 24) and 0xFF
+    fun gameBackgroundIsOpaqueAndDark() {
+        // 色值两端共用 `shared/ui.json` 的 GAME_BG_COLOR（#484050）：以前安卓 0xFF121212、
+        // 鸿蒙 #484050，各写一份、谁也不知道该对齐谁。
+        val argb = SharedUi.GAME_BG_COLOR
+        val alpha = (argb ushr 24) and 0xFF
         assertEquals(0xFF, alpha)
-        val red = (GAME_BG_ARGB ushr 16) and 0xFF
-        val green = (GAME_BG_ARGB ushr 8) and 0xFF
-        val blue = GAME_BG_ARGB and 0xFF
+        val red = (argb ushr 16) and 0xFF
+        val green = (argb ushr 8) and 0xFF
+        val blue = argb and 0xFF
         // 加载期间 WebView 还没出画面，底色必须是暗的（否则会闪一下惨白）
-        assertTrue("r=$red", red < 0x40)
-        assertTrue("g=$green", green < 0x40)
-        assertTrue("b=$blue", blue < 0x40)
+        assertTrue("r=$red", red < 0x80)
+        assertTrue("g=$green", green < 0x80)
+        assertTrue("b=$blue", blue < 0x80)
     }
 }

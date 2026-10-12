@@ -29,7 +29,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -185,7 +184,7 @@ private fun RiskBanner() {
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 12.dp)
             .background(
-                Color(0xFF2A1A1A),
+                THEME.dangerBg,
                 RoundedCornerShape(10.dp)
             )
             .padding(12.dp)
@@ -198,7 +197,7 @@ private fun RiskBanner() {
         Text(
             "兼容性风险：参数调整依赖应用内部实现，资源更新后可能失效或表现异常。",
             fontSize = 12.sp,
-            color = Color(0xFFFFB300),
+            color = THEME.warning,
             modifier = Modifier.padding(top = 6.dp)
         )
     }

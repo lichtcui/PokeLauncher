@@ -1,5 +1,6 @@
 import { router } from '@kit.ArkUI';
 import { LEGAL_BANNER, LEGAL_SECTIONS, LEGAL_UPDATED_AT, LegalSection } from '../model/LegalText';
+import { THEME } from '../common/Theme';
 
 /**
  * 法律与免责声明页：从「设置 → 关于 → 法律与免责声明」进入。
@@ -22,11 +23,11 @@ struct Legal {
           .width(4)
           .height(18)
           .borderRadius(2)
-          .backgroundColor('#DA3838')
+          .backgroundColor(THEME.brand)
         Text(s.title)
           .fontSize(17)
           .fontWeight(FontWeight.Bold)
-          .fontColor('#1A1A1A')
+          .fontColor(THEME.textTitle)
           .margin({ left: 8 })
       }
       .alignItems(VerticalAlign.Center)
@@ -35,7 +36,7 @@ struct Legal {
       ForEach(s.body, (p: string, i: number) => {
         Text(p)
           .fontSize(14)
-          .fontColor('#555555')
+          .fontColor(THEME.textBody)
           .lineHeight(22)
           .width('100%')
           .margin({ top: i === 0 ? 10 : 8 })
@@ -52,12 +53,13 @@ struct Legal {
       Row() {
         Text('‹')
           .fontSize(30)
-          .fontColor('#333333')
+          .fontColor(THEME.textPrimary)
           .width(44)
           .height(44)
           .textAlign(TextAlign.Center)
           .onClick(() => router.back())
         Text('法律与免责声明').fontSize(20).fontWeight(FontWeight.Medium)
+          .fontColor(THEME.textPrimary)
         Blank()
       }
       .width('100%')
@@ -67,20 +69,20 @@ struct Legal {
       Column() {
         Text(LEGAL_BANNER)
           .fontSize(12)
-          .fontColor('#C77700')
+          .fontColor(THEME.warning)
           .width('100%')
       }
       .alignItems(HorizontalAlign.Start)
       .width('100%')
       .padding(12)
-      .backgroundColor('#FFF8E8')
+      .backgroundColor(THEME.warningBg)
 
       Scroll() {
         Column() {
           ForEach(LEGAL_SECTIONS, (s: LegalSection, index: number) => {
             Column() {
               if (index > 0) {
-                Divider().color('#EDEDED').strokeWidth(1).margin({ left: 16, right: 16 })
+                Divider().color(THEME.divider).strokeWidth(1).margin({ left: 16, right: 16 })
               }
               this.sectionBlock(s)
             }
@@ -89,7 +91,7 @@ struct Legal {
 
           Text(LEGAL_UPDATED_AT)
             .fontSize(12)
-            .fontColor('#BBBBBB')
+            .fontColor(THEME.textFaint)
             .margin({ top: 24, bottom: 40 })
         }
         .width('100%')
@@ -101,6 +103,6 @@ struct Legal {
     }
     .width('100%')
     .height('100%')
-    .backgroundColor('#FFFFFF')
+    .backgroundColor(THEME.surface)
   }
 }

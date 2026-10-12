@@ -4,6 +4,7 @@ import { hilog } from '@kit.PerformanceAnalysisKit';
 import { Cheat, CheatParam, CHEATS } from './Cheats';
 import { getStore, SETTINGS_STORE } from '../common/Prefs';
 import { SCENE_RUNTIME_CORE } from '../common/SharedJs';
+import { numberLiteral, resolveNumber } from '../common/CheatFormat';
 
 const DOMAIN: number = 0x0000;
 const TAG: string = 'CheatState';
@@ -127,14 +128,9 @@ export function toggleCheat(id: string): void {
   persist(KEY_IDS, idsToString());
 }
 
-/** 读取数值参数（未设置返回 fallback） */
-export function getParamNumber(id: string, fallback: number): number {
-  const raw: string | undefined = paramValues.get(id);
-  if (raw === undefined) {
-    return fallback;
-  }
-  const n: number = Number(raw);
-  return isNaN(n) ? fallback : n;
+/** 读取数值参数（偏好库原始串 → 夹紧 / 吸附后的可用值；未设置或无法解析回退 `default`） */
+export function getParamValue(p: CheatParam): number {
+  return resolveNumber(p, paramValues.get(p.id));
 }
 
 /** 仅更新内存中的数值参数（拖动中高频调用，不落盘） */
@@ -179,14 +175,7 @@ export function buildBootScript(): string {
     }
     const p: CheatParam | undefined = c.param;
     if (p !== undefined) {
-      let n: number = getParamNumber(p.id, p.default);
-      if (n < p.min) {
-        n = p.min;
-      }
-      if (n > p.max) {
-        n = p.max;
-      }
-      paramParts.push(JSON.stringify(p.id) + ':' + n);
+      paramParts.push(JSON.stringify(p.id) + ':' + numberLiteral(getParamValue(p)));
     }
     if (c.script.length > 0) {
       js += 'try{' + c.script + '}catch(e){console.log("CHEAT err ' + c.id + ' "+e);}';

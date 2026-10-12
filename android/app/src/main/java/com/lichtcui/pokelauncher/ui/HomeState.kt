@@ -1,5 +1,6 @@
 package com.lichtcui.pokelauncher.ui
 
+import com.lichtcui.pokelauncher.core.SharedUi
 import com.lichtcui.pokelauncher.install.DownloadPhase
 import com.lichtcui.pokelauncher.install.DownloadStatus
 
@@ -144,16 +145,17 @@ fun prepPhaseOf(phase: DownloadPhase, busyInstalling: Boolean, gameReady: Boolea
 fun isShaking(phase: PrepPhase, paused: Boolean): Boolean = !paused && phase != PrepPhase.IDLE
 
 /**
- * 流程标题（与鸿蒙版 `LauncherSession.flowTitle()` 逐字一致）。
+ * 流程标题（与鸿蒙版 `LauncherSession.flowTitle()` 同一套 `SharedUi` 常量；
+ * 以前两边各写一份字面量、靠注释维系一致）。
  *
  * @param installingText 本地导入正在进行的进度文案（非空时优先，例如「本地 game.zip：34 个文件，120MB」）
  */
 fun flowTitleOf(phase: PrepPhase, paused: Boolean, installingText: String = ""): String = when {
     installingText.isNotEmpty() -> installingText
-    phase == PrepPhase.EXTRACTING -> "正在解压 PokeRogue 资源…"
-    phase == PrepPhase.READY -> "PokeRogue 资源准备就绪"
-    paused -> "已暂停"
-    else -> "正在下载 PokeRogue 资源"
+    phase == PrepPhase.EXTRACTING -> SharedUi.TEXT_EXTRACT_TITLE + "…"
+    phase == PrepPhase.READY -> SharedUi.TEXT_READY_TITLE
+    paused -> SharedUi.TEXT_PAUSED
+    else -> SharedUi.TEXT_DOWNLOAD_TITLE
 }
 
 /** 流程中是否隐藏进度条（这些阶段没有百分比，只有「请勿关闭应用」） */

@@ -19,7 +19,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -44,10 +43,10 @@ fun LegalScreen(onBack: () -> Unit) {
             Text(
                 LEGAL_BANNER,
                 fontSize = 12.sp,
-                color = LEGAL_WARNING_COLOR,
+                color = THEME.warning,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(LEGAL_WARNING_BG)
+                    .background(THEME.warningBg)
                     .padding(12.dp)
             )
 
@@ -114,6 +113,3 @@ private fun LegalSectionBlock(section: LegalSection) {
     }
 }
 
-/** 提示条配色（对应鸿蒙版 #FFF8E8 底 / #C77700 字） */
-private val LEGAL_WARNING_BG = Color(0xFFFFF8E8)
-private val LEGAL_WARNING_COLOR = Color(0xFFC77700)

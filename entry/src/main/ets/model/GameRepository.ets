@@ -8,6 +8,7 @@ import {
   DEBUG_ASSET_URL, apiAtLeast
 } from '../common/Const';
 import { requestText } from '../common/Http';
+import { TEXT_DOWNLOAD_TITLE } from '../common/SharedUi';
 import {
   ProbeResult, SourceSplit, downloadCandidates, splitCandidates, rankSourcesByProbe
 } from '../common/DownloadUrls';
@@ -615,7 +616,7 @@ export class GameRepository {
     const config: request.agent.Config = {
       action: request.agent.Action.DOWNLOAD,
       url: url,
-      title: '正在下载 PokeRogue 资源',
+      title: TEXT_DOWNLOAD_TITLE,
       description: 'PokeLauncher',
       mode: request.agent.Mode.BACKGROUND,
       overwrite: true,

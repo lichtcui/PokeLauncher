@@ -4,6 +4,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import com.lichtcui.pokelauncher.core.Format
+import com.lichtcui.pokelauncher.core.SharedUi
 
 /** 下载链路的阶段。UI 文案集中在 `SpikeScreen`，这里只表达状态 */
 enum class DownloadPhase { IDLE, PROBING, DOWNLOADING, PAUSED, EXTRACTING, DONE, FAILED, CANCELLED }
@@ -66,22 +67,22 @@ object DownloadText {
         }
         return when (status.phase) {
             DownloadPhase.IDLE -> "未开始"
-            DownloadPhase.PROBING -> status.message.ifEmpty { "正在测速，选择最快的下载源…" }
+            DownloadPhase.PROBING -> status.message.ifEmpty { SharedUi.TEXT_PROBING_TITLE }
             DownloadPhase.DOWNLOADING -> {
                 val parts = ArrayList<String>(4)
                 if (percentText.isNotEmpty()) parts.add(percentText)
                 parts.add(sizeText)
                 Format.speed(status.speedBps.toLong()).takeIf { it.isNotEmpty() }?.let { parts.add(it) }
                 Format.duration(status.etaSeconds).takeIf { it.isNotEmpty() }
-                    ?.let { parts.add("剩余 $it") }
+                    ?.let { parts.add(SharedUi.TEXT_ETA_PREFIX + it) }
                 parts.joinToString(" · ") + sourceText
             }
 
             DownloadPhase.PAUSED ->
-                listOf("已暂停", percentText.takeIf { it.isNotEmpty() }, sizeText)
+                listOf(SharedUi.TEXT_PAUSED, percentText.takeIf { it.isNotEmpty() }, sizeText)
                     .filterNotNull().joinToString(" · ")
 
-            DownloadPhase.EXTRACTING -> status.message.ifEmpty { "正在解压 PokeRogue 资源…" }
+            DownloadPhase.EXTRACTING -> status.message.ifEmpty { SharedUi.TEXT_EXTRACT_TITLE + "…" }
             DownloadPhase.DONE -> status.message.ifEmpty { "下载并安装完成" }
             DownloadPhase.FAILED -> status.error.ifEmpty { status.message.ifEmpty { "下载失败" } }
             DownloadPhase.CANCELLED -> "已取消"
