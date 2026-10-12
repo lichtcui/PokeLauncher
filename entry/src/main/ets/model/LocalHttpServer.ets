@@ -3,6 +3,7 @@ import { fileIo as fs } from '@kit.CoreFileKit';
 import { util } from '@kit.ArkTS';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { mimeOf } from '../common/Mime';
+import { cacheControl } from '../common/HttpCache';
 import { FORCE_WILL_READ_FREQUENTLY, DEBUG_UI } from '../common/Const';
 import { buildBootScript, hasAnyEnabled } from './CheatState';
 import { CANVAS_PATCH_JS } from '../common/SharedJs';
@@ -283,7 +284,7 @@ export class LocalHttpServer {
       const header: string = 'HTTP/1.1 200 OK\r\n' +
         'Content-Type: ' + mimeOf(filePath) + '\r\n' +
         'Content-Length: ' + stat.size + '\r\n' +
-        'Cache-Control: ' + this.cacheControl(filePath) + '\r\n' +
+        'Cache-Control: ' + cacheControl(filePath) + '\r\n' +
         'Access-Control-Allow-Origin: *\r\n' +
         'Connection: ' + (keepAlive ? 'keep-alive' : 'close') + '\r\n' +
         '\r\n';
@@ -536,14 +537,6 @@ export class LocalHttpServer {
     }).catch((err: Error) => {
       hilog.warn(DOMAIN, TAG, 'sendText failed: %{public}s', JSON.stringify(err));
     });
-  }
-
-  private cacheControl(filePath: string): string {
-    if (filePath.endsWith('.html') || filePath.endsWith('.htm') ||
-      filePath.endsWith('.webmanifest') || filePath.endsWith('service-worker.js')) {
-      return 'no-cache';
-    }
-    return 'max-age=31536000';
   }
 }
 

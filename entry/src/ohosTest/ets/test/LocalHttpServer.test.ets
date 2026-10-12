@@ -1,6 +1,7 @@
 import { describe, it, expect } from '@ohos/hypium';
 import { resolveRequestPath } from '../../../main/ets/model/LocalHttpServer';
-import { PATH_CASES, PathCase } from './Cases.gen';
+import { cacheControl } from '../../../main/ets/common/HttpCache';
+import { PATH_CASES, PathCase, CACHE_CASES, CacheCase } from './Cases.gen';
 
 /**
  * 本地 HTTP 服务的路径穿越判拒：这是安全边界（把 gameDir 之外的文件挡在门外）。
@@ -22,6 +23,21 @@ export default function localHttpServerTest() {
       // 防止有人把向量里的拒绝项删光，变成「全部放行」还全绿
       const rejected: number = PATH_CASES.filter((c: PathCase) => c.expect === null).length;
       expect(rejected >= 8).assertTrue();
+    });
+  });
+
+  /**
+   * 响应头 `Cache-Control`：HTML / service-worker 被缓存住的症状是
+   * 「改了注入内容却看不到变化」，只有真机才看得见——所以由向量守着。
+   *
+   * ⚠️ 期望值同样**不写在这里**（`shared/cases/http.json` → `CACHE_CASES`），
+   * 与安卓 `HttpCacheTest` 跑的是同一套向量。
+   */
+  describe('cacheControl', () => {
+    it('matches the shared vectors', 0, () => {
+      CACHE_CASES.forEach((c: CacheCase) => {
+        expect(cacheControl(c.path)).assertEqual(c.expect);
+      });
     });
   });
 }

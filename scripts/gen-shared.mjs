@@ -57,6 +57,7 @@ const P = {
   casesPaths: 'shared/cases/paths.json',
   casesFormat: 'shared/cases/format.json',
   casesVersion: 'shared/cases/version.json',
+  casesHttp: 'shared/cases/http.json',
   etsCases: 'entry/src/ohosTest/ets/test/Cases.gen.ets',
   ktCases: 'android/app/src/test/java/com/lichtcui/pokelauncher/CasesGen.kt',
   etsHttpTest: 'entry/src/ohosTest/ets/test/LocalHttpServer.test.ets',
@@ -67,6 +68,8 @@ const P = {
   ktVersionTest: 'android/app/src/test/java/com/lichtcui/pokelauncher/core/VersionTest.kt',
   ktMimeTest: 'android/app/src/test/java/com/lichtcui/pokelauncher/core/MimeTest.kt',
   ktProguard: 'android/app/proguard-rules.pro',
+  etsHttpCache: 'entry/src/main/ets/common/HttpCache.ets',
+  ktHttpCacheTest: 'android/app/src/test/java/com/lichtcui/pokelauncher/server/HttpCacheTest.kt',
   etsGamePage: 'entry/src/main/ets/pages/GamePage.ets',
   ktPokeWebView: 'android/app/src/main/java/com/lichtcui/pokelauncher/web/PokeWebView.kt',
   etsAppUpdate: 'entry/src/main/ets/model/AppUpdate.ets',
@@ -832,6 +835,23 @@ function assertCases(cases) {
     str('format.errorDetail.out', c.out);
   }
 
+  // 本地服务的缓存策略（响应头语义）
+  const cache = list('http.cacheControl', cases.http?.cacheControl, 8);
+  for (const c of cache) {
+    str('http.cacheControl.path', c.path);
+    str('http.cacheControl.expect', c.expect);
+  }
+  uniq('http.cacheControl.path', cache.map((c) => c.path));
+  // 四个后缀 + 两个分支都必须有向量：缺哪个就等于哪一类不再有人守
+  for (const k of ['.html', '.htm', '.webmanifest', 'service-worker.js']) {
+    if (!cache.some((c) => c.path.toLowerCase().endsWith(k))) {
+      fail(`cases: http.cacheControl 缺少 \`${k}\` 的向量`);
+    }
+  }
+  for (const v of ['no-cache', 'max-age=31536000']) {
+    if (!cache.some((c) => c.expect === v)) fail(`cases: http.cacheControl 缺少 \`${v}\` 的期望值`);
+  }
+
   // 版本比较
   const ver = cases.version ?? {};
   const normalize = list('version.normalize', ver.normalize, 3);
@@ -852,7 +872,7 @@ function assertCases(cases) {
     fail('cases: version.same 必须包含「任一端为空 → false」的向量');
   }
 
-  return { paths, fmt: { bytes, speed, duration, errorDetail }, ver: { normalize, same } };
+  return { paths, fmt: { bytes, speed, duration, errorDetail }, ver: { normalize, same }, cache };
 }
 
 /** mime.json → 两端共用的 MIME 向量（顺带把图里的每条映射都锁一遍） */
@@ -914,6 +934,12 @@ export interface MimeCase {
   expect: string;
 }
 
+export interface CacheCase {
+  path: string;
+  /** 完整的 \`Cache-Control\` 头值 */
+  expect: string;
+}
+
 /** 本地 HTTP 服务的路径判定（安全边界） */
 export const PATH_CASES: PathCase[] = [
 ${rows(c.paths, (x) => `{ input: ${etsStr(x.input)}, expect: ${lit(x.expect)} }`)}
@@ -953,6 +979,11 @@ ${rows(c.ver.same, (x) => `{ local: ${etsStr(x.local)}, remote: ${etsStr(x.remot
 export const MIME_CASES: MimeCase[] = [
 ${rows(mimes, (x) => `{ path: ${etsStr(x.path)}, expect: ${etsStr(x.expect)} }`)}
 ];
+
+/** 本地 HTTP 服务的 \`Cache-Control\`（HTML / SW 不能被缓存） */
+export const CACHE_CASES: CacheCase[] = [
+${rows(c.cache, (x) => `{ path: ${etsStr(x.path)}, expect: ${etsStr(x.expect)} }`)}
+];
 `;
 }
 
@@ -981,6 +1012,8 @@ object CasesGen {
     data class SameCase(val local: String, val remote: String, val expect: Boolean)
 
     data class MimeCase(val path: String, val expect: String)
+
+    data class CacheCase(val path: String, val expect: String)
 
     /** 本地 HTTP 服务的路径判定（安全边界） */
     val PATH_CASES = listOf(
@@ -1021,6 +1054,11 @@ ${rows(c.ver.same, (x) => `SameCase(${ktStr(x.local)}, ${ktStr(x.remote)}, ${x.o
     val MIME_CASES = listOf(
 ${rows(mimes, (x) => `MimeCase(${ktStr(x.path)}, ${ktStr(x.expect)})`)}
     )
+
+    /** 本地 HTTP 服务的 \`Cache-Control\` */
+    val CACHE_CASES = listOf(
+${rows(c.cache, (x) => `CacheCase(${ktStr(x.path)}, ${ktStr(x.expect)})`)}
+    )
 }
 `;
 }
@@ -1050,6 +1088,8 @@ function checkCaseUsage() {
     ],
     [P.ktVersionTest, ['CasesGen.NORMALIZE_CASES', 'CasesGen.SAME_CASES'], ['"release-'], '安卓版本向量'],
     [P.ktMimeTest, ['CasesGen.MIME_CASES'], ['"text/javascript"', '"image/png"'], '安卓 MIME 向量'],
+    [P.etsHttpTest, ['CACHE_CASES'], ["'no-cache'", "'max-age=31536000'"], '鸿蒙缓存语义向量'],
+    [P.ktHttpCacheTest, ['CasesGen.CACHE_CASES'], ['"no-cache"', '"max-age=31536000"'], '安卓缓存语义向量'],
   ];
   for (const [file, need, forbidden, what] of rules) {
     if (!existsSync(join(ROOT, file))) {
@@ -1561,6 +1601,7 @@ const cases = assertCases({
   paths: JSON.parse(read(P.casesPaths)),
   format: JSON.parse(read(P.casesFormat)),
   version: JSON.parse(read(P.casesVersion)),
+  http: JSON.parse(read(P.casesHttp)),
 });
 const mimes = mimeCases(mimeMap, mime.fallback);
 

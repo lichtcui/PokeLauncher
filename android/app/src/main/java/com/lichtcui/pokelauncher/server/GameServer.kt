@@ -223,7 +223,7 @@ class GameServer(private val gameDirProvider: () -> File) {
             val res = NanoHTTPD.newFixedLengthResponse(
                 Response.Status.OK, Mime.mimeOf(file.name), FileInputStream(file), length
             )
-            res.addHeader("Cache-Control", cacheControl(path))
+            res.addHeader("Cache-Control", HttpCache.cacheControl(path))
             res.addHeader("Access-Control-Allow-Origin", "*")
             return res
         }
@@ -299,16 +299,5 @@ class GameServer(private val gameDirProvider: () -> File) {
     private companion object {
         /** 端口被占用时「关掉自己的残留实例 → 重试」之间的等待 */
         const val RETRY_DELAY_MS = 150L
-    }
-
-    /** 与鸿蒙版 `cacheControl()` 一致：HTML / manifest / SW 不缓存，其余长缓存 */
-    private fun cacheControl(path: String): String {
-        return if (path.endsWith(".html") || path.endsWith(".htm") ||
-            path.endsWith(".webmanifest") || path.endsWith("service-worker.js")
-        ) {
-            "no-cache"
-        } else {
-            "max-age=31536000"
-        }
     }
 }

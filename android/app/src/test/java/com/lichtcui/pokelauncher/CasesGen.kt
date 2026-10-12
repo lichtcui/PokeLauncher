@@ -22,6 +22,8 @@ object CasesGen {
 
     data class MimeCase(val path: String, val expect: String)
 
+    data class CacheCase(val path: String, val expect: String)
+
     /** 本地 HTTP 服务的路径判定（安全边界） */
     val PATH_CASES = listOf(
         PathCase("/index.html", "/index.html"),
@@ -159,5 +161,24 @@ object CasesGen {
         MimeCase("/no-extension", "application/octet-stream"),
         MimeCase("/x.unknownext", "application/octet-stream"),
         MimeCase("/UPPER.PNG", "image/png")
+    )
+
+    /** 本地 HTTP 服务的 `Cache-Control` */
+    val CACHE_CASES = listOf(
+        CacheCase("/index.html", "no-cache"),
+        CacheCase("/app/index.html", "no-cache"),
+        CacheCase("/index.htm", "no-cache"),
+        CacheCase("/site.webmanifest", "no-cache"),
+        CacheCase("/manifest.webmanifest", "no-cache"),
+        CacheCase("/service-worker.js", "no-cache"),
+        CacheCase("/app/service-worker.js", "no-cache"),
+        CacheCase("/INDEX.HTML", "no-cache"),
+        CacheCase("/Service-Worker.JS", "no-cache"),
+        CacheCase("/main.js", "max-age=31536000"),
+        CacheCase("/worker.js", "max-age=31536000"),
+        CacheCase("/html.txt", "max-age=31536000"),
+        CacheCase("/assets/bg.png", "max-age=31536000"),
+        CacheCase("/data/en.json", "max-age=31536000"),
+        CacheCase("/", "max-age=31536000")
     )
 }

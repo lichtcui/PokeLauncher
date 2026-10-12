@@ -67,7 +67,7 @@
 
 ### 测试（ohosTest，跑在真机）
 
-测试源码在 `entry/src/ohosTest/ets/test/`（hypium，项目根 `oh-package.json5` 的 `devDependencies`）。**新增套件要在 `List.test.ets` 里注册**。只放纯函数/无副作用逻辑。**判据是 `shared/` 里的同一套向量**（paths / format / version / mime / 法律页正文），套件只负责把两端实现接上去，别在测试里再抄一份期望值（生成器会拦）。当前套件：`LocalHttpServer.test.ets`（路径向量）/ `Format.test.ets`（格式化向量 + NaN·Infinity 手写边角）/ `GameRepository.test.ets`（版本比较向量 + MIME 表向量）/ `LegalText.test.ets`（法律页正文）。本机没设备时改跑 `node scripts/check-harmony-vectors.mjs`（paths / format / version / mime 四类，法律页正文由生成器对账、不需要跑）。
+测试源码在 `entry/src/ohosTest/ets/test/`（hypium，项目根 `oh-package.json5` 的 `devDependencies`）。**新增套件要在 `List.test.ets` 里注册**。只放纯函数/无副作用逻辑。**判据是 `shared/` 里的同一套向量**（paths / format / version / mime / 法律页正文），套件只负责把两端实现接上去，别在测试里再抄一份期望值（生成器会拦）。当前套件：`LocalHttpServer.test.ets`（路径向量 + `Cache-Control` 向量）/ `Format.test.ets`（格式化向量 + NaN·Infinity 手写边角）/ `GameRepository.test.ets`（版本比较向量 + MIME 表向量）/ `LegalText.test.ets`（法律页正文）。本机没设备时改跑 `node scripts/check-harmony-vectors.mjs`（paths / format / version / cache / mime 五类，法律页正文由生成器对账、不需要跑）。
 
 ```bash
 export DEVECO_SDK_HOME=/Applications/DevEco-Studio.app/Contents/sdk
@@ -111,7 +111,7 @@ export ANDROID_HOME=/usr/local/share/android-commandlinetools
 export PATH="$JAVA_HOME/bin:$PATH"
 cd android
 ./gradlew assembleDebug        # → app/build/outputs/apk/debug/app-debug.apk
-./gradlew testDebugUnitTest    # JVM 纯函数单测 282 例（core / install / cheat / server / web / appupdate / ui）
+./gradlew testDebugUnitTest    # JVM 纯函数单测 280 例（core / install / cheat / server / web / appupdate / ui）
 ./gradlew :app:lintDebug       # 需 0 error（MissingPermission 等）
 ```
 
@@ -129,6 +129,7 @@ Android 侧的红线（改之前先读）：
 - **参数调整（cheat）**：UI 文案一律叫「**参数调整**」（不得出现「作弊」字样，审核风险）；`cheat/Cheats.kt` 与 `entry/.../model/Cheats.ets` 都是 `shared/` 的**生成物**（改一边即可、由 `scripts/gen-shared.mjs` 同步两边），共享 JS **不得出现 `$`**（Kotlin raw string 会当模板插值，生成器与单测都有断言）；声明了 `param` 就必须真的读 `__CHEAT_PARAMS__`。开关是「总开关 && 至少一条启用」才注入 `/__cheats__.js`。参数调整页（`ui/CheatScreen.kt`）完全由注册表驱动，**新增条目不需要改 UI**（只改 `shared/`）；总开关在参数调整页顶部（与鸿蒙的「设置页」位置不同），开启前有账号风险确认弹窗，设置页里**只加入口行**（显示已开启/已关闭），不重复放开关。
 - **状态持久化用 `core/Prefs.kt`（SharedPreferences，库名 `pokelauncher_settings` 与鸿蒙一致），不用 DataStore**：本地 HTTP 服务要在处理 `/index.html` 时**同步**读 `hasAnyEnabled()`。存档镜像落 `filesDir/saves/`（对应鸿蒙的 SaveGuard，只为 Auto Backup/导出兜底），同样不得放 `cacheDir`。
 - **首页四态/阶段判定写在 `ui/HomeState.kt` 的纯函数里**（`homeStateOf` / `inFlowOf` / `prepPhaseOf` / `flowTitleOf` …），**不要**把它们塞回 `@Composable`：本机没有模拟器/真机，Compose 组件零验证，纯函数能被 `HomeStateTest` 锁住。两条容易改错的边界：四态优先级是 `initializing` → `inFlow` → `gameReady`（更新资源时旧包还在，不能直接跳就绪页）；**`DownloadPhase.PAUSED` 算「流程中」**（它不在 `isActive` 里，漏算会让用户暂停后再也点不到「继续」）。
+- **本地服务的 `Cache-Control` 口径两端同值**：鸿蒙 `common/HttpCache.ets` ↔ 安卓 `server/HttpCache.kt`（HTML / htm / webmanifest / service-worker 不缓存，其余长缓存一年；大小写不敏感——大写扩展名被标成长缓存 = 注入内容改了一年都看不到）。期望值在 `shared/cases/http.json`，两端测试遍历同一套向量，别在实现里各写一份。
 - **精灵球动画节奏两端同值**（`PokeballLoader.ets` ↔ `ui/HomeState.kt` 的 `SHAKE_INTERVAL_MS / SHAKE_ANGLE / SHAKE_ANIM_MS / BURST_MS`）：靠注释维系的一致性迟早会漂，`--check` 已对账；鸿蒙的 `SHRINK_MS` 安卓有意没有（下载解压都在前台服务里，见 `HomeState.kt` 注释）。
 - **`SpikeController.installing` 是独立状态**：它和 `busy` 不是一回事——「删除本地数据」也是 `busy`，但绝不能渲染成「正在解压」。
 - **`pendingUpdate` 标记只能由首页（`ui/HomeScreen.kt`）消费**：通知权限 launcher 在首页，下载链只保留一份实现（打靶页里那段已删；两处都留着会双开下载）。

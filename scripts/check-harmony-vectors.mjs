@@ -28,6 +28,7 @@ const SRC = {
   repo: 'entry/src/main/ets/model/GameRepository.ets',
   mime: 'entry/src/main/ets/common/Mime.ets',
   format: 'entry/src/main/ets/common/Format.ets',
+  cache: 'entry/src/main/ets/common/HttpCache.ets',
 };
 
 /**
@@ -74,6 +75,26 @@ function stripTypes(text) {
     .replace(/^export /gm, '');
 }
 
+/**
+ * 要**连带剪出模块级字面量常量**的源文件（键同 [SRC]）。
+ *
+ * 被剪出来的函数可能引用模块级常量（例如 `cacheControl` 用的 `NO_CACHE`），
+ * 只剪函数就会 ReferenceError。这里只取「初值是字面量」的常量——它们不可能引用 import，
+ * 所以连带剪出来是安全的；不是字面量（数组 / Map / 调用）的常量故意不取，
+ * 需要时再把整个文件喂进来（像 `Mime.ets` 那样）。
+ */
+const CONST_SOURCES = ['cache'];
+
+/**
+ * 剪出模块级字面量常量声明（行首 + 以 `;` 结尾 + 初值是字符串/数字/布尔）。
+ *
+ * 已知限制同 [extractFunction]：剪歪 = 语法错误 = 退出码 1，不会静默通过。
+ */
+function extractConsts(src) {
+  const re = /^(?:export\s+)?const\s+[A-Za-z_$][\w$]*\s*(?::[^=]*)?=\s*(?:'[^']*'|"[^"]*"|-?[\d.]+|true|false)\s*;/gm;
+  return [...src.matchAll(re)].map((m) => m[0]).join('\n');
+}
+
 /** 被测函数（键 = 全局名，值 = [源文件, 函数名]） */
 const FUNCS = {
   resolveRequestPath: ['http', 'resolveRequestPath'],
@@ -83,6 +104,7 @@ const FUNCS = {
   formatSpeed: ['format', 'formatSpeed'],
   formatErrorDetail: ['format', 'formatErrorDetail'],
   formatDuration: ['format', 'formatDuration'],
+  cacheControl: ['cache', 'cacheControl'],
 };
 
 function buildContext() {
@@ -90,6 +112,7 @@ function buildContext() {
   const pieces = Object.entries(FUNCS).map(([, [file, name]]) =>
     extractFunction(src[file], name, SRC[file])
   );
+  for (const key of CONST_SOURCES) pieces.push(extractConsts(src[key]));
   // Mime.ets 是生成物、整份喂进去（MIME_MAP / MIME_FALLBACK / mimeOf 都在里面，且无 import）
   pieces.push(src.mime);
   const context = { console, Math, Number, isFinite, Map };
@@ -109,6 +132,7 @@ function main() {
     paths: JSON.parse(read('shared/cases/paths.json')),
     format: JSON.parse(read('shared/cases/format.json')),
     version: JSON.parse(read('shared/cases/version.json')),
+    http: JSON.parse(read('shared/cases/http.json')),
     mime: JSON.parse(read('shared/mime.json')),
   };
 
@@ -151,6 +175,9 @@ function main() {
     check(`formatErrorDetail(${JSON.stringify(c.message)}, ${JSON.stringify(c.code)})`, context.formatErrorDetail(message, code), c.out);
   }
 
+  // 缓存语义：入参是已解析的游戏内路径（query 已由 resolveRequestPath 去掉）
+  for (const c of cases.http.cacheControl) check(`cacheControl(${JSON.stringify(c.path)})`, context.cacheControl(c.path), c.expect);
+
   for (const c of cases.version.normalize) check(`normalizeVersion(${JSON.stringify(c.in)})`, context.normalizeVersion(c.in), c.out);
   for (const c of cases.version.same) {
     check(`sameVersion(${JSON.stringify(c.local)}, ${JSON.stringify(c.remote)})`, context.sameVersion(c.local, c.remote), c.out);
@@ -168,7 +195,7 @@ function main() {
     console.error('  ⚠️ 注意：这**只是**无设备时的替代证据，真机在手时要跑 entry@ohosTest 的 HAP。');
     process.exit(1);
   }
-  console.log(`✓ 鸿蒙侧纯函数满足 shared/ 向量：${total} 条（paths / format / version / mime）`);
+  console.log(`✓ 鸿蒙侧纯函数满足 shared/ 向量：${total} 条（paths / format / version / cache / mime）`);
   console.log('  ⚠️ 无设备时的替代证据，不能替代 entry@ohosTest 在真机上的运行结果。');
 }
 

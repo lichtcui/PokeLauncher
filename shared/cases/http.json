@@ -1,0 +1,27 @@
+{
+  "_comment": [
+    "本地 HTTP 服务的响应语义向量（目前只有 `Cache-Control`）。",
+    "入参是**已解析好的游戏内路径**：`resolveRequestPath` 已经去掉 query，所以这里不带 `?`。",
+    "为什么值得锁：HTML / SW 一旦被缓存住，症状是「改了注入内容却看不到变化」，只有真机看得出；",
+    "反过来把静态资源也标成 no-cache，会让每次进游戏重新拉 1.5GB 资源。两端各写了一份实现（",
+    "鸿蒙 common/HttpCache.ets ↔ 安卓 server/HttpCache.kt），期望值只写在这里。",
+    "口径：HTML / htm / webmanifest / service-worker.js → no-cache（且大小写不敏感）；其余长缓存一年。"
+  ],
+  "cacheControl": [
+    { "path": "/index.html", "expect": "no-cache" },
+    { "path": "/app/index.html", "expect": "no-cache" },
+    { "path": "/index.htm", "expect": "no-cache" },
+    { "path": "/site.webmanifest", "expect": "no-cache" },
+    { "path": "/manifest.webmanifest", "expect": "no-cache" },
+    { "path": "/service-worker.js", "expect": "no-cache" },
+    { "path": "/app/service-worker.js", "expect": "no-cache" },
+    { "path": "/INDEX.HTML", "expect": "no-cache" },
+    { "path": "/Service-Worker.JS", "expect": "no-cache" },
+    { "path": "/main.js", "expect": "max-age=31536000" },
+    { "path": "/worker.js", "expect": "max-age=31536000" },
+    { "path": "/html.txt", "expect": "max-age=31536000" },
+    { "path": "/assets/bg.png", "expect": "max-age=31536000" },
+    { "path": "/data/en.json", "expect": "max-age=31536000" },
+    { "path": "/", "expect": "max-age=31536000" }
+  ]
+}

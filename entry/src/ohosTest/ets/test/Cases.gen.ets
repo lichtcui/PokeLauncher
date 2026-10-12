@@ -38,6 +38,12 @@ export interface MimeCase {
   expect: string;
 }
 
+export interface CacheCase {
+  path: string;
+  /** 完整的 `Cache-Control` 头值 */
+  expect: string;
+}
+
 /** 本地 HTTP 服务的路径判定（安全边界） */
 export const PATH_CASES: PathCase[] = [
   { input: '/index.html', expect: '/index.html' },
@@ -175,4 +181,23 @@ export const MIME_CASES: MimeCase[] = [
   { path: '/no-extension', expect: 'application/octet-stream' },
   { path: '/x.unknownext', expect: 'application/octet-stream' },
   { path: '/UPPER.PNG', expect: 'image/png' }
+];
+
+/** 本地 HTTP 服务的 `Cache-Control`（HTML / SW 不能被缓存） */
+export const CACHE_CASES: CacheCase[] = [
+  { path: '/index.html', expect: 'no-cache' },
+  { path: '/app/index.html', expect: 'no-cache' },
+  { path: '/index.htm', expect: 'no-cache' },
+  { path: '/site.webmanifest', expect: 'no-cache' },
+  { path: '/manifest.webmanifest', expect: 'no-cache' },
+  { path: '/service-worker.js', expect: 'no-cache' },
+  { path: '/app/service-worker.js', expect: 'no-cache' },
+  { path: '/INDEX.HTML', expect: 'no-cache' },
+  { path: '/Service-Worker.JS', expect: 'no-cache' },
+  { path: '/main.js', expect: 'max-age=31536000' },
+  { path: '/worker.js', expect: 'max-age=31536000' },
+  { path: '/html.txt', expect: 'max-age=31536000' },
+  { path: '/assets/bg.png', expect: 'max-age=31536000' },
+  { path: '/data/en.json', expect: 'max-age=31536000' },
+  { path: '/', expect: 'max-age=31536000' }
 ];
