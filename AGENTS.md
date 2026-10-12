@@ -67,7 +67,7 @@
 
 ### 测试（ohosTest，跑在真机）
 
-测试源码在 `entry/src/ohosTest/ets/test/`（hypium，项目根 `oh-package.json5` 的 `devDependencies`）。**新增套件要在 `List.test.ets` 里注册**。只放纯函数/无副作用逻辑（当前覆盖 `normalizeVersion` / `mimeOf` / `common/Format.ets` 的三个格式化函数 / `model/LegalText.ets` 的法律页正文——与安卓侧 `LegalTextTest` 同一套判据）。
+测试源码在 `entry/src/ohosTest/ets/test/`（hypium，项目根 `oh-package.json5` 的 `devDependencies`）。**新增套件要在 `List.test.ets` 里注册**。只放纯函数/无副作用逻辑。**判据是 `shared/` 里的同一套向量**（paths / format / version / mime / 法律页正文），套件只负责把两端实现接上去，别在测试里再抄一份期望值（生成器会拦）。当前套件：`LocalHttpServer.test.ets`（路径向量）/ `Format.test.ets`（格式化向量 + NaN·Infinity 手写边角）/ `GameRepository.test.ets`（版本比较向量 + MIME 表向量）/ `LegalText.test.ets`（法律页正文）。本机没设备时改跑 `node scripts/check-harmony-vectors.mjs`（paths / format / version / mime 四类，法律页正文由生成器对账、不需要跑）。
 
 ```bash
 export DEVECO_SDK_HOME=/Applications/DevEco-Studio.app/Contents/sdk
